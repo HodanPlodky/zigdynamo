@@ -1,0 +1,51 @@
+let pos = object {
+    x: 1,
+    y: 2,
+};
+
+let person = object {
+    name: "Adam",
+    age: 25,
+    ageup: fn() = {
+        this.age = this.age + 1;
+    },
+};
+
+let ask = fn (person) = {
+    let age = person.age;
+    if (age < 18)
+        print("cannot drink")
+    else 
+        print("can drink");
+};
+
+print(person.name, "age", person.age);
+ask(person);
+person.age = 15;
+ask(person);
+person.ageup();
+print(person.age);
+
+let protoperson = object {
+    ending: "!",
+
+    greet: fn() = {
+        print(this.prefer_greet(),  this.name, this.ending);
+    },
+
+    prefer_greet: fn() = {
+        "Hello";
+    },
+};
+
+let adam = object(protoperson) {
+    name: "Adam",
+
+    prefer_greet: fn() = {
+        "Yo";
+    },
+};
+
+adam.greet();
+
+pos.x + pos.y;

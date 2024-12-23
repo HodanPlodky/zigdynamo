@@ -1,0 +1,8 @@
+let f = fn() = n;
+let n = 1;
+let f2 = fn() = {
+    let n = 2;
+    print(f());
+};
+
+f2();

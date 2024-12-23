@@ -1,0 +1,63 @@
+let createnode = fn(val) = object {
+    val : val,
+    next: nil,
+};
+
+let createlist = fn() = object {
+    head: nil,
+    
+    append: fn(val) = {
+        if (this.head == nil) {
+            this.head = createnode(val);
+        } else {
+            let tmp = this.head;
+            while (tmp.next != nil) {
+                tmp = tmp.next;
+            };
+            tmp.next = createnode(val);
+        };
+    },
+
+    prepend: fn(val) = {
+        let tmp = this.head;
+        this.head = createnode(val);
+        this.head.next = tmp;
+    },
+
+    pop: fn() = {
+        if (this.head == nil) {
+
+        } else if (this.head.next == nil) {
+            let tmp = this.head;
+            this.head == nil;
+            tmp.val;
+        } else {
+            let tmp = this.head;
+            while (tmp.next.next != nil) {
+                tmp = tmp.next;
+            };
+            let res = tmp.val;
+            tmp.next = nil;
+            res;
+        };
+    },
+
+    debug: fn() = {
+        let tmp = this.head;
+        while (tmp != nil) {
+            print(tmp.val);
+            tmp = tmp.next;
+        };
+    },
+};
+
+let list = createlist();
+
+list.append(1);
+list.append(2);
+list.append(3);
+list.prepend(42);
+print(list.pop());
+
+list.debug();
+

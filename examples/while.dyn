@@ -1,0 +1,13 @@
+let fib = fn(n) = {
+    let a = 0;
+    let b = 1;
+    while (n > 0) {
+        let tmp = a;
+        a = b;
+        b = tmp + b;
+        n = n - 1;
+    };
+    a;
+};
+
+fib(40);

@@ -1,0 +1,12 @@
+let inc = fn(incremeter) = fn(n) = n + incremeter;
+let inc1 = inc(1);
+
+let twice = fn(f, val) = f(f(val));
+
+print(twice(inc(5), 1));
+
+let print_hello = fn() = print("hello");
+
+print_hello();
+
+inc(2)(inc1(1) + inc(1)(2));
