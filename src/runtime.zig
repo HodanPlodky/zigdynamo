@@ -122,6 +122,8 @@ pub const Value = packed struct {
         return ptr;
     }
 
+    // operations assume number value type
+
     pub fn add(left: Value, right: Value) Value {
         return Value.new_raw(left.data + right.data);
     }
@@ -137,6 +139,24 @@ pub const Value = packed struct {
     pub fn div(left: Value, right: Value) Value {
         return Value.new_raw(((left.data >> 32) / (right.data >> 32)) << 32);
     }
+
+    pub fn gt(left: Value, right: Value) Value {
+        return Value.new_bool(left.data > right.data);
+    }
+
+    pub fn lt(left: Value, right: Value) Value {
+        return Value.new_bool(left.data < right.data);
+    }
+
+    // either value or ptr compare
+    pub fn eq(left: Value, right: Value) Value {
+        return Value.new_bool(left.data == right.data);
+    }
+
+    pub fn ne(left: Value, right: Value) Value {
+        return Value.new_bool(left.data != right.data);
+    }
+
     pub fn format(
         self: Value,
         comptime fmt: []const u8,

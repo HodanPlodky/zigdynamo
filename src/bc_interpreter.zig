@@ -35,9 +35,55 @@ const Stack = struct {
     }
 };
 
+const LocalEnv = struct {
+    buffer: std.ArrayList(Value),
+    current_local: [*]Value,
+    curr_ptr: usize,
+    alloc: std.mem.Allocator,
+
+    pub fn init(alloc: std.mem.Allocator) LocalEnv {
+        var buffer = std.ArrayList(Value).init(alloc);
+        buffer.ensureTotalCapacity(8) catch unreachable;
+        return LocalEnv{
+            .buffer = buffer,
+            .current_local = @ptrCast(buffer.items),
+            .curr_ptr = 0,
+            .alloc = alloc,
+        };
+    }
+
+    pub fn deinit(self: *LocalEnv) void {
+        self.alloc.free(self.buffer);
+    }
+
+    pub fn push_locals(self: *LocalEnv, count: usize) void {
+        _ = self; // autofix
+        _ = count; // autofix
+
+    }
+};
+
 const Environment = struct {
-    pub fn init() Environment {
-        return Environment{};
+    global: []Value,
+    local: LocalEnv,
+
+    pub fn init(global_count: usize, alloc: std.mem.Allocator) Environment {
+        return Environment{
+            .global = alloc.alloc(Value, global_count) catch unreachable,
+            .local = LocalEnv.init(alloc),
+        };
+    }
+
+    pub fn deinit(self: *Environment) void {
+        self.local.deinit();
+    }
+
+    pub fn set_global(self: *Environment, index: u32, value: Value) void {
+        self.global[@intCast(index)] = value;
+    }
+
+    pub fn get_global(self: *Environment, index: u32) Value {
+        return self.global[@intCast(index)];
     }
 };
 
@@ -46,6 +92,7 @@ pub const Interpreter = struct {
     pc: usize,
     gc: GC,
     stack: Stack,
+    env: Environment,
 
     pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8) Interpreter {
         return Interpreter{
@@ -53,17 +100,17 @@ pub const Interpreter = struct {
             .pc = 5,
             .gc = GC.init(heap_data),
             .stack = Stack.init(alloc),
+            .env = Environment.init(bytecode.global_count, alloc),
         };
     }
 
     pub fn run(self: *Interpreter) runtime.Value {
         while (true) {
             const inst = self.read_inst();
-            //std.debug.print("{}\n", .{inst});
+            std.debug.print("{}\n", .{inst});
             switch (inst) {
                 bc.Instruction.push => {
-                    const num = self.bytecode.read_u32(self.pc);
-                    self.pc += 4;
+                    const num = self.read_u32();
                     const val = Value.new_num(num);
                     self.stack.push(val);
                 },
@@ -75,8 +122,22 @@ pub const Interpreter = struct {
                 bc.Instruction.sub => self.handle_binopt(Value.sub),
                 bc.Instruction.mul => self.handle_binopt(Value.mul),
                 bc.Instruction.div => self.handle_binopt(Value.div),
+                bc.Instruction.gt => self.handle_binopt(Value.gt),
+                bc.Instruction.lt => self.handle_binopt(Value.lt),
                 bc.Instruction.ret => {
                     return self.stack.top().?;
+                },
+
+                bc.Instruction.set_global => {
+                    const value = self.stack.pop().?;
+                    const idx = self.read_u32();
+                    self.env.set_global(idx, value);
+                },
+                bc.Instruction.get_global => {
+                    const idx = self.bytecode.read_u32(self.pc);
+                    self.pc += 4;
+                    const value = self.env.get_global(idx);
+                    self.stack.push(value);
                 },
                 else => @panic("unimplemented instruction"),
             }
@@ -98,6 +159,12 @@ pub const Interpreter = struct {
     fn read_inst(self: *Interpreter) bc.Instruction {
         const res = self.bytecode.read_inst(self.pc);
         self.pc += 1;
+        return res;
+    }
+
+    fn read_u32(self: *Interpreter) u32 {
+        const res = self.bytecode.read_u32(self.pc);
+        self.pc += 4;
         return res;
     }
 };

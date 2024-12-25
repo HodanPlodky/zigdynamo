@@ -99,6 +99,7 @@ pub const ContantIndex = struct {
 pub const Bytecode = struct {
     constants: []Constant,
     current: Constant,
+    global_count: usize,
 
     pub fn read_inst(self: *const Bytecode, pc: usize) Instruction {
         return @enumFromInt(self.current.data[pc]);
