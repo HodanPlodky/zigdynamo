@@ -123,7 +123,7 @@ const CompilerEnv = struct {
 };
 
 const Label = struct {
-    data: usize,
+    idx: usize,
 };
 
 const LabelData = struct {
@@ -136,16 +136,22 @@ const LabelData = struct {
             .uses = std.ArrayList(u32).init(alloc),
         };
     }
+
+    pub fn add_use(self: *LabelData, pos: u32) void {
+        self.uses.append(pos) catch unreachable;
+    }
 };
 
 const ConstantBuffer = struct {
     buffer: std.ArrayList(u8),
     labels: std.ArrayList(LabelData),
+    label_alloc: std.mem.Allocator,
 
     pub fn init(buffer_alloc: std.mem.Allocator, label_alloc: std.mem.Allocator) ConstantBuffer {
         return ConstantBuffer{
             .buffer = std.ArrayList(u8).init(buffer_alloc),
             .labels = std.ArrayList(LabelData).init(label_alloc),
+            .label_alloc = label_alloc,
         };
     }
 
@@ -160,17 +166,42 @@ const ConstantBuffer = struct {
         self.buffer.append(@intCast(value & 0xff)) catch unreachable;
     }
 
-    fn add_label(self: *ConstantBuffer) Label {
-        _ = self; // autofix
-        unreachable;
+    pub fn set_u32(self: *const ConstantBuffer, idx: u32, value: u32) void {
+        self.buffer.items[idx] = @intCast((value >> 24) & 0xff);
+        self.buffer.items[idx + 1] = @intCast((value >> 16) & 0xff);
+        self.buffer.items[idx + 2] = @intCast((value >> 8) & 0xff);
+        self.buffer.items[idx + 3] = @intCast(value & 0xff);
+    }
+
+    fn create_label(self: *ConstantBuffer) Label {
+        const idx = self.labels.items.len;
+        self.labels.append(LabelData.init(self.label_alloc)) catch unreachable;
+        return Label{ .idx = idx };
+    }
+
+    fn set_label_position(self: *ConstantBuffer, label: Label) void {
+        const pos = self.buffer.items.len;
+        self.labels.items[label.idx].position = @intCast(pos);
+    }
+
+    fn add_label_use(self: *ConstantBuffer, label: Label) void {
+        const pos = self.buffer.items.len;
+        self.labels.items[label.idx].add_use(@intCast(pos));
+        // dummy label value
+        self.add_u32(0xfefefefe);
     }
 
     pub fn patch_len(self: *const ConstantBuffer) void {
         const len: u32 = @intCast(self.buffer.items.len - 4);
-        self.buffer.items[0] = @intCast((len >> 24) & 0xff);
-        self.buffer.items[1] = @intCast((len >> 16) & 0xff);
-        self.buffer.items[2] = @intCast((len >> 8) & 0xff);
-        self.buffer.items[3] = @intCast(len & 0xff);
+        self.set_u32(0, len);
+    }
+
+    pub fn patch_labels(self: *const ConstantBuffer) void {
+        for (self.labels.items) |label| {
+            for (label.uses.items) |use| {
+                self.set_u32(use, label.position);
+            }
+        }
     }
 };
 
@@ -212,7 +243,11 @@ const Compiler = struct {
             }
         }
         main_buffer.add_inst(I.ret);
-        main_buffer.patch_len();
+
+        for (self.constant_buffers.items) |*buffer| {
+            buffer.patch_len();
+            buffer.patch_labels();
+        }
 
         var constants = try self.pernament_alloc.alloc(bytecode.Constant, self.constant_buffers.items.len);
 
@@ -278,7 +313,19 @@ const Compiler = struct {
             ast.Ast.condition => |condition| {
                 self.compile_expr(buffer, condition.cond);
                 buffer.add_inst(I.branch);
-                _ = buffer.add_label();
+                const then_label = buffer.create_label();
+                const after_label = buffer.create_label();
+                buffer.add_label_use(then_label);
+                if (condition.else_block) |else_block| {
+                    self.compile_expr(buffer, else_block);
+                } else {
+                    buffer.add_inst(I.nil);
+                }
+                buffer.add_inst(I.jump);
+                buffer.add_label_use(after_label);
+                buffer.set_label_position(then_label);
+                self.compile_expr(buffer, condition.then_block);
+                buffer.set_label_position(after_label);
             },
             else => @panic("unimplemented"),
         }

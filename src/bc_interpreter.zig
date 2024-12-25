@@ -117,6 +117,19 @@ pub const Interpreter = struct {
                 bc.Instruction.pop => {
                     _ = self.stack.pop();
                 },
+                bc.Instruction.true => {
+                    const val = Value.new_true();
+                    self.stack.push(val);
+                },
+                bc.Instruction.false => {
+                    const val = Value.new_false();
+                    self.stack.push(val);
+                },
+                bc.Instruction.nil => {
+                    const val = Value.new_nil();
+                    self.stack.push(val);
+                },
+
                 // should not create call
                 bc.Instruction.add => self.handle_binopt(Value.add),
                 bc.Instruction.sub => self.handle_binopt(Value.sub),
@@ -138,6 +151,20 @@ pub const Interpreter = struct {
                     self.pc += 4;
                     const value = self.env.get_global(idx);
                     self.stack.push(value);
+                },
+
+                bc.Instruction.jump => {
+                    const pc = self.read_u32();
+                    self.pc = pc;
+                },
+                bc.Instruction.branch => {
+                    const pc = self.read_u32();
+                    const cond = self.stack.pop().?;
+                    switch (cond.get_type()) {
+                        ValueType.true => self.pc = pc,
+                        ValueType.false => {},
+                        else => @panic("If condition must be boolean"),
+                    }
                 },
                 else => @panic("unimplemented instruction"),
             }
