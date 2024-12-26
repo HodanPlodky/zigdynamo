@@ -1,4 +1,5 @@
 const std = @import("std");
+const runtime = @import("runtime.zig");
 
 pub const Instruction = enum(u8) {
     // literals
@@ -86,14 +87,23 @@ pub const Constant = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = options; // autofix
-        _ = fmt; // autofix
+        _ = options;
+        _ = fmt;
         try writer.print("{any}", .{self.get_slice()});
     }
 };
 
-pub const ContantIndex = struct {
-    index: u64,
+pub const ConstantIndex = struct {
+    index: u32,
+
+    pub fn new(index: u32) ConstantIndex {
+        return ConstantIndex{ .index = index };
+    }
+};
+
+const Closure = struct {
+    constant_idx: ConstantIndex,
+    env: runtime.FlexibleArr(runtime.Value),
 };
 
 pub const Bytecode = struct {
@@ -133,7 +143,7 @@ pub const Bytecode = struct {
         _ = self; // autofix
     }
 
-    pub fn get_entry(self: *const Bytecode) ContantIndex {
+    pub fn get_entry(self: *const Bytecode) ConstantIndex {
         _ = self; // autofix
     }
 };

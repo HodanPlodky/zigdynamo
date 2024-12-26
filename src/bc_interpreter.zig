@@ -33,21 +33,29 @@ const Stack = struct {
     pub fn top(self: *const Stack) ?runtime.Value {
         return self.stack.getLastOrNull();
     }
+
+    pub fn slice_top(self: *const Stack, count: u32) []runtime.Value {
+        const tmp: usize = @intCast(count);
+        return self.stack.items[(self.stack.items.len - tmp)..];
+    }
+
+    pub fn pop_n(self: *Stack, count: u32) void {
+        const tmp: usize = @intCast(count);
+        self.stack.shrinkRetainingCapacity(self.stack.items.len - tmp);
+    }
 };
 
 const LocalEnv = struct {
     buffer: std.ArrayList(Value),
-    current_local: [*]Value,
-    curr_ptr: usize,
     alloc: std.mem.Allocator,
+    current_ptr: u32,
 
     pub fn init(alloc: std.mem.Allocator) LocalEnv {
         var buffer = std.ArrayList(Value).init(alloc);
         buffer.ensureTotalCapacity(8) catch unreachable;
         return LocalEnv{
             .buffer = buffer,
-            .current_local = @ptrCast(buffer.items),
-            .curr_ptr = 0,
+            .current_ptr = 0,
             .alloc = alloc,
         };
     }
@@ -56,10 +64,44 @@ const LocalEnv = struct {
         self.alloc.free(self.buffer);
     }
 
-    pub fn push_locals(self: *LocalEnv, count: usize) void {
-        _ = self; // autofix
-        _ = count; // autofix
+    pub fn push_locals(self: *LocalEnv, args: []Value, local_count: u32, ret_pc: u32, ret_const: u32) void {
+        const old_fp: Value = Value.new_raw(@intCast(self.current_local));
+        const ret = Value.new_raw(ret_pc << 32 | ret_const);
+        const tmp = self.buffer.items.len;
+        self.buffer.appendSlice(args) catch unreachable;
+        self.buffer.appendNTimes(Value.new_nil(), local_count) catch unreachable;
+        self.buffer.append(old_fp) catch unreachable;
+        self.buffer.append(ret) catch unreachable;
+        self.current_local = @ptrCast(&self.buffer.items[tmp]);
+    }
 
+    pub fn pop_locals(self: *LocalEnv) void {
+        const old_fp = self.get_old_fp();
+        self.buffer.shrinkRetainingCapacity(self.current_ptr);
+        self.current_ptr = old_fp;
+    }
+
+    pub fn get_old_fp(self: *const LocalEnv) u32 {
+        const old_fp = self.buffer.items[self.buffer.items.len - 2];
+        return @intCast(old_fp.data);
+    }
+
+    pub fn get_ret(self: *const LocalEnv) struct { ret_pc: u32, ret_const: u32 } {
+        const ret = self.buffer.items[self.buffer.items.len - 1];
+        const ret_pc: u32 = @intCast((ret >> 32) & 0xffffffff);
+        const ret_const: u32 = @intCast(ret & 0xffffffff);
+        return .{
+            .ret_pc = ret_pc,
+            .ret_const = ret_const,
+        };
+    }
+
+    pub fn get(self: *const LocalEnv, idx: u32) Value {
+        return self.buffer[@intCast(self.current_ptr + idx)];
+    }
+
+    pub fn set(self: *LocalEnv, idx: u32, value: Value) void {
+        self.buffer[@intCast(self.current_ptr + idx)] = value;
     }
 };
 
@@ -165,6 +207,13 @@ pub const Interpreter = struct {
                         ValueType.false => {},
                         else => @panic("If condition must be boolean"),
                     }
+                },
+                bc.Instruction.closure => {
+                    const constant_idx = self.read_u32();
+                    _ = constant_idx; // autofix
+                    const unbound_count = self.read_u32();
+                    const env = self.stack.slice_top(unbound_count);
+                    _ = env; // autofix
                 },
                 else => @panic("unimplemented instruction"),
             }

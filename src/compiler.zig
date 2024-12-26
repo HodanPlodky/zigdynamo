@@ -33,11 +33,51 @@ const CompilerFrame = struct {
         return self.vars.items.len;
     }
 
-    pub fn add_var(self: *CompilerFrame, var_name: []const u8) !void {
-        if (self.get_index(var_name) != null) {
-            @panic("non existant");
+    pub fn add_var(self: *CompilerFrame, var_name: []const u8) void {
+        if (self.get_index(var_name) == null) {
+            self.vars.append(var_name) catch unreachable;
         }
-        try self.vars.append(var_name);
+    }
+};
+
+const CompilerFnFrame = struct {
+    frames: std.ArrayList(CompilerFrame),
+    max_size: usize,
+    current_size: usize,
+    alloc: std.mem.Allocator,
+
+    pub fn init(alloc: std.mem.Allocator) CompilerFnFrame {
+        var frames = std.ArrayList(CompilerFrame).init(alloc);
+        frames.append(CompilerFrame.init(alloc)) catch unreachable;
+        return CompilerFnFrame{
+            .frames = frames,
+            .max_size = 0,
+            .current_size = 0,
+            .alloc = alloc,
+        };
+    }
+
+    pub fn get_place(self: *const CompilerFnFrame, var_name: []const u8) ?Place {
+        var offset: usize = 0;
+        for (self.frames.items) |frame| {
+            if (frame.get_index(var_name)) |idx| {
+                return Place{ .local = @intCast(offset + idx) };
+            }
+            offset += frame.len();
+        }
+        return null;
+    }
+
+    pub fn add_var(self: *CompilerFnFrame, var_name: []const u8) void {
+        self.get_current().add_var(var_name);
+    }
+
+    pub fn get_current(self: *CompilerFnFrame) *CompilerFrame {
+        return &self.frames.items[self.frames.items.len - 1];
+    }
+
+    pub fn get_current_const(self: *const CompilerFnFrame) *const CompilerFrame {
+        return &self.frames.items[self.frames.items.len - 1];
     }
 };
 
@@ -54,18 +94,14 @@ const Place = union(enum) {
 };
 
 const CompilerEnv = struct {
-    frames: std.ArrayList(CompilerFrame),
+    function_frames: std.ArrayList(CompilerFnFrame),
     global: CompilerFrame,
-    max_size: usize,
-    current_size: usize,
     alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator) CompilerEnv {
         return CompilerEnv{
-            .frames = std.ArrayList(CompilerFrame).init(alloc),
+            .function_frames = std.ArrayList(CompilerFnFrame).init(alloc),
             .global = CompilerFrame.init(alloc),
-            .max_size = 0,
-            .current_size = 0,
             .alloc = alloc,
         };
     }
@@ -75,12 +111,10 @@ const CompilerEnv = struct {
     }
 
     pub fn get_place(self: *const CompilerEnv, var_name: []const u8) ?Place {
-        var offset: usize = 0;
-        for (self.frames.items) |frame| {
-            if (frame.get_index(var_name)) |index| {
-                return Place{ .local = @intCast(offset + index) };
+        if (self.get_current_const()) |frame| {
+            if (frame.get_place(var_name)) |place| {
+                return place;
             }
-            offset += frame.len();
         }
 
         if (self.global.get_index(var_name)) |index| {
@@ -90,35 +124,35 @@ const CompilerEnv = struct {
         return null;
     }
 
-    pub fn add_var(self: *CompilerEnv, var_name: []const u8) !void {
-        var current = self.get_current();
-        try current.add_var(var_name);
-        self.current_size += 1;
-        if (self.current_size > self.max_size) {
-            self.max_size = self.current_size;
+    pub fn add_var(self: *CompilerEnv, var_name: []const u8) void {
+        var current = self.get_current().?;
+        current.add_var(var_name);
+    }
+
+    pub fn add_global(self: *CompilerEnv, var_name: []const u8) void {
+        self.global.add_var(var_name);
+    }
+
+    pub fn get_current(self: *CompilerEnv) ?*CompilerFnFrame {
+        if (self.function_frames.items.len > 0) {
+            return &self.function_frames.items[self.function_frames.items.len - 1];
         }
+        return null;
     }
 
-    pub fn add_global(self: *CompilerEnv, var_name: []const u8) !void {
-        try self.global.add_var(var_name);
+    pub fn get_current_const(self: *const CompilerEnv) ?*const CompilerFnFrame {
+        if (self.function_frames.items.len > 0) {
+            return &self.function_frames.items[self.function_frames.items.len - 1];
+        }
+        return null;
     }
 
-    pub fn add_frame(self: *CompilerEnv, frame: CompilerFrame) !void {
-        try self.frames.append(frame);
+    pub fn push(self: *CompilerEnv) void {
+        self.function_frames.append(CompilerFnFrame.init(self.alloc)) catch unreachable;
     }
 
-    pub fn add_new_frame(self: *CompilerEnv) !void {
-        self.add_frame(CompilerFrame.init(self.alloc));
-    }
-
-    pub fn pop_frame(self: *CompilerEnv) void {
-        std.debug.assert(self.frames.len > 0);
-        _ = self.frames.pop();
-    }
-
-    pub fn get_current(self: *const Compiler) *Compiler {
-        std.debug.assert(self.frames.len > 0);
-        return &self.frames.items[self.frames.items.len - 1];
+    pub fn pop(self: *CompilerEnv) void {
+        _ = self.function_frames.pop();
     }
 };
 
@@ -205,6 +239,18 @@ const ConstantBuffer = struct {
     }
 };
 
+const UnboundIdent = struct {
+    ident: []const u8,
+    positions: std.ArrayListUnmanaged(u32),
+
+    pub fn init(ident: []const u8) UnboundIdent {
+        return UnboundIdent{
+            .ident = ident,
+            .positions = std.ArrayListUnmanaged(u32){},
+        };
+    }
+};
+
 const Compiler = struct {
     pernament_alloc: std.mem.Allocator,
     scratch_alloc: std.mem.Allocator,
@@ -216,7 +262,7 @@ const Compiler = struct {
             .pernament_alloc = pernament_alloc,
             .scratch_alloc = scratch_alloc,
             .constant_buffers = std.ArrayList(ConstantBuffer).init(pernament_alloc),
-            .env = CompilerEnv.init(pernament_alloc),
+            .env = CompilerEnv.init(scratch_alloc),
         };
     }
 
@@ -224,19 +270,20 @@ const Compiler = struct {
         // needs to be gather before the
         // run since the global env
         // behaves dynamically
-        try self.gather_globals(program);
-        const main_buffer = self.create_constant(bytecode.ConstantType.function);
+        self.gather_globals(program);
+        const main_buffer = self.get_constant(self.create_constant(bytecode.ConstantType.function));
+        var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
         for (program.data, 0..) |expr, i| {
             switch (expr) {
                 ast.Ast.let => |let| {
-                    self.compile_expr(main_buffer, let.value);
+                    self.compile_expr(main_buffer, &unbound_vars, let.value);
                     main_buffer.add_inst(I.set_global);
                     const target_place = self.env.get_place(let.target).?;
                     std.debug.assert(std.meta.activeTag(target_place) == Place.global);
                     const target_idx = target_place.get_index();
                     main_buffer.add_u32(target_idx);
                 },
-                else => self.compile_expr(main_buffer, &expr),
+                else => self.compile_expr(main_buffer, &unbound_vars, &expr),
             }
             if (program.data.len - 1 > i) {
                 main_buffer.add_inst(I.pop);
@@ -248,6 +295,8 @@ const Compiler = struct {
             buffer.patch_len();
             buffer.patch_labels();
         }
+
+        std.debug.assert(unbound_vars.items.len == 0);
 
         var constants = try self.pernament_alloc.alloc(bytecode.Constant, self.constant_buffers.items.len);
 
@@ -263,14 +312,30 @@ const Compiler = struct {
         return res;
     }
 
-    pub fn compile_fn_body(self: *Compiler, exprs: []ast.Ast) void {
-        _ = exprs; // autofix
-        _ = self; // autofix
+    pub fn compile_fn(self: *Compiler, buffer: *ConstantBuffer, function: ast.Function) void {
+        const function_constant_idx = self.create_constant(bytecode.ConstantType.function);
+        const function_constant = self.get_constant(function_constant_idx);
+        var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
+        self.env.push();
+        for (function.params) |param| {
+            self.env.add_var(param);
+        }
+        self.compile_expr(function_constant, &unbound_vars, function.body);
+        self.env.pop();
 
-        unreachable;
+        for (unbound_vars.items) |unbound| {
+            if (self.compile_ident(buffer, unbound.ident)) {
+                std.debug.print("{s}\n", .{unbound.ident});
+                @panic("non existant var");
+            }
+        }
+
+        buffer.add_inst(I.closure);
+        buffer.add_u32(function_constant_idx.index);
+        buffer.add_u32(@intCast(unbound_vars.items.len));
     }
 
-    pub fn compile_expr(self: *Compiler, buffer: *ConstantBuffer, expr: *const ast.Ast) void {
+    pub fn compile_expr(self: *Compiler, buffer: *ConstantBuffer, unbound_vars: *std.ArrayList(UnboundIdent), expr: *const ast.Ast) void {
         switch (expr.*) {
             ast.Ast.number => |num| {
                 buffer.add_inst(I.push);
@@ -287,8 +352,8 @@ const Compiler = struct {
                 }
             },
             ast.Ast.binop => |binop| {
-                self.compile_expr(buffer, binop.left);
-                self.compile_expr(buffer, binop.right);
+                self.compile_expr(buffer, unbound_vars, binop.left);
+                self.compile_expr(buffer, unbound_vars, binop.right);
                 switch (binop.op) {
                     '+' => buffer.add_inst(I.add),
                     '-' => buffer.add_inst(I.sub),
@@ -302,49 +367,88 @@ const Compiler = struct {
                 }
             },
             ast.Ast.ident => |ident| {
-                const place = self.env.get_place(ident).?;
-                switch (place) {
-                    Place.local => buffer.add_inst(I.get),
-                    Place.global => buffer.add_inst(I.get_global),
+                if (self.compile_ident(buffer, ident)) {
+                    buffer.add_inst(I.get);
+                    self.set_unbound(buffer, unbound_vars, ident);
+                    // dummy place
+                    buffer.add_u32(0xfcfcfcfc);
                 }
-                const idx = place.get_index();
-                buffer.add_u32(idx);
             },
             ast.Ast.condition => |condition| {
-                self.compile_expr(buffer, condition.cond);
+                self.compile_expr(buffer, unbound_vars, condition.cond);
                 buffer.add_inst(I.branch);
                 const then_label = buffer.create_label();
                 const after_label = buffer.create_label();
                 buffer.add_label_use(then_label);
                 if (condition.else_block) |else_block| {
-                    self.compile_expr(buffer, else_block);
+                    self.compile_expr(buffer, unbound_vars, else_block);
                 } else {
                     buffer.add_inst(I.nil);
                 }
                 buffer.add_inst(I.jump);
                 buffer.add_label_use(after_label);
                 buffer.set_label_position(then_label);
-                self.compile_expr(buffer, condition.then_block);
+                self.compile_expr(buffer, unbound_vars, condition.then_block);
                 buffer.set_label_position(after_label);
             },
-            else => @panic("unimplemented"),
+            ast.Ast.function => |function| self.compile_fn(buffer, function),
+            ast.Ast.call => |call| {
+                for (call.args) |*arg| {
+                    self.compile_expr(buffer, unbound_vars, arg);
+                }
+                self.compile_expr(buffer, unbound_vars, call.target);
+            },
+            else => {
+                std.debug.print("{}\n", .{expr});
+                @panic("unimplemented");
+            },
         }
     }
 
-    pub fn create_constant(self: *Compiler, const_type: bytecode.ConstantType) *ConstantBuffer {
-        const constant_buffer = ConstantBuffer.init(self.pernament_alloc, self.scratch_alloc);
-        self.constant_buffers.append(constant_buffer) catch unreachable;
-        var res = &self.constant_buffers.items[self.constant_buffers.items.len - 1];
-        // pad length
-        res.add_u32(0);
-        res.buffer.append(@intFromEnum(const_type)) catch unreachable;
-        return res;
+    fn compile_ident(self: *Compiler, buffer: *ConstantBuffer, ident: []const u8) bool {
+        if (self.env.get_place(ident)) |place| {
+            switch (place) {
+                Place.local => buffer.add_inst(I.get),
+                Place.global => buffer.add_inst(I.get_global),
+            }
+            const idx = place.get_index();
+            buffer.add_u32(idx);
+            return false;
+        }
+        return true;
     }
 
-    pub fn gather_globals(self: *Compiler, program: ast.Program) !void {
+    fn set_unbound(self: *const Compiler, buffer: *const ConstantBuffer, unbound_vars: *std.ArrayList(UnboundIdent), ident: []const u8) void {
+        const position: u32 = @intCast(buffer.buffer.items.len);
+        for (unbound_vars.items) |*unbound| {
+            if (std.mem.eql(u8, unbound.ident, ident)) {
+                unbound.positions.append(self.scratch_alloc, position) catch unreachable;
+            }
+        }
+
+        var new_unbound = UnboundIdent.init(ident);
+        new_unbound.positions.append(self.scratch_alloc, position) catch unreachable;
+        unbound_vars.append(new_unbound) catch unreachable;
+    }
+
+    pub fn create_constant(self: *Compiler, const_type: bytecode.ConstantType) bytecode.ConstantIndex {
+        const constant_buffer = ConstantBuffer.init(self.pernament_alloc, self.scratch_alloc);
+        self.constant_buffers.append(constant_buffer) catch unreachable;
+        var tmp = &self.constant_buffers.items[self.constant_buffers.items.len - 1];
+        // pad length
+        tmp.add_u32(0);
+        tmp.buffer.append(@intFromEnum(const_type)) catch unreachable;
+        return bytecode.ConstantIndex.new(@intCast(self.constant_buffers.items.len - 1));
+    }
+
+    pub fn get_constant(self: *Compiler, idx: bytecode.ConstantIndex) *ConstantBuffer {
+        return &self.constant_buffers.items[@intCast(idx.index)];
+    }
+
+    pub fn gather_globals(self: *Compiler, program: ast.Program) void {
         for (program.data) |item| {
             switch (item) {
-                ast.Ast.let => |let| try self.env.add_global(let.target),
+                ast.Ast.let => |let| self.env.add_global(let.target),
                 else => {},
             }
         }
@@ -382,5 +486,23 @@ test "let compiler" {
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
         \\bytecode.Bytecode{ .constants = { { 0, 0, 0, 24, 0, 0, 0, 0, 0, 1, 10, 0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 1, 12, 23 } }, .current = { 0, 0, 0, 24, 0, 0, 0, 0, 0, 1, 10, 0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 1, 12, 23 }, .global_count = 1 }
+    ).expectEqualFmt(res);
+}
+
+test "condition compiler" {
+    const Parser = @import("parser.zig").Parser;
+    const oh = ohsnap{};
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var p = Parser.new(
+        \\ let x = true;
+        \\ if (x) 1 else 2;
+    , allocator);
+    const prog = try p.parse();
+    const res = try compile(prog, allocator);
+    try oh.snap(@src(),
+        \\bytecode.Bytecode{ .constants = { { 0, 0, 0, 34, 0, 5, 10, 0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 26, 0, 0, 0, 32, 0, 0, 0, 0, 2, 27, 0, 0, 0, 37, 0, 0, 0, 0, 1, 23 } }, .current = { 0, 0, 0, 34, 0, 5, 10, 0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 26, 0, 0, 0, 32, 0, 0, 0, 0, 2, 27, 0, 0, 0, 37, 0, 0, 0, 0, 1, 23 }, .global_count = 1 }
     ).expectEqualFmt(res);
 }
