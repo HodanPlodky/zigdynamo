@@ -247,6 +247,7 @@ pub const Interpreter = struct {
                     for (env, 0..) |val, idx| {
                         closure.env.set(idx, val);
                     }
+                    self.stack.pop_n(unbound_count);
                     closure.constant_idx = bc.ConstantIndex.new(constant_idx);
                     const code = self.bytecode.get_constant(closure.constant_idx);
                     closure.local_count = code.get_u32(5);

@@ -129,7 +129,8 @@ pub const Value = packed struct {
     }
 
     pub fn sub(left: Value, right: Value) Value {
-        return Value.new_raw(((left.data >> 32) - (right.data >> 32)) << 32);
+        // TODO: check
+        return Value.new_raw(left.data - right.data);
     }
 
     pub fn mul(left: Value, right: Value) Value {
