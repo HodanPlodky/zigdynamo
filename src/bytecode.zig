@@ -33,6 +33,7 @@ pub const Instruction = enum(u8) {
     print,
     methodcall,
     ret,
+    ret_main,
 
     // objects
     get_field,
@@ -119,6 +120,8 @@ pub const ConstantIndex = struct {
 
 pub const Closure = struct {
     constant_idx: ConstantIndex,
+    param_count: u32,
+    local_count: u32,
     env: runtime.FlexibleArr(runtime.Value),
 
     pub fn additional_size(count: usize) usize {
@@ -137,14 +140,6 @@ pub const Bytecode = struct {
 
     pub fn read_u8(self: *const Bytecode, pc: usize) u8 {
         return self.current[pc];
-    }
-
-    pub fn read_u16(self: *const Bytecode, pc: usize) u16 {
-        var res: u16 = 0;
-        res = self.current[pc];
-        res <<= 8;
-        res |= self.current[pc];
-        return res;
     }
 
     pub fn read_u32(self: *const Bytecode, pc: usize) u32 {

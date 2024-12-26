@@ -191,14 +191,14 @@ pub const Interpreter = struct {
                 bc.Instruction.gt => self.handle_binopt(Value.gt),
                 bc.Instruction.lt => self.handle_binopt(Value.lt),
                 bc.Instruction.ret => {
-                    if (self.curr_const.index == 0) {
-                        return self.stack.top().?;
-                    }
                     const restore_data = self.env.local.get_ret();
                     self.pc = restore_data.ret_pc;
                     self.curr_const = restore_data.ret_const;
                     self.bytecode.set_curr_const(restore_data.ret_const);
                     self.env.local.pop_locals();
+                },
+                bc.Instruction.ret_main => {
+                    return self.stack.top().?;
                 },
 
                 bc.Instruction.set_global => {
@@ -248,6 +248,9 @@ pub const Interpreter = struct {
                         closure.env.set(idx, val);
                     }
                     closure.constant_idx = bc.ConstantIndex.new(constant_idx);
+                    const code = self.bytecode.get_constant(closure.constant_idx);
+                    closure.local_count = code.get_u32(5);
+                    closure.param_count = code.get_u32(9);
                     const val = Value.new_ptr(bc.Closure, closure, ValueType.closure);
                     self.stack.push(val);
                 },
@@ -257,9 +260,8 @@ pub const Interpreter = struct {
                         @panic("cannot call this object");
                     }
                     const closure = target.get_ptr(bc.Closure);
-                    const code = self.bytecode.get_constant(closure.constant_idx);
-                    const local_count = code.get_u32(5);
-                    const param_count = code.get_u32(9);
+                    const local_count = closure.local_count;
+                    const param_count = closure.param_count;
                     const arg_slice = self.stack.slice_top(param_count);
                     self.env.local.push_locals(arg_slice, local_count, @intCast(self.pc), self.curr_const);
                     self.stack.pop_n(param_count);

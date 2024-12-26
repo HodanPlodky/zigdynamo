@@ -293,7 +293,7 @@ const Compiler = struct {
                 main_buffer.add_inst(I.pop);
             }
         }
-        main_buffer.add_inst(I.ret);
+        main_buffer.add_inst(I.ret_main);
 
         for (self.constant_buffers.items) |*buffer| {
             buffer.patch_len();
