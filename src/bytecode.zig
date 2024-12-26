@@ -54,7 +54,7 @@ pub const ConstantType = enum(u8) {
 };
 
 pub const Constant = struct {
-    data: [*]u8,
+    data: [*]const u8,
 
     pub fn new(data: [*]u8) Constant {
         return Constant{ .data = data };
@@ -73,6 +73,22 @@ pub const Constant = struct {
         res |= @intCast(self.data[2]);
         res <<= 8;
         res |= @intCast(self.data[3]);
+        return res;
+    }
+
+    pub fn get_type(self: *const Constant) ConstantType {
+        return @enumFromInt(self.data[4]);
+    }
+
+    pub fn get_u32(self: *const Constant, idx: usize) u32 {
+        var res: u32 = 0;
+        res |= @intCast(self.data[idx]);
+        res <<= 8;
+        res |= @intCast(self.data[idx + 1]);
+        res <<= 8;
+        res |= @intCast(self.data[idx + 2]);
+        res <<= 8;
+        res |= @intCast(self.data[idx + 3]);
         return res;
     }
 
@@ -101,9 +117,13 @@ pub const ConstantIndex = struct {
     }
 };
 
-const Closure = struct {
+pub const Closure = struct {
     constant_idx: ConstantIndex,
     env: runtime.FlexibleArr(runtime.Value),
+
+    pub fn additional_size(count: usize) usize {
+        return runtime.FlexibleArr(runtime.Value).additional_size(count);
+    }
 };
 
 pub const Bytecode = struct {
@@ -139,11 +159,11 @@ pub const Bytecode = struct {
         return res;
     }
 
-    pub fn get_constant(self: *const Bytecode) Constant {
-        _ = self; // autofix
+    pub fn get_constant(self: *const Bytecode, idx: ConstantIndex) Constant {
+        return self.constants[@intCast(idx.index)];
     }
 
-    pub fn get_entry(self: *const Bytecode) ConstantIndex {
-        _ = self; // autofix
+    pub fn set_curr_const(self: *Bytecode, idx: ConstantIndex) void {
+        self.current = self.get_constant(idx);
     }
 };

@@ -70,6 +70,10 @@ const CompilerFnFrame = struct {
 
     pub fn add_var(self: *CompilerFnFrame, var_name: []const u8) void {
         self.get_current().add_var(var_name);
+        self.current_size += 1;
+        if (self.current_size > self.max_size) {
+            self.max_size = self.current_size;
+        }
     }
 
     pub fn get_current(self: *CompilerFnFrame) *CompilerFrame {
@@ -315,13 +319,21 @@ const Compiler = struct {
     pub fn compile_fn(self: *Compiler, buffer: *ConstantBuffer, function: ast.Function) void {
         const function_constant_idx = self.create_constant(bytecode.ConstantType.function);
         const function_constant = self.get_constant(function_constant_idx);
+        // local count padding
+        function_constant.add_u32(0);
+        function_constant.add_u32(@intCast(function.params.len));
         var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
         self.env.push();
         for (function.params) |param| {
             self.env.add_var(param);
         }
         self.compile_expr(function_constant, &unbound_vars, function.body);
+        const max_size: u32 = @intCast(self.env.get_current().?.max_size);
         self.env.pop();
+
+        const unbound_count: u32 = @intCast(unbound_vars.items.len);
+        function_constant.set_u32(5, max_size + unbound_count);
+        function_constant.add_inst(I.ret);
 
         for (unbound_vars.items) |unbound| {
             if (self.compile_ident(buffer, unbound.ident)) {
@@ -397,6 +409,7 @@ const Compiler = struct {
                     self.compile_expr(buffer, unbound_vars, arg);
                 }
                 self.compile_expr(buffer, unbound_vars, call.target);
+                buffer.add_inst(I.call);
             },
             else => {
                 std.debug.print("{}\n", .{expr});

@@ -5,7 +5,7 @@ const compiler = @import("compiler.zig");
 const bc = @import("bc_interpreter.zig");
 const ast = @import("ast.zig");
 
-const STACK_SIZE = 1024;
+const STACK_SIZE = 4096;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -37,9 +37,8 @@ pub fn main() !void {
         const val = ast_inter.run(program);
         std.debug.print("{}\n", .{val});
     } else if (std.mem.eql(u8, "--bc", kind)) {
-        const buf = try allocator.alloc(u8, STACK_SIZE);
-        var buf_alloc = std.heap.FixedBufferAllocator.init(buf);
-        const alloc = buf_alloc.allocator();
+        var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        const alloc = runtime_arena.allocator();
         const bytecode = compiler.compile(program, allocator) catch @panic("error");
         var inter = bc.Interpreter.init(
             alloc,

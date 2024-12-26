@@ -11,6 +11,14 @@ const GC = struct {
     pub fn init(heap_data: []u8) GC {
         return GC{ .heap = runtime.Heap.init(heap_data) };
     }
+
+    pub fn alloc(self: *GC, comptime T: type) *T {
+        return self.heap.alloc(T);
+    }
+
+    pub fn alloc_with_additional(self: *GC, comptime T: type, count: usize) *T {
+        return self.heap.alloc_with_additional(T, count);
+    }
 };
 
 const Stack = struct {
@@ -64,15 +72,16 @@ const LocalEnv = struct {
         self.alloc.free(self.buffer);
     }
 
-    pub fn push_locals(self: *LocalEnv, args: []Value, local_count: u32, ret_pc: u32, ret_const: u32) void {
-        const old_fp: Value = Value.new_raw(@intCast(self.current_local));
-        const ret = Value.new_raw(ret_pc << 32 | ret_const);
+    pub fn push_locals(self: *LocalEnv, args: []Value, local_count: u32, ret_pc: u32, ret_const: bc.ConstantIndex) void {
+        const old_fp: Value = Value.new_raw(@intCast(self.current_ptr));
+        const tmp_pc: usize = @intCast(ret_pc);
+        const ret = Value.new_raw(tmp_pc << 32 | ret_const.index);
         const tmp = self.buffer.items.len;
         self.buffer.appendSlice(args) catch unreachable;
         self.buffer.appendNTimes(Value.new_nil(), local_count) catch unreachable;
         self.buffer.append(old_fp) catch unreachable;
         self.buffer.append(ret) catch unreachable;
-        self.current_local = @ptrCast(&self.buffer.items[tmp]);
+        self.current_ptr = @intCast(tmp);
     }
 
     pub fn pop_locals(self: *LocalEnv) void {
@@ -86,22 +95,22 @@ const LocalEnv = struct {
         return @intCast(old_fp.data);
     }
 
-    pub fn get_ret(self: *const LocalEnv) struct { ret_pc: u32, ret_const: u32 } {
+    pub fn get_ret(self: *const LocalEnv) struct { ret_pc: u32, ret_const: bc.ConstantIndex } {
         const ret = self.buffer.items[self.buffer.items.len - 1];
-        const ret_pc: u32 = @intCast((ret >> 32) & 0xffffffff);
-        const ret_const: u32 = @intCast(ret & 0xffffffff);
+        const ret_pc: u32 = @intCast((ret.data >> 32) & 0xffffffff);
+        const ret_const: u32 = @intCast(ret.data & 0xffffffff);
         return .{
             .ret_pc = ret_pc,
-            .ret_const = ret_const,
+            .ret_const = bc.ConstantIndex.new(ret_const),
         };
     }
 
     pub fn get(self: *const LocalEnv, idx: u32) Value {
-        return self.buffer[@intCast(self.current_ptr + idx)];
+        return self.buffer.items[@intCast(self.current_ptr + idx)];
     }
 
     pub fn set(self: *LocalEnv, idx: u32, value: Value) void {
-        self.buffer[@intCast(self.current_ptr + idx)] = value;
+        self.buffer.items[@intCast(self.current_ptr + idx)] = value;
     }
 };
 
@@ -132,6 +141,7 @@ const Environment = struct {
 pub const Interpreter = struct {
     bytecode: bc.Bytecode,
     pc: usize,
+    curr_const: bc.ConstantIndex,
     gc: GC,
     stack: Stack,
     env: Environment,
@@ -140,6 +150,7 @@ pub const Interpreter = struct {
         return Interpreter{
             .bytecode = bytecode,
             .pc = 5,
+            .curr_const = bc.ConstantIndex.new(0),
             .gc = GC.init(heap_data),
             .stack = Stack.init(alloc),
             .env = Environment.init(bytecode.global_count, alloc),
@@ -149,7 +160,7 @@ pub const Interpreter = struct {
     pub fn run(self: *Interpreter) runtime.Value {
         while (true) {
             const inst = self.read_inst();
-            std.debug.print("{}\n", .{inst});
+            //std.debug.print("{}\n", .{inst});
             switch (inst) {
                 bc.Instruction.push => {
                     const num = self.read_u32();
@@ -180,7 +191,14 @@ pub const Interpreter = struct {
                 bc.Instruction.gt => self.handle_binopt(Value.gt),
                 bc.Instruction.lt => self.handle_binopt(Value.lt),
                 bc.Instruction.ret => {
-                    return self.stack.top().?;
+                    if (self.curr_const.index == 0) {
+                        return self.stack.top().?;
+                    }
+                    const restore_data = self.env.local.get_ret();
+                    self.pc = restore_data.ret_pc;
+                    self.curr_const = restore_data.ret_const;
+                    self.bytecode.set_curr_const(restore_data.ret_const);
+                    self.env.local.pop_locals();
                 },
 
                 bc.Instruction.set_global => {
@@ -188,10 +206,22 @@ pub const Interpreter = struct {
                     const idx = self.read_u32();
                     self.env.set_global(idx, value);
                 },
+                bc.Instruction.set => {
+                    const value = self.stack.pop().?;
+                    const idx = self.read_u32();
+                    self.env.local.set(idx, value);
+                },
+
                 bc.Instruction.get_global => {
                     const idx = self.bytecode.read_u32(self.pc);
                     self.pc += 4;
                     const value = self.env.get_global(idx);
+                    self.stack.push(value);
+                },
+                bc.Instruction.get => {
+                    const idx = self.bytecode.read_u32(self.pc);
+                    self.pc += 4;
+                    const value = self.env.local.get(idx);
                     self.stack.push(value);
                 },
 
@@ -210,10 +240,34 @@ pub const Interpreter = struct {
                 },
                 bc.Instruction.closure => {
                     const constant_idx = self.read_u32();
-                    _ = constant_idx; // autofix
                     const unbound_count = self.read_u32();
                     const env = self.stack.slice_top(unbound_count);
-                    _ = env; // autofix
+                    const closure = self.gc.alloc_with_additional(bc.Closure, unbound_count);
+                    closure.env.count = unbound_count;
+                    for (env, 0..) |val, idx| {
+                        closure.env.set(idx, val);
+                    }
+                    closure.constant_idx = bc.ConstantIndex.new(constant_idx);
+                    const val = Value.new_ptr(bc.Closure, closure, ValueType.closure);
+                    self.stack.push(val);
+                },
+                bc.Instruction.call => {
+                    const target = self.stack.pop().?;
+                    if (target.get_type() != runtime.ValueType.closure) {
+                        @panic("cannot call this object");
+                    }
+                    const closure = target.get_ptr(bc.Closure);
+                    const code = self.bytecode.get_constant(closure.constant_idx);
+                    const local_count = code.get_u32(5);
+                    const param_count = code.get_u32(9);
+                    const arg_slice = self.stack.slice_top(param_count);
+                    self.env.local.push_locals(arg_slice, local_count, @intCast(self.pc), self.curr_const);
+                    self.stack.pop_n(param_count);
+                    self.bytecode.set_curr_const(closure.constant_idx);
+                    self.curr_const = closure.constant_idx;
+
+                    // header size of the closure
+                    self.pc = 4 + 1 + 4 + 4;
                 },
                 else => @panic("unimplemented instruction"),
             }
