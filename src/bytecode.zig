@@ -143,15 +143,8 @@ pub const Bytecode = struct {
     }
 
     pub fn read_u32(self: *const Bytecode, pc: usize) u32 {
-        var res: u32 = 0;
-        res |= @intCast(self.current.data[pc]);
-        res <<= 8;
-        res |= @intCast(self.current.data[pc + 1]);
-        res <<= 8;
-        res |= @intCast(self.current.data[pc + 2]);
-        res <<= 8;
-        res |= @intCast(self.current.data[pc + 3]);
-        return res;
+        const tmp: *const u32 = @ptrCast(@alignCast(&self.current.data[pc]));
+        return @byteSwap(tmp.*);
     }
 
     pub fn get_constant(self: *const Bytecode, idx: ConstantIndex) Constant {
