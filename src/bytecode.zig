@@ -93,7 +93,7 @@ pub const Constant = struct {
         return res;
     }
 
-    pub fn get_slice(self: *const Constant) []u8 {
+    pub fn get_slice(self: *const Constant) []const u8 {
         const size = self.get_size() + 4;
         return self.data[0..size];
     }

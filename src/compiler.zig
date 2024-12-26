@@ -480,7 +480,7 @@ test "basic compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\bytecode.Bytecode{ .constants = { { 0, 0, 0, 25, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 14, 12, 0, 0, 0, 0, 3, 13, 23 } }, .current = { 0, 0, 0, 25, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 14, 12, 0, 0, 0, 0, 3, 13, 23 }, .global_count = 0 }
+        \\bytecode.Bytecode{ .constants = { { 0, 0, 0, 25, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 14, 12, 0, 0, 0, 0, 3, 13, 24 } }, .current = { 0, 0, 0, 25, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 14, 12, 0, 0, 0, 0, 3, 13, 24 }, .global_count = 0 }
     ).expectEqualFmt(res);
 }
 
@@ -498,7 +498,7 @@ test "let compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\bytecode.Bytecode{ .constants = { { 0, 0, 0, 24, 0, 0, 0, 0, 0, 1, 10, 0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 1, 12, 23 } }, .current = { 0, 0, 0, 24, 0, 0, 0, 0, 0, 1, 10, 0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 1, 12, 23 }, .global_count = 1 }
+        \\bytecode.Bytecode{ .constants = { { 0, 0, 0, 24, 0, 0, 0, 0, 0, 1, 10, 0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 1, 12, 24 } }, .current = { 0, 0, 0, 24, 0, 0, 0, 0, 0, 1, 10, 0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 1, 12, 24 }, .global_count = 1 }
     ).expectEqualFmt(res);
 }
 
@@ -516,6 +516,6 @@ test "condition compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\bytecode.Bytecode{ .constants = { { 0, 0, 0, 34, 0, 5, 10, 0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 26, 0, 0, 0, 32, 0, 0, 0, 0, 2, 27, 0, 0, 0, 37, 0, 0, 0, 0, 1, 23 } }, .current = { 0, 0, 0, 34, 0, 5, 10, 0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 26, 0, 0, 0, 32, 0, 0, 0, 0, 2, 27, 0, 0, 0, 37, 0, 0, 0, 0, 1, 23 }, .global_count = 1 }
+        \\bytecode.Bytecode{ .constants = { { 0, 0, 0, 34, 0, 5, 10, 0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 27, 0, 0, 0, 32, 0, 0, 0, 0, 2, 28, 0, 0, 0, 37, 0, 0, 0, 0, 1, 24 } }, .current = { 0, 0, 0, 34, 0, 5, 10, 0, 0, 0, 0, 1, 11, 0, 0, 0, 0, 27, 0, 0, 0, 32, 0, 0, 0, 0, 2, 28, 0, 0, 0, 37, 0, 0, 0, 0, 1, 24 }, .global_count = 1 }
     ).expectEqualFmt(res);
 }
