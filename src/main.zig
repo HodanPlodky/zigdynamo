@@ -47,6 +47,9 @@ pub fn main() !void {
         );
         const val = inter.run();
         std.debug.print("{}\n", .{val});
+    } else if (std.mem.eql(u8, "--cmp", kind)) {
+        const bytecode = compiler.compile(program, allocator) catch @panic("error");
+        std.debug.print("{}\n", .{bytecode});
     } else {
         @panic("incorect kind");
     }
