@@ -46,6 +46,68 @@ pub const Instruction = enum(u8) {
     // other
     panic,
     assert,
+
+    pub fn format(
+        self: *const Instruction,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = options;
+        _ = fmt;
+        try writer.print("{s}", .{self.get_str()});
+    }
+
+    pub fn get_str(self: Instruction) []const u8 {
+        return switch (self) {
+            Instruction.push => "push",
+            Instruction.pop => "pop",
+            Instruction.object => "object",
+            Instruction.closure => "closure",
+            Instruction.nil => "nil",
+            Instruction.true => "true",
+            Instruction.false => "false",
+            Instruction.constant => "constant",
+            Instruction.set => "set",
+            Instruction.get => "get",
+            Instruction.set_global => "set_global",
+            Instruction.get_global => "get_global",
+            Instruction.add => "add",
+            Instruction.sub => "sub",
+            Instruction.mul => "mul",
+            Instruction.div => "div",
+            Instruction.lt => "lt",
+            Instruction.gt => "gt",
+            Instruction.eq => "eq",
+            Instruction.ne => "ne",
+            Instruction.call => "call",
+            Instruction.print => "print",
+            Instruction.methodcall => "methodcall",
+            Instruction.ret => "ret",
+            Instruction.ret_main => "ret_main",
+            Instruction.get_field => "get_field",
+            Instruction.set_field => "set_field",
+            Instruction.branch => "branch",
+            Instruction.jump => "jump",
+            Instruction.panic => "panic",
+            Instruction.assert => "assert",
+        };
+    }
+
+    pub fn get_extrabytes(self: Instruction) usize {
+        return switch (self) {
+            Instruction.push,
+            Instruction.jump,
+            Instruction.branch,
+            Instruction.get,
+            Instruction.get_global,
+            Instruction.set,
+            Instruction.set_global,
+            => 4,
+            Instruction.closure => 8,
+            else => 0,
+        };
+    }
 };
 
 pub const ConstantType = enum(u8) {
@@ -106,7 +168,20 @@ pub const Constant = struct {
     ) !void {
         _ = options;
         _ = fmt;
-        try writer.print("{any}", .{self.get_slice()});
+        //try writer.print("{any}", .{self.get_slice()});
+        var i: usize = 0;
+        const size = self.get_size() + 4;
+        try writer.print("[ ", .{});
+        while (i < size) {
+            const inst: Instruction = @enumFromInt(self.data[i]);
+            try writer.print("{}, ", .{inst});
+            i += 1;
+            for (0..inst.get_extrabytes()) |_| {
+                try writer.print("{}, ", .{self.data[i]});
+                i += 1;
+            }
+        }
+        try writer.print("]", .{});
     }
 };
 
