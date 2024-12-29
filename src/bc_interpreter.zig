@@ -265,12 +265,23 @@ pub const Interpreter = struct {
                     const param_count = closure.param_count;
                     const arg_slice = self.stack.slice_top(param_count);
                     self.env.local.push_locals(arg_slice, local_count, @intCast(self.pc), self.curr_const);
+                    for (0..closure.env.count) |idx| {
+                        const index: u32 = @intCast(idx);
+                        const val = closure.env.get(closure.env.count - idx - 1);
+                        self.env.local.set(local_count - index - 1, val);
+                    }
                     self.stack.pop_n(param_count);
                     self.bytecode.set_curr_const(closure.constant_idx);
                     self.curr_const = closure.constant_idx;
 
                     // header size of the closure
                     self.pc = 4 + 1 + 4 + 4;
+                },
+                bc.Instruction.print => {
+                    const arg_count = self.read_u32();
+                    const arg_slice = self.stack.slice_top(arg_count);
+                    runtime.print(arg_slice);
+                    self.stack.push(Value.new_nil());
                 },
                 else => @panic("unimplemented instruction"),
             }
@@ -285,6 +296,7 @@ pub const Interpreter = struct {
             const res = oper(left, right);
             self.stack.push(res);
         } else {
+            std.debug.print("left: {}, right: {}\n", .{ left, right });
             @panic("Unimplemented dispatch");
         }
     }

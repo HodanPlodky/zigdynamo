@@ -178,3 +178,20 @@ pub const Value = packed struct {
         };
     }
 };
+
+pub fn print(values: []Value) void {
+    for (values) |val| {
+        switch (val.get_type()) {
+            ValueType.string => {
+                //const data = val.get_ptr(String);
+                std.debug.print("TODO ", .{});
+            },
+            ValueType.number => {
+                const data = val.get_number();
+                std.debug.print("{} ", .{data});
+            },
+            else => @panic("Cannot print"),
+        }
+    }
+    std.debug.print("\n", .{});
+}

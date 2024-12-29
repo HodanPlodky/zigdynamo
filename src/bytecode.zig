@@ -185,7 +185,7 @@ pub const Constant = struct {
     }
 };
 
-pub const ConstantIndex = struct {
+pub const ConstantIndex = packed struct {
     index: u32,
 
     pub fn new(index: u32) ConstantIndex {
@@ -193,10 +193,11 @@ pub const ConstantIndex = struct {
     }
 };
 
-pub const Closure = struct {
+pub const Closure = packed struct {
     constant_idx: ConstantIndex,
     param_count: u32,
     local_count: u32,
+    paddingdontuse: u32,
     env: runtime.FlexibleArr(runtime.Value),
 
     pub fn additional_size(count: usize) usize {

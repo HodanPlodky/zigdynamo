@@ -1,0 +1,3 @@
+let inc = fn(n) = fn(x) = n + x;
+let inc1 = inc(1);
+inc1(2);

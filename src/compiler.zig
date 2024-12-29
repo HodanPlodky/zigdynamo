@@ -241,6 +241,15 @@ const ConstantBuffer = struct {
             }
         }
     }
+
+    pub fn fix_locals(self: *ConstantBuffer, unbound_vars: *const std.ArrayList(UnboundIdent), offset: u32) void {
+        for (unbound_vars.items, 0..) |unbound, order| {
+            const tmp: u32 = @intCast(order);
+            for (unbound.positions.items) |pos| {
+                self.set_u32(pos, offset + tmp);
+            }
+        }
+    }
 };
 
 const UnboundIdent = struct {
@@ -342,6 +351,8 @@ const Compiler = struct {
             }
         }
 
+        function_constant.fix_locals(&unbound_vars, max_size);
+
         buffer.add_inst(I.closure);
         buffer.add_u32(function_constant_idx.index);
         buffer.add_u32(@intCast(unbound_vars.items.len));
@@ -408,8 +419,16 @@ const Compiler = struct {
                 for (call.args) |*arg| {
                     self.compile_expr(buffer, unbound_vars, arg);
                 }
-                self.compile_expr(buffer, unbound_vars, call.target);
-                buffer.add_inst(I.call);
+                switch (call.target.*) {
+                    ast.Ast.print_fn => {
+                        buffer.add_inst(I.print);
+                        buffer.add_u32(@intCast(call.args.len));
+                    },
+                    else => {
+                        self.compile_expr(buffer, unbound_vars, call.target);
+                        buffer.add_inst(I.call);
+                    },
+                }
             },
             else => {
                 std.debug.print("{}\n", .{expr});
