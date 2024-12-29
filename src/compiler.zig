@@ -430,6 +430,13 @@ const Compiler = struct {
                     },
                 }
             },
+            ast.Ast.string => |string| {
+                const string_idx = self.create_constant(bytecode.ConstantType.string);
+                const string_buffer = self.get_constant(string_idx);
+                string_buffer.buffer.appendSlice(string) catch unreachable;
+                buffer.add_inst(I.string);
+                buffer.add_u32(string_idx.index);
+            },
             else => {
                 std.debug.print("{}\n", .{expr});
                 @panic("unimplemented");

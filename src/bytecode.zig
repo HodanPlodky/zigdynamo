@@ -10,7 +10,7 @@ pub const Instruction = enum(u8) {
     nil,
     true,
     false,
-    constant,
+    string,
 
     // locals
     set,
@@ -67,7 +67,7 @@ pub const Instruction = enum(u8) {
             Instruction.nil => "nil",
             Instruction.true => "true",
             Instruction.false => "false",
-            Instruction.constant => "constant",
+            Instruction.string => "string",
             Instruction.set => "set",
             Instruction.get => "get",
             Instruction.set_global => "set_global",
@@ -103,6 +103,8 @@ pub const Instruction = enum(u8) {
             Instruction.get_global,
             Instruction.set,
             Instruction.set_global,
+            Instruction.print,
+            Instruction.string,
             => 4,
             Instruction.closure => 8,
             else => 0,
@@ -231,6 +233,10 @@ pub const Bytecode = struct {
 
     pub fn get_constant(self: *const Bytecode, idx: ConstantIndex) Constant {
         return self.constants[@intCast(idx.index)];
+    }
+
+    pub fn get_type(self: *const Bytecode, idx: ConstantIndex) ConstantType {
+        return self.constants[@intCast(idx.index)].get_type();
     }
 
     pub fn set_curr_const(self: *Bytecode, idx: ConstantIndex) void {

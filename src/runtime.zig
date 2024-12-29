@@ -104,6 +104,12 @@ pub const Value = packed struct {
         };
     }
 
+    pub fn new_string(idx: u32) Value {
+        var res = Value.new_num(idx);
+        res.data |= @intFromEnum(ValueType.string);
+        return res;
+    }
+
     pub fn get_type(self: Value) ValueType {
         return @enumFromInt(self.data & 0x7);
     }

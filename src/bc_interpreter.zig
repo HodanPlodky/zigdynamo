@@ -283,6 +283,14 @@ pub const Interpreter = struct {
                     runtime.print(arg_slice);
                     self.stack.push(Value.new_nil());
                 },
+                bc.Instruction.string => {
+                    const idx = bc.ConstantIndex.new(self.read_u32());
+                    if (self.bytecode.get_type(idx) != bc.ConstantType.string) {
+                        @panic("Incorrect string");
+                    }
+                    const val = Value.new_string(idx.index);
+                    self.stack.push(val);
+                },
                 else => @panic("unimplemented instruction"),
             }
         }
