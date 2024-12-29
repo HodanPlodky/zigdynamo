@@ -128,6 +128,10 @@ pub const Value = packed struct {
         return ptr;
     }
 
+    pub fn get_idx(self: Value) u32 {
+        return @intCast(self.data >> 32);
+    }
+
     // operations assume number value type
 
     pub fn add(left: Value, right: Value) Value {

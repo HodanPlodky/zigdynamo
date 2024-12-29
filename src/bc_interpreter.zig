@@ -280,7 +280,22 @@ pub const Interpreter = struct {
                 bc.Instruction.print => {
                     const arg_count = self.read_u32();
                     const arg_slice = self.stack.slice_top(arg_count);
-                    runtime.print(arg_slice);
+                    for (arg_slice) |val| {
+                        switch (val.get_type()) {
+                            ValueType.string => {
+                                const idx = bc.ConstantIndex.new(val.get_idx());
+                                const string_const = self.bytecode.get_constant(idx);
+                                const tmp = string_const.get_slice()[5..];
+                                std.debug.print("{s} ", .{tmp});
+                            },
+                            ValueType.number => {
+                                const data = val.get_number();
+                                std.debug.print("{} ", .{data});
+                            },
+                            else => @panic("Cannot print"),
+                        }
+                    }
+                    std.debug.print("\n", .{});
                     self.stack.push(Value.new_nil());
                 },
                 bc.Instruction.string => {
