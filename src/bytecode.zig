@@ -218,8 +218,14 @@ pub const Bytecode = struct {
     }
 
     pub fn read_u32(self: *const Bytecode, pc: usize) u32 {
-        const tmp: *const u32 = @ptrCast(@alignCast(&self.current.data[pc]));
-        return @byteSwap(tmp.*);
+        const tmp_arr: [4]u8 align(4) = .{
+            self.current.data[pc + 3],
+            self.current.data[pc + 2],
+            self.current.data[pc + 1],
+            self.current.data[pc],
+        };
+        const tmp: *const u32 = @ptrCast(@alignCast(&tmp_arr));
+        return tmp.*;
     }
 
     pub fn get_constant(self: *const Bytecode, idx: ConstantIndex) Constant {
