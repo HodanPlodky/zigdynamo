@@ -68,12 +68,13 @@ const CompilerFnFrame = struct {
         return null;
     }
 
-    pub fn add_var(self: *CompilerFnFrame, var_name: []const u8) void {
+    pub fn add_var(self: *CompilerFnFrame, var_name: []const u8) u32 {
         self.get_current().add_var(var_name);
         self.current_size += 1;
         if (self.current_size > self.max_size) {
             self.max_size = self.current_size;
         }
+        return @intCast(self.current_size);
     }
 
     pub fn get_current(self: *CompilerFnFrame) *CompilerFrame {
@@ -128,9 +129,9 @@ const CompilerEnv = struct {
         return null;
     }
 
-    pub fn add_var(self: *CompilerEnv, var_name: []const u8) void {
+    pub fn add_var(self: *CompilerEnv, var_name: []const u8) u32 {
         var current = self.get_current().?;
-        current.add_var(var_name);
+        return current.add_var(var_name);
     }
 
     pub fn add_global(self: *CompilerEnv, var_name: []const u8) void {
@@ -334,7 +335,7 @@ const Compiler = struct {
         var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
         self.env.push();
         for (function.params) |param| {
-            self.env.add_var(param);
+            _ = self.env.add_var(param);
         }
         self.compile_expr(function_constant, &unbound_vars, function.body);
         const max_size: u32 = @intCast(self.env.get_current().?.max_size);
@@ -436,6 +437,46 @@ const Compiler = struct {
                 string_buffer.buffer.appendSlice(string) catch unreachable;
                 buffer.add_inst(I.string);
                 buffer.add_u32(string_idx.index);
+            },
+            ast.Ast.loop => |loop| {
+                self.compile_expr(buffer, unbound_vars, loop.cond);
+                const after_label = buffer.create_label();
+                const body_label = buffer.create_label();
+                buffer.add_inst(I.branch);
+                buffer.add_label_use(body_label);
+                buffer.add_inst(I.jump);
+                buffer.add_label_use(after_label);
+                buffer.set_label_position(body_label);
+                self.compile_expr(buffer, unbound_vars, loop.body);
+                buffer.set_label_position(after_label);
+            },
+            ast.Ast.block => |exprs| {
+                for (exprs[0..(exprs.len - 1)]) |*item| {
+                    self.compile_expr(buffer, unbound_vars, item);
+                    buffer.add_inst(I.pop);
+                }
+                self.compile_expr(buffer, unbound_vars, &exprs[exprs.len - 1]);
+            },
+            ast.Ast.let => |let| {
+                self.compile_expr(buffer, unbound_vars, let.value);
+                const idx = self.env.add_var(let.target);
+                buffer.add_inst(I.set);
+                buffer.add_u32(idx);
+            },
+            ast.Ast.assign => |assign| {
+                self.compile_expr(buffer, unbound_vars, assign.value);
+                if (self.env.get_place(assign.target)) |place| {
+                    switch (place) {
+                        Place.local => buffer.add_inst(I.set),
+                        Place.global => buffer.add_inst(I.set_global),
+                    }
+                    buffer.add_u32(place.get_index());
+                } else {
+                    buffer.add_inst(I.set);
+                    self.set_unbound(buffer, unbound_vars, assign.target);
+                    // dummy idx
+                    buffer.add_u32(0xfbfbfbfb);
+                }
             },
             else => {
                 std.debug.print("{}\n", .{expr});

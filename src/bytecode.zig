@@ -30,6 +30,7 @@ pub const Instruction = enum(u8) {
 
     // calls
     call,
+    static_call,
     print,
     methodcall,
     ret,
@@ -81,6 +82,7 @@ pub const Instruction = enum(u8) {
             Instruction.eq => "eq",
             Instruction.ne => "ne",
             Instruction.call => "call",
+            Instruction.static_call => "static_call",
             Instruction.print => "print",
             Instruction.methodcall => "methodcall",
             Instruction.ret => "ret",
