@@ -70,11 +70,12 @@ const CompilerFnFrame = struct {
 
     pub fn add_var(self: *CompilerFnFrame, var_name: []const u8) u32 {
         self.get_current().add_var(var_name);
+        const res = self.current_size;
         self.current_size += 1;
         if (self.current_size > self.max_size) {
             self.max_size = self.current_size;
         }
-        return @intCast(self.current_size);
+        return @intCast(res);
     }
 
     pub fn get_current(self: *CompilerFnFrame) *CompilerFrame {
@@ -285,7 +286,7 @@ const Compiler = struct {
         // run since the global env
         // behaves dynamically
         self.gather_globals(program);
-        const main_buffer = self.get_constant(self.create_constant(bytecode.ConstantType.function));
+        const main_buffer = self.get_constant(self.create_constant(bytecode.ConstantType.main_function));
         var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
         for (program.data, 0..) |expr, i| {
             switch (expr) {
@@ -439,15 +440,19 @@ const Compiler = struct {
                 buffer.add_u32(string_idx.index);
             },
             ast.Ast.loop => |loop| {
-                self.compile_expr(buffer, unbound_vars, loop.cond);
+                const cond_label = buffer.create_label();
                 const after_label = buffer.create_label();
                 const body_label = buffer.create_label();
+                buffer.set_label_position(cond_label);
+                self.compile_expr(buffer, unbound_vars, loop.cond);
                 buffer.add_inst(I.branch);
                 buffer.add_label_use(body_label);
                 buffer.add_inst(I.jump);
                 buffer.add_label_use(after_label);
                 buffer.set_label_position(body_label);
                 self.compile_expr(buffer, unbound_vars, loop.body);
+                buffer.add_inst(I.jump);
+                buffer.add_label_use(cond_label);
                 buffer.set_label_position(after_label);
             },
             ast.Ast.block => |exprs| {

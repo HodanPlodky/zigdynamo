@@ -115,6 +115,7 @@ pub const Instruction = enum(u8) {
 };
 
 pub const ConstantType = enum(u8) {
+    main_function,
     function,
     string,
     class,
@@ -173,7 +174,11 @@ pub const Constant = struct {
         _ = options;
         _ = fmt;
         //try writer.print("{any}", .{self.get_slice()});
-        var i: usize = 0;
+        var i: usize = switch (self.get_type()) {
+            ConstantType.function => 9,
+            ConstantType.main_function => 5,
+            else => 0,
+        };
         const size = self.get_size() + 4;
         try writer.print("[ ", .{});
         while (i < size) {
