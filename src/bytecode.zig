@@ -199,10 +199,10 @@ pub const Constant = struct {
         const size = self.get_size() + 4;
         while (i < size) {
             const inst: Instruction = @enumFromInt(self.data[i]);
-            try writer.print("\t{}: {}, ", .{ i, inst });
+            try writer.print("\t{}: {}", .{ i, inst });
             i += 1;
             for (0..inst.get_extrabytes()) |_| {
-                try writer.print("{}, ", .{self.data[i]});
+                try writer.print(" {}", .{self.data[i]});
                 i += 1;
             }
             try writer.print("\n", .{});

@@ -552,7 +552,17 @@ test "basic compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\bytecode.Bytecode{ .constants = { [ push, 0, 0, 25, 0, push, 0, 0, 0, 1, push, 0, 0, 0, 2, push, 0, 0, 0, 2, mul, add, push, 0, 0, 0, 3, sub, ret_main, ] }, .current = [ push, 0, 0, 25, 0, push, 0, 0, 0, 1, push, 0, 0, 0, 2, push, 0, 0, 0, 2, mul, add, push, 0, 0, 0, 3, sub, ret_main, ], .global_count = 0 }
+        \\main_function (29 bytes)
+        \\	5: push 0 0 0 1
+        \\	10: push 0 0 0 2
+        \\	15: push 0 0 0 2
+        \\	20: mul
+        \\	21: add
+        \\	22: push 0 0 0 3
+        \\	27: sub
+        \\	28: ret_main
+        \\
+        \\
     ).expectEqualFmt(res);
 }
 
@@ -570,7 +580,16 @@ test "let compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\bytecode.Bytecode{ .constants = { [ push, 0, 0, 24, 0, push, 0, 0, 0, 1, set_global, 0, 0, 0, 0, pop, get_global, 0, 0, 0, 0, push, 0, 0, 0, 1, add, ret_main, ] }, .current = [ push, 0, 0, 24, 0, push, 0, 0, 0, 1, set_global, 0, 0, 0, 0, pop, get_global, 0, 0, 0, 0, push, 0, 0, 0, 1, add, ret_main, ], .global_count = 1 }
+        \\main_function (28 bytes)
+        \\	5: push 0 0 0 1
+        \\	10: set_global 0 0 0 0
+        \\	15: pop
+        \\	16: get_global 0 0 0 0
+        \\	21: push 0 0 0 1
+        \\	26: add
+        \\	27: ret_main
+        \\
+        \\
     ).expectEqualFmt(res);
 }
 
@@ -588,6 +607,17 @@ test "condition compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\bytecode.Bytecode{ .constants = { [ push, 0, 0, 34, 0, true, set_global, 0, 0, 0, 0, pop, get_global, 0, 0, 0, 0, branch, 0, 0, 0, 32, push, 0, 0, 0, 2, jump, 0, 0, 0, 37, push, 0, 0, 0, 1, ret_main, ] }, .current = [ push, 0, 0, 34, 0, true, set_global, 0, 0, 0, 0, pop, get_global, 0, 0, 0, 0, branch, 0, 0, 0, 32, push, 0, 0, 0, 2, jump, 0, 0, 0, 37, push, 0, 0, 0, 1, ret_main, ], .global_count = 1 }
+        \\main_function (38 bytes)
+        \\	5: true
+        \\	6: set_global 0 0 0 0
+        \\	11: pop
+        \\	12: get_global 0 0 0 0
+        \\	17: branch 0 0 0 32
+        \\	22: push 0 0 0 2
+        \\	27: jump 0 0 0 37
+        \\	32: push 0 0 0 1
+        \\	37: ret_main
+        \\
+        \\
     ).expectEqualFmt(res);
 }
