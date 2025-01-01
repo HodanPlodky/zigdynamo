@@ -119,6 +119,23 @@ pub const ConstantType = enum(u8) {
     function,
     string,
     class,
+
+    pub fn format(
+        self: *const ConstantType,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = options; // autofix
+        _ = fmt; // autofix
+        const tmp = switch (self.*) {
+            ConstantType.main_function => "main_function",
+            ConstantType.function => "function",
+            ConstantType.string => "string",
+            ConstantType.class => "class",
+        };
+        try writer.print("{s}", .{tmp});
+    }
 };
 
 pub const Constant = struct {
@@ -175,22 +192,21 @@ pub const Constant = struct {
         _ = fmt;
         //try writer.print("{any}", .{self.get_slice()});
         var i: usize = switch (self.get_type()) {
-            ConstantType.function => 9,
+            ConstantType.function => 13,
             ConstantType.main_function => 5,
             else => 0,
         };
         const size = self.get_size() + 4;
-        try writer.print("[ ", .{});
         while (i < size) {
             const inst: Instruction = @enumFromInt(self.data[i]);
-            try writer.print("{}, ", .{inst});
+            try writer.print("\t{}: {}, ", .{ i, inst });
             i += 1;
             for (0..inst.get_extrabytes()) |_| {
                 try writer.print("{}, ", .{self.data[i]});
                 i += 1;
             }
+            try writer.print("\n", .{});
         }
-        try writer.print("]", .{});
     }
 };
 
@@ -248,5 +264,21 @@ pub const Bytecode = struct {
 
     pub fn set_curr_const(self: *Bytecode, idx: ConstantIndex) void {
         self.current = self.get_constant(idx);
+    }
+
+    pub fn format(
+        self: *const Bytecode,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = options; // autofix
+        _ = fmt; // autofix
+        for (self.constants) |c| {
+            const len = c.get_size() + 4;
+            const typ = c.get_type();
+            try writer.print("{} ({} bytes)\n", .{ typ, len });
+            try writer.print("{}\n", .{c});
+        }
     }
 };
