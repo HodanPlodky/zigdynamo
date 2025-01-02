@@ -138,7 +138,7 @@ const Environment = struct {
         self.global[@intCast(index)] = value;
     }
 
-    pub fn get_global(self: *Environment, index: u32) Value {
+    pub fn get_global(self: *const Environment, index: u32) Value {
         return self.global[@intCast(index)];
     }
 };
