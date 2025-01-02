@@ -5,6 +5,7 @@ pub const Instruction = enum(u8) {
     // literals
     push,
     pop,
+    dup,
     object,
     closure,
     nil,
@@ -63,6 +64,7 @@ pub const Instruction = enum(u8) {
         return switch (self) {
             Instruction.push => "push",
             Instruction.pop => "pop",
+            Instruction.dup => "dup",
             Instruction.object => "object",
             Instruction.closure => "closure",
             Instruction.nil => "nil",

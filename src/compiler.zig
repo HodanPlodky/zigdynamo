@@ -293,6 +293,7 @@ const Compiler = struct {
             switch (expr) {
                 ast.Ast.let => |let| {
                     self.compile_expr(main_buffer, &unbound_vars, let.value);
+                    main_buffer.add_inst(I.dup);
                     main_buffer.add_inst(I.set_global);
                     const target_place = self.env.get_place(let.target).?;
                     std.debug.assert(std.meta.activeTag(target_place) == Place.global);
@@ -465,6 +466,7 @@ const Compiler = struct {
             },
             ast.Ast.let => |let| {
                 self.compile_expr(buffer, unbound_vars, let.value);
+                buffer.add_inst(I.dup);
                 const idx = self.env.add_var(let.target);
                 buffer.add_inst(I.set);
                 buffer.add_u32(idx);

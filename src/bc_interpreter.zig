@@ -38,8 +38,8 @@ const Stack = struct {
         self.stack.appendAssumeCapacity(value);
     }
 
-    pub fn pop(self: *Stack) ?runtime.Value {
-        return self.stack.popOrNull();
+    pub fn pop(self: *Stack) runtime.Value {
+        return self.stack.pop();
     }
 
     pub fn top(self: *const Stack) ?runtime.Value {
@@ -175,6 +175,9 @@ pub const Interpreter = struct {
                 bc.Instruction.pop => {
                     _ = self.stack.pop();
                 },
+                bc.Instruction.dup => {
+                    self.stack.push(self.stack.top().?);
+                },
                 bc.Instruction.true => {
                     const val = Value.new_true();
                     self.stack.push(val);
@@ -207,12 +210,12 @@ pub const Interpreter = struct {
                 },
 
                 bc.Instruction.set_global => {
-                    const value = self.stack.pop().?;
+                    const value = self.stack.pop();
                     const idx = self.read_u32();
                     self.env.set_global(idx, value);
                 },
                 bc.Instruction.set => {
-                    const value = self.stack.pop().?;
+                    const value = self.stack.pop();
                     const idx = self.read_u32();
                     self.env.local.set(idx, value);
                 },
@@ -236,7 +239,7 @@ pub const Interpreter = struct {
                 },
                 bc.Instruction.branch => {
                     const pc = self.read_u32();
-                    const cond = self.stack.pop().?;
+                    const cond = self.stack.pop();
                     switch (cond.get_type()) {
                         ValueType.true => self.pc = pc,
                         ValueType.false => {},
@@ -261,7 +264,7 @@ pub const Interpreter = struct {
                     self.stack.push(val);
                 },
                 bc.Instruction.call => {
-                    const target = self.stack.pop().?;
+                    const target = self.stack.pop();
                     if (target.get_type() != runtime.ValueType.closure) {
                         @panic("cannot call this object");
                     }
@@ -314,12 +317,11 @@ pub const Interpreter = struct {
                 else => @panic("unimplemented instruction"),
             }
         }
-        return runtime.Value.new_nil();
     }
 
     fn handle_binop(self: *Interpreter, comptime oper: fn (Value, Value) Value) void {
-        const right = self.stack.pop().?;
-        const left = self.stack.pop().?;
+        const right = self.stack.pop();
+        const left = self.stack.pop();
         if (left.get_type() == ValueType.number and right.get_type() == ValueType.number) {
             const res = oper(left, right);
             self.stack.push_unsafe(res);
