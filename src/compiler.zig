@@ -200,10 +200,11 @@ const ConstantBuffer = struct {
     }
 
     pub fn add_u32(self: *ConstantBuffer, value: u32) void {
-        self.buffer.append(@intCast((value >> 24) & 0xff)) catch unreachable;
-        self.buffer.append(@intCast((value >> 16) & 0xff)) catch unreachable;
-        self.buffer.append(@intCast((value >> 8) & 0xff)) catch unreachable;
-        self.buffer.append(@intCast(value & 0xff)) catch unreachable;
+        self.buffer.ensureTotalCapacity(self.buffer.items.len + 4) catch unreachable;
+        self.buffer.appendAssumeCapacity(@intCast((value >> 24) & 0xff));
+        self.buffer.appendAssumeCapacity(@intCast((value >> 16) & 0xff));
+        self.buffer.appendAssumeCapacity(@intCast((value >> 8) & 0xff));
+        self.buffer.appendAssumeCapacity(@intCast(value & 0xff));
     }
 
     pub fn set_u32(self: *const ConstantBuffer, idx: u32, value: u32) void {

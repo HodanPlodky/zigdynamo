@@ -34,6 +34,10 @@ const Stack = struct {
         self.stack.append(value) catch unreachable;
     }
 
+    pub fn push_unsafe(self: *Stack, value: runtime.Value) void {
+        self.stack.appendAssumeCapacity(value);
+    }
+
     pub fn pop(self: *Stack) ?runtime.Value {
         return self.stack.popOrNull();
     }
@@ -77,10 +81,11 @@ const LocalEnv = struct {
         const tmp_pc: usize = @intCast(ret_pc);
         const ret = Value.new_raw(tmp_pc << 32 | ret_const.index);
         const tmp = self.buffer.items.len;
-        self.buffer.appendSlice(args) catch unreachable;
-        self.buffer.appendNTimes(Value.new_nil(), local_count) catch unreachable;
-        self.buffer.append(old_fp) catch unreachable;
-        self.buffer.append(ret) catch unreachable;
+        self.buffer.ensureTotalCapacity(self.buffer.items.len + args.len + local_count + 2) catch unreachable;
+        self.buffer.appendSliceAssumeCapacity(args);
+        self.buffer.appendNTimesAssumeCapacity(Value.new_nil(), local_count);
+        self.buffer.appendAssumeCapacity(old_fp);
+        self.buffer.appendAssumeCapacity(ret);
         self.current_ptr = @intCast(tmp);
     }
 
@@ -184,12 +189,12 @@ pub const Interpreter = struct {
                 },
 
                 // should not create call
-                bc.Instruction.add => self.handle_binopt(Value.add),
-                bc.Instruction.sub => self.handle_binopt(Value.sub),
-                bc.Instruction.mul => self.handle_binopt(Value.mul),
-                bc.Instruction.div => self.handle_binopt(Value.div),
-                bc.Instruction.gt => self.handle_binopt(Value.gt),
-                bc.Instruction.lt => self.handle_binopt(Value.lt),
+                bc.Instruction.add => self.handle_binop(Value.add),
+                bc.Instruction.sub => self.handle_binop(Value.sub),
+                bc.Instruction.mul => self.handle_binop(Value.mul),
+                bc.Instruction.div => self.handle_binop(Value.div),
+                bc.Instruction.gt => self.handle_binop(Value.gt),
+                bc.Instruction.lt => self.handle_binop(Value.lt),
                 bc.Instruction.ret => {
                     const restore_data = self.env.local.get_ret();
                     self.pc = restore_data.ret_pc;
@@ -312,12 +317,12 @@ pub const Interpreter = struct {
         return runtime.Value.new_nil();
     }
 
-    fn handle_binopt(self: *Interpreter, comptime oper: fn (Value, Value) Value) void {
+    fn handle_binop(self: *Interpreter, comptime oper: fn (Value, Value) Value) void {
         const right = self.stack.pop().?;
         const left = self.stack.pop().?;
         if (left.get_type() == ValueType.number and right.get_type() == ValueType.number) {
             const res = oper(left, right);
-            self.stack.push(res);
+            self.stack.push_unsafe(res);
         } else {
             std.debug.print("left: {}, right: {}\n", .{ left, right });
             @panic("Unimplemented dispatch");

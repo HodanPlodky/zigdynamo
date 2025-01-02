@@ -21,6 +21,7 @@ pub fn build(b: *std.Build) void {
         // complicated build scripts, this could be a generated file.
         .root_source_file = b.path("src/root.zig"),
         .target = target,
+        .single_threaded = true,
         .optimize = optimize,
     });
 
@@ -33,6 +34,7 @@ pub fn build(b: *std.Build) void {
         .name = "dynamo",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
+        .single_threaded = true,
         .optimize = optimize,
     });
 
