@@ -54,8 +54,8 @@ pub const ValueType = enum(u3) {
     closure = 2,
     object = 3,
     array = 4,
-    true = 5,
-    false = 6,
+    false = 5,
+    true = 6,
     string = 7,
 };
 
@@ -152,11 +152,14 @@ pub const Value = packed struct {
     }
 
     pub fn gt(left: Value, right: Value) Value {
-        return Value.new_bool(left.data > right.data);
+        const tmp: u64 = @intFromBool(left.data < right.data);
+        return Value.new_raw(tmp + 5);
+        //return Value.new_bool(left.data > right.data);
     }
 
     pub fn lt(left: Value, right: Value) Value {
-        return Value.new_bool(left.data < right.data);
+        const tmp: u64 = @intFromBool(left.data < right.data);
+        return Value.new_raw(tmp + 5);
     }
 
     // either value or ptr compare

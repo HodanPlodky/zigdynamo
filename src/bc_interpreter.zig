@@ -80,13 +80,12 @@ const LocalEnv = struct {
         const old_fp: Value = Value.new_raw(@intCast(self.current_ptr));
         const tmp_pc: usize = @intCast(ret_pc);
         const ret = Value.new_raw(tmp_pc << 32 | ret_const.index);
-        const tmp = self.buffer.items.len;
+        self.current_ptr = @intCast(self.buffer.items.len);
         self.buffer.ensureTotalCapacity(self.buffer.items.len + args.len + local_count + 2) catch unreachable;
         self.buffer.appendSliceAssumeCapacity(args);
         self.buffer.appendNTimesAssumeCapacity(Value.new_nil(), local_count);
         self.buffer.appendAssumeCapacity(old_fp);
         self.buffer.appendAssumeCapacity(ret);
-        self.current_ptr = @intCast(tmp);
     }
 
     pub fn pop_locals(self: *LocalEnv) void {
@@ -102,7 +101,7 @@ const LocalEnv = struct {
 
     pub fn get_ret(self: *const LocalEnv) struct { ret_pc: u32, ret_const: bc.ConstantIndex } {
         const ret = self.buffer.items[self.buffer.items.len - 1];
-        const ret_pc: u32 = @intCast((ret.data >> 32) & 0xffffffff);
+        const ret_pc: u32 = @intCast((ret.data >> 32));
         const ret_const: u32 = @intCast(ret.data & 0xffffffff);
         return .{
             .ret_pc = ret_pc,
@@ -112,6 +111,10 @@ const LocalEnv = struct {
 
     pub fn get(self: *const LocalEnv, idx: u32) Value {
         return self.buffer.items[@intCast(self.current_ptr + idx)];
+    }
+
+    pub fn get0(self: *const LocalEnv) Value {
+        return self.buffer.items[@intCast(self.current_ptr)];
     }
 
     pub fn set(self: *LocalEnv, idx: u32, value: Value) void {
@@ -221,14 +224,12 @@ pub const Interpreter = struct {
                 },
 
                 bc.Instruction.get_global => {
-                    const idx = self.bytecode.read_u32(self.pc);
-                    self.pc += 4;
+                    const idx = self.read_u32();
                     const value = self.env.get_global(idx);
                     self.stack.push(value);
                 },
                 bc.Instruction.get => {
-                    const idx = self.bytecode.read_u32(self.pc);
-                    self.pc += 4;
+                    const idx = self.read_u32();
                     const value = self.env.local.get(idx);
                     self.stack.push(value);
                 },
