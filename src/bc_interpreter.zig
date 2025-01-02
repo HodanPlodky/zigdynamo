@@ -46,6 +46,10 @@ const Stack = struct {
         return self.stack.getLast();
     }
 
+    pub fn set_top(self: *Stack, value: runtime.Value) void {
+        self.stack.items[self.stack.items.len - 1] = value;
+    }
+
     pub fn slice_top(self: *const Stack, count: u32) []runtime.Value {
         const tmp: usize = @intCast(count);
         return self.stack.items[(self.stack.items.len - tmp)..];
@@ -322,10 +326,10 @@ pub const Interpreter = struct {
 
     fn handle_binop(self: *Interpreter, comptime oper: fn (Value, Value) Value) void {
         const right = self.stack.pop();
-        const left = self.stack.pop();
+        const left = self.stack.top();
         if (left.get_type() == ValueType.number and right.get_type() == ValueType.number) {
             const res = oper(left, right);
-            self.stack.push_unsafe(res);
+            self.stack.set_top(res);
         } else {
             std.debug.print("left: {}, right: {}\n", .{ left, right });
             @panic("Unimplemented dispatch");
