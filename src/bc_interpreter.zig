@@ -42,8 +42,8 @@ const Stack = struct {
         return self.stack.pop();
     }
 
-    pub fn top(self: *const Stack) ?runtime.Value {
-        return self.stack.getLastOrNull();
+    pub fn top(self: *const Stack) runtime.Value {
+        return self.stack.getLast();
     }
 
     pub fn slice_top(self: *const Stack, count: u32) []runtime.Value {
@@ -176,7 +176,7 @@ pub const Interpreter = struct {
                     _ = self.stack.pop();
                 },
                 bc.Instruction.dup => {
-                    self.stack.push(self.stack.top().?);
+                    self.stack.push(self.stack.top());
                 },
                 bc.Instruction.true => {
                     const val = Value.new_true();
@@ -206,16 +206,16 @@ pub const Interpreter = struct {
                     self.env.local.pop_locals();
                 },
                 bc.Instruction.ret_main => {
-                    return self.stack.top().?;
+                    return self.stack.top();
                 },
 
                 bc.Instruction.set_global => {
-                    const value = self.stack.pop();
+                    const value = self.stack.top();
                     const idx = self.read_u32();
                     self.env.set_global(idx, value);
                 },
                 bc.Instruction.set => {
-                    const value = self.stack.pop();
+                    const value = self.stack.top();
                     const idx = self.read_u32();
                     self.env.local.set(idx, value);
                 },
