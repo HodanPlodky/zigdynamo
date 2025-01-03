@@ -4,6 +4,7 @@ const runtime = @import("runtime.zig");
 pub const Instruction = enum(u8) {
     // literals
     push,
+    push_byte,
     pop,
     dup,
     object,
@@ -63,6 +64,7 @@ pub const Instruction = enum(u8) {
     pub fn get_str(self: Instruction) []const u8 {
         return switch (self) {
             Instruction.push => "push",
+            Instruction.push_byte => "push_byte",
             Instruction.pop => "pop",
             Instruction.dup => "dup",
             Instruction.object => "object",
@@ -100,6 +102,7 @@ pub const Instruction = enum(u8) {
 
     pub fn get_extrabytes(self: Instruction) usize {
         return switch (self) {
+            Instruction.push_byte => 1,
             Instruction.push,
             Instruction.jump,
             Instruction.branch,
@@ -242,7 +245,7 @@ pub const Bytecode = struct {
     }
 
     pub fn read_u8(self: *const Bytecode, pc: usize) u8 {
-        return self.current[pc];
+        return self.current.data[pc];
     }
 
     pub fn read_u32(self: *const Bytecode, pc: usize) u32 {

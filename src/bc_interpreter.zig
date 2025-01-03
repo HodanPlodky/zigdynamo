@@ -179,6 +179,11 @@ pub const Interpreter = struct {
                     const val = Value.new_num(num);
                     self.stack.push(val);
                 },
+                bc.Instruction.push_byte => {
+                    const num = self.read_u8();
+                    const val = Value.new_num(@intCast(num));
+                    self.stack.push(val);
+                },
                 bc.Instruction.pop => {
                     _ = self.stack.pop();
                 },
@@ -345,6 +350,12 @@ pub const Interpreter = struct {
     fn read_u32(self: *Interpreter) u32 {
         const res = self.bytecode.read_u32(self.pc);
         self.pc += 4;
+        return res;
+    }
+
+    fn read_u8(self: *Interpreter) u8 {
+        const res = self.bytecode.read_u8(self.pc);
+        self.pc += 1;
         return res;
     }
 };

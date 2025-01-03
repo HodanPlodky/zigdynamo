@@ -207,6 +207,10 @@ const ConstantBuffer = struct {
         self.buffer.appendAssumeCapacity(@intCast(value & 0xff));
     }
 
+    pub fn add_u8(self: *ConstantBuffer, value: u8) void {
+        self.buffer.append(value) catch unreachable;
+    }
+
     pub fn set_u32(self: *const ConstantBuffer, idx: u32, value: u32) void {
         self.buffer.items[idx] = @intCast((value >> 24) & 0xff);
         self.buffer.items[idx + 1] = @intCast((value >> 16) & 0xff);
@@ -364,8 +368,13 @@ const Compiler = struct {
     pub fn compile_expr(self: *Compiler, buffer: *ConstantBuffer, unbound_vars: *std.ArrayList(UnboundIdent), tailcall: bool, expr: *const ast.Ast) void {
         switch (expr.*) {
             ast.Ast.number => |num| {
-                buffer.add_inst(I.push);
-                buffer.add_u32(num);
+                if (num >= 256) {
+                    buffer.add_inst(I.push);
+                    buffer.add_u32(num);
+                } else {
+                    buffer.add_inst(I.push_byte);
+                    buffer.add_u8(@intCast(num));
+                }
             },
             ast.Ast.nil => {
                 buffer.add_inst(I.nil);
@@ -557,15 +566,15 @@ test "basic compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (29 bytes)
-        \\	5: push 0 0 0 1
-        \\	10: push 0 0 0 2
-        \\	15: push 0 0 0 2
-        \\	20: mul
-        \\	21: add
-        \\	22: push 0 0 0 3
-        \\	27: sub
-        \\	28: ret_main
+        \\main_function (17 bytes)
+        \\	5: push_byte 1
+        \\	7: push_byte 2
+        \\	9: push_byte 2
+        \\	11: mul
+        \\	12: add
+        \\	13: push_byte 3
+        \\	15: sub
+        \\	16: ret_main
         \\
         \\
     ).expectEqualFmt(res);
@@ -585,14 +594,14 @@ test "let compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (28 bytes)
-        \\	5: push 0 0 0 1
-        \\	10: set_global 0 0 0 0
-        \\	15: pop
-        \\	16: get_global 0 0 0 0
-        \\	21: push 0 0 0 1
-        \\	26: add
-        \\	27: ret_main
+        \\main_function (22 bytes)
+        \\	5: push_byte 1
+        \\	7: set_global 0 0 0 0
+        \\	12: pop
+        \\	13: get_global 0 0 0 0
+        \\	18: push_byte 1
+        \\	20: add
+        \\	21: ret_main
         \\
         \\
     ).expectEqualFmt(res);
@@ -607,21 +616,21 @@ test "condition compiler" {
 
     var p = Parser.new(
         \\ let x = true;
-        \\ if (x) 1 else 2;
+        \\ if (x) 1000 else 2;
     , allocator);
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (38 bytes)
+        \\main_function (35 bytes)
         \\	5: true
         \\	6: set_global 0 0 0 0
         \\	11: pop
         \\	12: get_global 0 0 0 0
-        \\	17: branch 0 0 0 32
-        \\	22: push 0 0 0 2
-        \\	27: jump 0 0 0 37
-        \\	32: push 0 0 0 1
-        \\	37: ret_main
+        \\	17: branch 0 0 0 29
+        \\	22: push_byte 2
+        \\	24: jump 0 0 0 34
+        \\	29: push 0 0 3 232
+        \\	34: ret_main
         \\
         \\
     ).expectEqualFmt(res);
