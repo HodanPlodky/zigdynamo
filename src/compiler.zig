@@ -292,14 +292,14 @@ const Compiler = struct {
         for (program.data, 0..) |expr, i| {
             switch (expr) {
                 ast.Ast.let => |let| {
-                    self.compile_expr(main_buffer, &unbound_vars, let.value);
+                    self.compile_expr(main_buffer, &unbound_vars, false, let.value);
                     main_buffer.add_inst(I.set_global);
                     const target_place = self.env.get_place(let.target).?;
                     std.debug.assert(std.meta.activeTag(target_place) == Place.global);
                     const target_idx = target_place.get_index();
                     main_buffer.add_u32(target_idx);
                 },
-                else => self.compile_expr(main_buffer, &unbound_vars, &expr),
+                else => self.compile_expr(main_buffer, &unbound_vars, false, &expr),
             }
             if (program.data.len - 1 > i) {
                 main_buffer.add_inst(I.pop);
@@ -339,7 +339,7 @@ const Compiler = struct {
         for (function.params) |param| {
             _ = self.env.add_var(param);
         }
-        self.compile_expr(function_constant, &unbound_vars, function.body);
+        self.compile_expr(function_constant, &unbound_vars, true, function.body);
         const max_size: u32 = @intCast(self.env.get_current().?.max_size);
         self.env.pop();
 
@@ -361,7 +361,7 @@ const Compiler = struct {
         buffer.add_u32(@intCast(unbound_vars.items.len));
     }
 
-    pub fn compile_expr(self: *Compiler, buffer: *ConstantBuffer, unbound_vars: *std.ArrayList(UnboundIdent), expr: *const ast.Ast) void {
+    pub fn compile_expr(self: *Compiler, buffer: *ConstantBuffer, unbound_vars: *std.ArrayList(UnboundIdent), tailcall: bool, expr: *const ast.Ast) void {
         switch (expr.*) {
             ast.Ast.number => |num| {
                 buffer.add_inst(I.push);
@@ -378,8 +378,8 @@ const Compiler = struct {
                 }
             },
             ast.Ast.binop => |binop| {
-                self.compile_expr(buffer, unbound_vars, binop.left);
-                self.compile_expr(buffer, unbound_vars, binop.right);
+                self.compile_expr(buffer, unbound_vars, false, binop.left);
+                self.compile_expr(buffer, unbound_vars, false, binop.right);
                 switch (binop.op) {
                     '+' => buffer.add_inst(I.add),
                     '-' => buffer.add_inst(I.sub),
@@ -401,26 +401,30 @@ const Compiler = struct {
                 }
             },
             ast.Ast.condition => |condition| {
-                self.compile_expr(buffer, unbound_vars, condition.cond);
+                self.compile_expr(buffer, unbound_vars, false, condition.cond);
                 buffer.add_inst(I.branch);
                 const then_label = buffer.create_label();
                 const after_label = buffer.create_label();
                 buffer.add_label_use(then_label);
                 if (condition.else_block) |else_block| {
-                    self.compile_expr(buffer, unbound_vars, else_block);
+                    self.compile_expr(buffer, unbound_vars, false, else_block);
                 } else {
                     buffer.add_inst(I.nil);
                 }
-                buffer.add_inst(I.jump);
-                buffer.add_label_use(after_label);
+                if (tailcall) {
+                    buffer.add_inst(I.ret);
+                } else {
+                    buffer.add_inst(I.jump);
+                    buffer.add_label_use(after_label);
+                }
                 buffer.set_label_position(then_label);
-                self.compile_expr(buffer, unbound_vars, condition.then_block);
+                self.compile_expr(buffer, unbound_vars, false, condition.then_block);
                 buffer.set_label_position(after_label);
             },
             ast.Ast.function => |function| self.compile_fn(buffer, function),
             ast.Ast.call => |call| {
                 for (call.args) |*arg| {
-                    self.compile_expr(buffer, unbound_vars, arg);
+                    self.compile_expr(buffer, unbound_vars, false, arg);
                 }
                 switch (call.target.*) {
                     ast.Ast.print_fn => {
@@ -428,7 +432,7 @@ const Compiler = struct {
                         buffer.add_u32(@intCast(call.args.len));
                     },
                     else => {
-                        self.compile_expr(buffer, unbound_vars, call.target);
+                        self.compile_expr(buffer, unbound_vars, false, call.target);
                         buffer.add_inst(I.call);
                     },
                 }
@@ -445,32 +449,32 @@ const Compiler = struct {
                 const after_label = buffer.create_label();
                 const body_label = buffer.create_label();
                 buffer.set_label_position(cond_label);
-                self.compile_expr(buffer, unbound_vars, loop.cond);
+                self.compile_expr(buffer, unbound_vars, false, loop.cond);
                 buffer.add_inst(I.branch);
                 buffer.add_label_use(body_label);
                 buffer.add_inst(I.jump);
                 buffer.add_label_use(after_label);
                 buffer.set_label_position(body_label);
-                self.compile_expr(buffer, unbound_vars, loop.body);
+                self.compile_expr(buffer, unbound_vars, false, loop.body);
                 buffer.add_inst(I.jump);
                 buffer.add_label_use(cond_label);
                 buffer.set_label_position(after_label);
             },
             ast.Ast.block => |exprs| {
                 for (exprs[0..(exprs.len - 1)]) |*item| {
-                    self.compile_expr(buffer, unbound_vars, item);
+                    self.compile_expr(buffer, unbound_vars, false, item);
                     buffer.add_inst(I.pop);
                 }
-                self.compile_expr(buffer, unbound_vars, &exprs[exprs.len - 1]);
+                self.compile_expr(buffer, unbound_vars, false, &exprs[exprs.len - 1]);
             },
             ast.Ast.let => |let| {
-                self.compile_expr(buffer, unbound_vars, let.value);
+                self.compile_expr(buffer, unbound_vars, false, let.value);
                 const idx = self.env.add_var(let.target);
                 buffer.add_inst(I.set);
                 buffer.add_u32(idx);
             },
             ast.Ast.assign => |assign| {
-                self.compile_expr(buffer, unbound_vars, assign.value);
+                self.compile_expr(buffer, unbound_vars, false, assign.value);
                 if (self.env.get_place(assign.target)) |place| {
                     switch (place) {
                         Place.local => buffer.add_inst(I.set),
