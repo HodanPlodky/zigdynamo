@@ -231,15 +231,35 @@ pub const Interpreter = struct {
                     const idx = self.read_u32();
                     self.env.local.set(idx, value);
                 },
+                bc.Instruction.set_global_small => {
+                    const value = self.stack.top();
+                    const idx = self.read_u8();
+                    self.env.set_global(@intCast(idx), value);
+                },
+                bc.Instruction.set_small => {
+                    const value = self.stack.top();
+                    const idx = self.read_u8();
+                    self.env.local.set(@intCast(idx), value);
+                },
 
                 bc.Instruction.get_global => {
                     const idx = self.read_u32();
                     const value = self.env.get_global(idx);
                     self.stack.push(value);
                 },
+                bc.Instruction.get_global_small => {
+                    const idx = self.read_u8();
+                    const value = self.env.get_global(@intCast(idx));
+                    self.stack.push(value);
+                },
                 bc.Instruction.get => {
                     const idx = self.read_u32();
                     const value = self.env.local.get(idx);
+                    self.stack.push(value);
+                },
+                bc.Instruction.get_small => {
+                    const idx = self.read_u8();
+                    const value = self.env.local.get(@intCast(idx));
                     self.stack.push(value);
                 },
 

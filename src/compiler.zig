@@ -506,12 +506,22 @@ const Compiler = struct {
 
     fn compile_ident(self: *Compiler, buffer: *ConstantBuffer, ident: []const u8) bool {
         if (self.env.get_place(ident)) |place| {
-            switch (place) {
-                Place.local => buffer.add_inst(I.get),
-                Place.global => buffer.add_inst(I.get_global),
-            }
             const idx = place.get_index();
-            buffer.add_u32(idx);
+            switch (place) {
+                Place.local => if (idx < 256)
+                    buffer.add_inst(I.get_small)
+                else
+                    buffer.add_inst(I.get),
+                Place.global => if (idx < 256)
+                    buffer.add_inst(I.get_global_small)
+                else
+                    buffer.add_inst(I.get_global),
+            }
+            if (idx < 256) {
+                buffer.add_u8(@intCast(idx));
+            } else {
+                buffer.add_u32(idx);
+            }
             return false;
         }
         return true;

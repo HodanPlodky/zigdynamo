@@ -16,9 +16,13 @@ pub const Instruction = enum(u8) {
 
     // locals
     set,
+    set_small,
     get,
+    get_small,
     set_global,
     get_global,
+    set_global_small,
+    get_global_small,
 
     // math
     add,
@@ -74,9 +78,13 @@ pub const Instruction = enum(u8) {
             Instruction.false => "false",
             Instruction.string => "string",
             Instruction.set => "set",
+            Instruction.set_small => "set_small",
             Instruction.get => "get",
+            Instruction.get_small => "get_small",
             Instruction.set_global => "set_global",
             Instruction.get_global => "get_global",
+            Instruction.set_global_small => "set_global_small",
+            Instruction.get_global_small => "get_global_small",
             Instruction.add => "add",
             Instruction.sub => "sub",
             Instruction.mul => "mul",
@@ -102,7 +110,12 @@ pub const Instruction = enum(u8) {
 
     pub fn get_extrabytes(self: Instruction) usize {
         return switch (self) {
-            Instruction.push_byte => 1,
+            Instruction.push_byte,
+            Instruction.get_small,
+            Instruction.set_small,
+            Instruction.get_global_small,
+            Instruction.set_global_small,
+            => 1,
             Instruction.push,
             Instruction.jump,
             Instruction.branch,
