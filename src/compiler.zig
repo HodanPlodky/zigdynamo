@@ -505,7 +505,7 @@ const Compiler = struct {
             },
             ast.Ast.object => |object| {
                 if (object.prototype) |proto| {
-                    self.compile_expr(buffer, unbound_vars, tailcall, proto);
+                    self.compile_expr(buffer, unbound_vars, false, proto);
                 } else {
                     buffer.add_inst(I.nil);
                 }
@@ -515,11 +515,19 @@ const Compiler = struct {
                     string_const.buffer.appendSlice(field.name) catch unreachable;
                     const string_idx = self.add_constant(string_const);
                     class_const.add_u32(string_idx.index);
-                    self.compile_expr(buffer, unbound_vars, tailcall, field.value);
+                    self.compile_expr(buffer, unbound_vars, false, field.value);
                 }
                 const class_idx = self.add_constant(class_const);
                 buffer.add_inst(I.object);
                 buffer.add_u32(class_idx.index);
+            },
+            ast.Ast.field_access => |access| {
+                self.compile_expr(buffer, unbound_vars, false, access.target);
+                var string_const = self.create_constant(bytecode.ConstantType.string);
+                string_const.buffer.appendSlice(access.field) catch unreachable;
+                const string_idx = self.add_constant(string_const);
+                buffer.add_inst(I.get_field);
+                buffer.add_u32(string_idx.index);
             },
             else => {
                 std.debug.print("{}\n", .{expr});
@@ -701,17 +709,29 @@ test "object compiler" {
         \\      a: 1,
         \\      val: "x",
         \\ };
+        \\ print(o.a + 1);
+        \\ print(o.val);
     , allocator);
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (24 bytes)
+        \\main_function (53 bytes)
         \\	5: nil
         \\	6: push_byte 1
         \\	8: string 0 0 0 3
         \\	13: object 0 0 0 4
         \\	18: set_global 0 0 0 0
-        \\	23: ret_main
+        \\	23: pop
+        \\	24: get_global_small 0
+        \\	26: get_field 0 0 0 1
+        \\	31: push_byte 1
+        \\	33: add
+        \\	34: print 0 0 0 1
+        \\	39: pop
+        \\	40: get_global_small 0
+        \\	42: get_field 0 0 0 2
+        \\	47: print 0 0 0 1
+        \\	52: ret_main
         \\
         \\string (6 bytes)
         \\string: a

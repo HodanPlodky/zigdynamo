@@ -121,6 +121,7 @@ pub const Instruction = enum(u8) {
             Instruction.branch,
             Instruction.get,
             Instruction.get_global,
+            Instruction.get_field,
             Instruction.set,
             Instruction.set_global,
             Instruction.print,
