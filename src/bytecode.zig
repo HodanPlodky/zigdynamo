@@ -125,6 +125,7 @@ pub const Instruction = enum(u8) {
             Instruction.set_global,
             Instruction.print,
             Instruction.string,
+            Instruction.object,
             => 4,
             Instruction.closure => 8,
             else => 0,
@@ -209,6 +210,25 @@ pub const Constant = struct {
         _ = options;
         _ = fmt;
         //try writer.print("{any}", .{self.get_slice()});
+        try switch (self.get_type()) {
+            ConstantType.function, ConstantType.main_function => self.function_format(writer),
+            ConstantType.string => {
+                try writer.print("string: {s}\n", .{self.get_slice()[5..]});
+            },
+            ConstantType.class => {
+                try writer.print("class:", .{});
+                const field_count = (self.get_size() - 1) / 4;
+                for (0..field_count) |index| {
+                    try writer.print(" {}", .{self.get_u32(index * 4 + 5)});
+                }
+            },
+        };
+    }
+
+    fn function_format(
+        self: *const Constant,
+        writer: anytype,
+    ) !void {
         var i: usize = switch (self.get_type()) {
             ConstantType.function => 13,
             ConstantType.main_function => 5,

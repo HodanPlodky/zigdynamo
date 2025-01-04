@@ -509,6 +509,17 @@ const Compiler = struct {
                 } else {
                     buffer.add_inst(I.nil);
                 }
+                var class_const = self.create_constant(bytecode.ConstantType.class);
+                for (object.fields) |field| {
+                    var string_const = self.create_constant(bytecode.ConstantType.string);
+                    string_const.buffer.appendSlice(field.name) catch unreachable;
+                    const string_idx = self.add_constant(string_const);
+                    class_const.add_u32(string_idx.index);
+                    self.compile_expr(buffer, unbound_vars, tailcall, field.value);
+                }
+                const class_idx = self.add_constant(class_const);
+                buffer.add_inst(I.object);
+                buffer.add_u32(class_idx.index);
             },
             else => {
                 std.debug.print("{}\n", .{expr});
@@ -688,16 +699,31 @@ test "object compiler" {
     var p = Parser.new(
         \\ let o = object {
         \\      a: 1,
+        \\      val: "x",
         \\ };
     , allocator);
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (12 bytes)
+        \\main_function (24 bytes)
         \\	5: nil
-        \\	6: set_global 0 0 0 0
-        \\	11: ret_main
+        \\	6: push_byte 1
+        \\	8: string 0 0 0 3
+        \\	13: object 0 0 0 4
+        \\	18: set_global 0 0 0 0
+        \\	23: ret_main
         \\
+        \\string (6 bytes)
+        \\string: a
+        \\
+        \\string (8 bytes)
+        \\string: val
+        \\
+        \\string (6 bytes)
+        \\string: x
+        \\
+        \\class (13 bytes)
+        \\class: 1 2
         \\
     ).expectEqualFmt(res);
 }
