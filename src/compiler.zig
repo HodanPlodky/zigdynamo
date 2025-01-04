@@ -291,25 +291,28 @@ const Compiler = struct {
         // run since the global env
         // behaves dynamically
         self.gather_globals(program);
-        const main_buffer = self.get_constant(self.create_constant(bytecode.ConstantType.main_function));
+        // padding main
+        self.constant_buffers.append(ConstantBuffer.init(self.scratch_alloc, self.scratch_alloc)) catch unreachable;
+        var main_buffer = self.create_constant(bytecode.ConstantType.main_function);
         var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
         for (program.data, 0..) |expr, i| {
             switch (expr) {
                 ast.Ast.let => |let| {
-                    self.compile_expr(main_buffer, &unbound_vars, false, let.value);
+                    self.compile_expr(&main_buffer, &unbound_vars, false, let.value);
                     main_buffer.add_inst(I.set_global);
                     const target_place = self.env.get_place(let.target).?;
                     std.debug.assert(std.meta.activeTag(target_place) == Place.global);
                     const target_idx = target_place.get_index();
                     main_buffer.add_u32(target_idx);
                 },
-                else => self.compile_expr(main_buffer, &unbound_vars, false, &expr),
+                else => self.compile_expr(&main_buffer, &unbound_vars, false, &expr),
             }
             if (program.data.len - 1 > i) {
                 main_buffer.add_inst(I.pop);
             }
         }
         main_buffer.add_inst(I.ret_main);
+        self.add_constant_main(main_buffer);
 
         for (self.constant_buffers.items) |*buffer| {
             buffer.patch_len();
@@ -333,8 +336,7 @@ const Compiler = struct {
     }
 
     pub fn compile_fn(self: *Compiler, buffer: *ConstantBuffer, function: ast.Function) void {
-        const function_constant_idx = self.create_constant(bytecode.ConstantType.function);
-        const function_constant = self.get_constant(function_constant_idx);
+        var function_constant = self.create_constant(bytecode.ConstantType.function);
         // local count padding
         function_constant.add_u32(0);
         function_constant.add_u32(@intCast(function.params.len));
@@ -343,7 +345,7 @@ const Compiler = struct {
         for (function.params) |param| {
             _ = self.env.add_var(param);
         }
-        self.compile_expr(function_constant, &unbound_vars, true, function.body);
+        self.compile_expr(&function_constant, &unbound_vars, true, function.body);
         const max_size: u32 = @intCast(self.env.get_current().?.max_size);
         self.env.pop();
 
@@ -359,6 +361,8 @@ const Compiler = struct {
         }
 
         function_constant.fix_locals(&unbound_vars, max_size);
+
+        const function_constant_idx = self.add_constant(function_constant);
 
         buffer.add_inst(I.closure);
         buffer.add_u32(function_constant_idx.index);
@@ -447,9 +451,9 @@ const Compiler = struct {
                 }
             },
             ast.Ast.string => |string| {
-                const string_idx = self.create_constant(bytecode.ConstantType.string);
-                const string_buffer = self.get_constant(string_idx);
+                var string_buffer = self.create_constant(bytecode.ConstantType.string);
                 string_buffer.buffer.appendSlice(string) catch unreachable;
+                const string_idx = self.add_constant(string_buffer);
                 buffer.add_inst(I.string);
                 buffer.add_u32(string_idx.index);
             },
@@ -499,6 +503,13 @@ const Compiler = struct {
                     buffer.add_u32(0xfbfbfbfb);
                 }
             },
+            ast.Ast.object => |object| {
+                if (object.prototype) |proto| {
+                    self.compile_expr(buffer, unbound_vars, tailcall, proto);
+                } else {
+                    buffer.add_inst(I.nil);
+                }
+            },
             else => {
                 std.debug.print("{}\n", .{expr});
                 @panic("unimplemented");
@@ -542,21 +553,40 @@ const Compiler = struct {
         unbound_vars.append(new_unbound) catch unreachable;
     }
 
-    pub fn create_constant(self: *Compiler, const_type: bytecode.ConstantType) bytecode.ConstantIndex {
-        const constant_buffer = ConstantBuffer.init(self.pernament_alloc, self.scratch_alloc);
-        self.constant_buffers.append(constant_buffer) catch unreachable;
-        var tmp = &self.constant_buffers.items[self.constant_buffers.items.len - 1];
+    fn create_constant(self: *Compiler, const_type: bytecode.ConstantType) ConstantBuffer {
+        var constant_buffer = ConstantBuffer.init(self.pernament_alloc, self.scratch_alloc);
         // pad length
-        tmp.add_u32(0);
-        tmp.buffer.append(@intFromEnum(const_type)) catch unreachable;
+        constant_buffer.add_u32(0);
+        constant_buffer.buffer.append(@intFromEnum(const_type)) catch unreachable;
+        return constant_buffer;
+    }
+
+    fn add_constant(self: *Compiler, constant_buffer: ConstantBuffer) bytecode.ConstantIndex {
+        if (self.dedupe_constant(constant_buffer)) |idx| {
+            return idx;
+        }
+        self.constant_buffers.append(constant_buffer) catch unreachable;
         return bytecode.ConstantIndex.new(@intCast(self.constant_buffers.items.len - 1));
     }
 
-    pub fn get_constant(self: *Compiler, idx: bytecode.ConstantIndex) *ConstantBuffer {
+    fn add_constant_main(self: *Compiler, constant_buffer: ConstantBuffer) void {
+        self.constant_buffers.items[0] = constant_buffer;
+    }
+
+    fn dedupe_constant(self: *Compiler, checked_constant: ConstantBuffer) ?bytecode.ConstantIndex {
+        for (self.constant_buffers.items, 0..) |constant, idx| {
+            if (std.mem.eql(u8, checked_constant.buffer.items, constant.buffer.items)) {
+                return bytecode.ConstantIndex.new(@intCast(idx));
+            }
+        }
+        return null;
+    }
+
+    fn get_constant(self: *Compiler, idx: bytecode.ConstantIndex) *ConstantBuffer {
         return &self.constant_buffers.items[@intCast(idx.index)];
     }
 
-    pub fn gather_globals(self: *Compiler, program: ast.Program) void {
+    fn gather_globals(self: *Compiler, program: ast.Program) void {
         for (program.data) |item| {
             switch (item) {
                 ast.Ast.let => |let| self.env.add_global(let.target),
@@ -663,6 +693,11 @@ test "object compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\<!update>main_function (35 bytes)
+        \\main_function (12 bytes)
+        \\	5: nil
+        \\	6: set_global 0 0 0 0
+        \\	11: ret_main
+        \\
+        \\
     ).expectEqualFmt(res);
 }

@@ -248,6 +248,12 @@ pub const Closure = packed struct {
     }
 };
 
+pub const Object = packed struct {
+    prototype: runtime.Value,
+    class_idx: ConstantIndex,
+    values: runtime.FlexibleArr(runtime.Value),
+};
+
 pub const Bytecode = struct {
     constants: []Constant,
     current: Constant,
