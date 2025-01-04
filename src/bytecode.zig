@@ -202,6 +202,14 @@ pub const Constant = struct {
         return self.data[0..size];
     }
 
+    pub fn get_class_field_count(self: *const Constant) u32 {
+        return @intCast((self.get_size() - 1) / 4);
+    }
+
+    pub fn get_class_field(self: *const Constant, idx: u32) u32 {
+        return self.get_u32(idx * 4 + 5);
+    }
+
     pub fn format(
         self: *const Constant,
         comptime fmt: []const u8,
@@ -272,7 +280,12 @@ pub const Closure = packed struct {
 pub const Object = packed struct {
     prototype: runtime.Value,
     class_idx: ConstantIndex,
+    paddingdontuse: u32,
     values: runtime.FlexibleArr(runtime.Value),
+
+    pub fn additional_size(count: usize) usize {
+        return runtime.FlexibleArr(runtime.Value).additional_size(count);
+    }
 };
 
 pub const Bytecode = struct {

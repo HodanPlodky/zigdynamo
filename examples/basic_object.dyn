@@ -1,0 +1,7 @@
+let o = object {
+    a: 1,
+    val: "ahoj",
+};
+
+print(o.a + 1);
+print(o.val);

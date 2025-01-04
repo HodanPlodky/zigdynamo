@@ -344,6 +344,49 @@ pub const Interpreter = struct {
                     const val = Value.new_string(idx.index);
                     self.stack.push(val);
                 },
+                bc.Instruction.object => {
+                    const class_idx = bc.ConstantIndex.new(self.read_u32());
+                    const class_constant = self.bytecode.get_constant(class_idx);
+                    if (class_constant.get_type() != bc.ConstantType.class) {
+                        @panic("invalid object class");
+                    }
+                    const field_count = class_constant.get_class_field_count();
+                    const values = self.stack.slice_top(field_count);
+                    self.stack.pop_n(field_count);
+                    const object = self.gc.alloc_with_additional(bc.Object, field_count);
+                    object.values.count = field_count;
+                    for (values, 0..) |val, idx| {
+                        object.values.set(idx, val);
+                    }
+                    object.class_idx = class_idx;
+                    const proto = self.stack.top();
+                    object.prototype = proto;
+                    self.stack.set_top(Value.new_ptr(bc.Object, object, ValueType.object));
+                },
+                bc.Instruction.get_field => {
+                    const field_idx = self.read_u32();
+
+                    // You will always set top afterwards
+                    const val = self.stack.top();
+                    if (val.get_type() != ValueType.object) {
+                        @panic("invalid object");
+                    }
+                    const object = val.get_ptr(bc.Object);
+                    const class_constant = self.bytecode.get_constant(object.class_idx);
+                    var position: ?usize = null;
+                    for (0..class_constant.get_class_field_count()) |idx| {
+                        if (field_idx == class_constant.get_class_field(@intCast(idx))) {
+                            position = idx;
+                            break;
+                        }
+                    }
+
+                    if (position) |pos| {
+                        self.stack.set_top(object.values.get(pos));
+                    } else {
+                        @panic("non existant field");
+                    }
+                },
                 else => @panic("unimplemented instruction"),
             }
         }
