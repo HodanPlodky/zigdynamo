@@ -457,6 +457,7 @@ const Compiler = struct {
                 const cond_label = buffer.create_label();
                 const after_label = buffer.create_label();
                 const body_label = buffer.create_label();
+                buffer.add_inst(I.nil);
                 buffer.set_label_position(cond_label);
                 self.compile_expr(buffer, unbound_vars, false, loop.cond);
                 buffer.add_inst(I.branch);
@@ -464,6 +465,7 @@ const Compiler = struct {
                 buffer.add_inst(I.jump);
                 buffer.add_label_use(after_label);
                 buffer.set_label_position(body_label);
+                buffer.add_inst(I.pop);
                 self.compile_expr(buffer, unbound_vars, false, loop.body);
                 buffer.add_inst(I.jump);
                 buffer.add_label_use(cond_label);
@@ -604,14 +606,14 @@ test "let compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (22 bytes)
+        \\main_function (19 bytes)
         \\	5: push_byte 1
         \\	7: set_global 0 0 0 0
         \\	12: pop
-        \\	13: get_global 0 0 0 0
-        \\	18: push_byte 1
-        \\	20: add
-        \\	21: ret_main
+        \\	13: get_global_small 0
+        \\	15: push_byte 1
+        \\	17: add
+        \\	18: ret_main
         \\
         \\
     ).expectEqualFmt(res);
@@ -631,17 +633,36 @@ test "condition compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (35 bytes)
+        \\main_function (32 bytes)
         \\	5: true
         \\	6: set_global 0 0 0 0
         \\	11: pop
-        \\	12: get_global 0 0 0 0
-        \\	17: branch 0 0 0 29
-        \\	22: push_byte 2
-        \\	24: jump 0 0 0 34
-        \\	29: push 0 0 3 232
-        \\	34: ret_main
+        \\	12: get_global_small 0
+        \\	14: branch 0 0 0 26
+        \\	19: push_byte 2
+        \\	21: jump 0 0 0 31
+        \\	26: push 0 0 3 232
+        \\	31: ret_main
         \\
         \\
+    ).expectEqualFmt(res);
+}
+
+test "object compiler" {
+    const Parser = @import("parser.zig").Parser;
+    const oh = ohsnap{};
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var p = Parser.new(
+        \\ let o = object {
+        \\      a: 1,
+        \\ };
+    , allocator);
+    const prog = try p.parse();
+    const res = try compile(prog, allocator);
+    try oh.snap(@src(),
+        \\<!update>main_function (35 bytes)
     ).expectEqualFmt(res);
 }

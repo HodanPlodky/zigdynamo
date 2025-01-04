@@ -152,9 +152,8 @@ pub const Value = packed struct {
     }
 
     pub fn gt(left: Value, right: Value) Value {
-        const tmp: u64 = @intFromBool(left.data < right.data);
+        const tmp: u64 = @intFromBool(left.data > right.data);
         return Value.new_raw(tmp + 5);
-        //return Value.new_bool(left.data > right.data);
     }
 
     pub fn lt(left: Value, right: Value) Value {
