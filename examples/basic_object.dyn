@@ -5,3 +5,5 @@ let o = object {
 
 print(o.a + 1);
 print(o.val);
+o.a = 2;
+print(o.a + 1);

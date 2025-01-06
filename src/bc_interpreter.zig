@@ -373,16 +373,26 @@ pub const Interpreter = struct {
                     }
                     const object = val.get_ptr(bc.Object);
                     const class_constant = self.bytecode.get_constant(object.class_idx);
-                    var position: ?usize = null;
-                    for (0..class_constant.get_class_field_count()) |idx| {
-                        if (field_idx == class_constant.get_class_field(@intCast(idx))) {
-                            position = idx;
-                            break;
-                        }
-                    }
+                    const position: ?usize = class_constant.get_class_field_position(bc.ConstantIndex.new(field_idx));
 
                     if (position) |pos| {
                         self.stack.set_top(object.values.get(pos));
+                    } else {
+                        @panic("non existant field");
+                    }
+                },
+                bc.Instruction.set_field => {
+                    const field_idx = self.read_u32();
+                    const target = self.stack.pop();
+                    const val = self.stack.top();
+
+                    if (target.get_type() != ValueType.object) {}
+
+                    const object = target.get_ptr(bc.Object);
+                    const class_constant = self.bytecode.get_constant(object.class_idx);
+                    const position: ?usize = class_constant.get_class_field_position(bc.ConstantIndex.new(field_idx));
+                    if (position) |pos| {
+                        object.values.set(pos, val);
                     } else {
                         @panic("non existant field");
                     }

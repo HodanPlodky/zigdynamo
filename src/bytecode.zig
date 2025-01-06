@@ -124,11 +124,14 @@ pub const Instruction = enum(u8) {
             Instruction.get_field,
             Instruction.set,
             Instruction.set_global,
+            Instruction.set_field,
             Instruction.print,
             Instruction.string,
             Instruction.object,
             => 4,
-            Instruction.closure => 8,
+            Instruction.closure,
+            Instruction.methodcall,
+            => 8,
             else => 0,
         };
     }
@@ -208,6 +211,15 @@ pub const Constant = struct {
 
     pub fn get_class_field(self: *const Constant, idx: u32) u32 {
         return self.get_u32(idx * 4 + 5);
+    }
+
+    pub fn get_class_field_position(self: *const Constant, field_idx: ConstantIndex) ?usize {
+        for (0..self.get_class_field_count()) |idx| {
+            if (field_idx.index == self.get_class_field(@intCast(idx))) {
+                return idx;
+            }
+        }
+        return null;
     }
 
     pub fn format(

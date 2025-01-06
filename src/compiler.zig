@@ -335,13 +335,16 @@ const Compiler = struct {
         return res;
     }
 
-    pub fn compile_fn(self: *Compiler, buffer: *ConstantBuffer, function: ast.Function) void {
+    pub fn compile_fn(self: *Compiler, buffer: *ConstantBuffer, method: bool, function: ast.Function) void {
         var function_constant = self.create_constant(bytecode.ConstantType.function);
         // local count padding
         function_constant.add_u32(0);
         function_constant.add_u32(@intCast(function.params.len));
         var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
         self.env.push();
+        if (method) {
+            _ = self.env.add_var("this");
+        }
         for (function.params) |param| {
             _ = self.env.add_var(param);
         }
@@ -434,7 +437,7 @@ const Compiler = struct {
                 self.compile_expr(buffer, unbound_vars, false, condition.then_block);
                 buffer.set_label_position(after_label);
             },
-            ast.Ast.function => |function| self.compile_fn(buffer, function),
+            ast.Ast.function => |function| self.compile_fn(buffer, false, function),
             ast.Ast.call => |call| {
                 for (call.args) |*arg| {
                     self.compile_expr(buffer, unbound_vars, false, arg);
@@ -515,7 +518,10 @@ const Compiler = struct {
                     string_const.buffer.appendSlice(field.name) catch unreachable;
                     const string_idx = self.add_constant(string_const);
                     class_const.add_u32(string_idx.index);
-                    self.compile_expr(buffer, unbound_vars, false, field.value);
+                    switch (field.value.*) {
+                        ast.Ast.function => |function| self.compile_fn(buffer, true, function),
+                        else => self.compile_expr(buffer, unbound_vars, false, field.value),
+                    }
                 }
                 const class_idx = self.add_constant(class_const);
                 buffer.add_inst(I.object);
@@ -528,6 +534,27 @@ const Compiler = struct {
                 const string_idx = self.add_constant(string_const);
                 buffer.add_inst(I.get_field);
                 buffer.add_u32(string_idx.index);
+            },
+            ast.Ast.field_assign => |assign| {
+                self.compile_expr(buffer, unbound_vars, false, assign.value);
+                self.compile_expr(buffer, unbound_vars, false, assign.object);
+                var string_const = self.create_constant(bytecode.ConstantType.string);
+                string_const.buffer.appendSlice(assign.field) catch unreachable;
+                const string_idx = self.add_constant(string_const);
+                buffer.add_inst(I.set_field);
+                buffer.add_u32(string_idx.index);
+            },
+            ast.Ast.field_call => |methodcall| {
+                for (methodcall.args) |*arg| {
+                    self.compile_expr(buffer, unbound_vars, false, arg);
+                }
+                self.compile_expr(buffer, unbound_vars, false, methodcall.target);
+                var string_const = self.create_constant(bytecode.ConstantType.string);
+                string_const.buffer.appendSlice(methodcall.field) catch unreachable;
+                const string_idx = self.add_constant(string_const);
+                buffer.add_inst(I.methodcall);
+                buffer.add_u32(string_idx.index);
+                buffer.add_u32(@intCast(methodcall.args.len));
             },
             else => {
                 std.debug.print("{}\n", .{expr});
@@ -744,6 +771,143 @@ test "object compiler" {
         \\
         \\class (13 bytes)
         \\class: 1 2
+        \\
+    ).expectEqualFmt(res);
+}
+
+test "object 2 compiler" {
+    const Parser = @import("parser.zig").Parser;
+    const oh = ohsnap{};
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var p = Parser.new(
+        \\ let o = object {
+        \\      a: 1,
+        \\      val: "x",
+        \\ };
+        \\ print(o.a + 1);
+        \\ print(o.val);
+        \\ o.a = 2;
+        \\ print(o.a + 1);
+    , allocator);
+    const prog = try p.parse();
+    const res = try compile(prog, allocator);
+    try oh.snap(@src(),
+        \\main_function (79 bytes)
+        \\	5: nil
+        \\	6: push_byte 1
+        \\	8: string 0 0 0 3
+        \\	13: object 0 0 0 4
+        \\	18: set_global 0 0 0 0
+        \\	23: pop
+        \\	24: get_global_small 0
+        \\	26: get_field 0 0 0 1
+        \\	31: push_byte 1
+        \\	33: add
+        \\	34: print 0 0 0 1
+        \\	39: pop
+        \\	40: get_global_small 0
+        \\	42: get_field 0 0 0 2
+        \\	47: print 0 0 0 1
+        \\	52: pop
+        \\	53: get_global_small 0
+        \\	55: push_byte 2
+        \\	57: set_field 0 0 0 1
+        \\	62: pop
+        \\	63: get_global_small 0
+        \\	65: get_field 0 0 0 1
+        \\	70: push_byte 1
+        \\	72: add
+        \\	73: print 0 0 0 1
+        \\	78: ret_main
+        \\
+        \\string (6 bytes)
+        \\string: a
+        \\
+        \\string (8 bytes)
+        \\string: val
+        \\
+        \\string (6 bytes)
+        \\string: x
+        \\
+        \\class (13 bytes)
+        \\class: 1 2
+        \\
+    ).expectEqualFmt(res);
+}
+
+test "object 3 compiler" {
+    const Parser = @import("parser.zig").Parser;
+    const oh = ohsnap{};
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var p = Parser.new(
+        \\ let o = object {
+        \\      a: 1,
+        \\      val: "x",
+        \\      f: fn(x) = {
+        \\          print(this.a + x);
+        \\      },
+        \\ };
+        \\ o.f(1);
+        \\ print(o.val);
+        \\ o.a = 2;
+        \\ o.f(2);
+    , allocator);
+    const prog = try p.parse();
+    const res = try compile(prog, allocator);
+    try oh.snap(@src(),
+        \\main_function (84 bytes)
+        \\	5: nil
+        \\	6: push_byte 1
+        \\	8: string 0 0 0 3
+        \\	13: closure 0 0 0 5 0 0 0 0
+        \\	22: object 0 0 0 6
+        \\	27: set_global 0 0 0 0
+        \\	32: pop
+        \\	33: push_byte 1
+        \\	35: get_global_small 0
+        \\	37: methodcall 0 0 0 4 0 0 0 1
+        \\	46: pop
+        \\	47: get_global_small 0
+        \\	49: get_field 0 0 0 2
+        \\	54: print 0 0 0 1
+        \\	59: pop
+        \\	60: push_byte 2
+        \\	62: get_global_small 0
+        \\	64: set_field 0 0 0 1
+        \\	69: pop
+        \\	70: push_byte 2
+        \\	72: get_global_small 0
+        \\	74: methodcall 0 0 0 4 0 0 0 1
+        \\	83: ret_main
+        \\
+        \\string (6 bytes)
+        \\string: a
+        \\
+        \\string (8 bytes)
+        \\string: val
+        \\
+        \\string (6 bytes)
+        \\string: x
+        \\
+        \\string (6 bytes)
+        \\string: f
+        \\
+        \\function (29 bytes)
+        \\	13: get_small 0
+        \\	15: get_field 0 0 0 1
+        \\	20: get_small 1
+        \\	22: add
+        \\	23: print 0 0 0 1
+        \\	28: ret
+        \\
+        \\class (17 bytes)
+        \\class: 1 2 4
         \\
     ).expectEqualFmt(res);
 }
