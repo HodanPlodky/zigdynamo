@@ -6,6 +6,7 @@ const bc = @import("bc_interpreter.zig");
 const ast = @import("ast.zig");
 
 const STACK_SIZE = 4096;
+const HEAP_SIZE = 1024 * 1024 * 4;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -30,7 +31,7 @@ pub fn main() !void {
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
         defer _ = gpa.deinit();
         var ast_inter = ast_intepret.Interpret.init(
-            try allocator.allocWithOptions(u8, 1024, 16, null),
+            try allocator.allocWithOptions(u8, HEAP_SIZE, 16, null),
             gpa.allocator(),
         );
         defer ast_inter.deinit();
@@ -43,7 +44,7 @@ pub fn main() !void {
         var inter = bc.Interpreter.init(
             alloc,
             bytecode,
-            try allocator.allocWithOptions(u8, 1024, 16, null),
+            try allocator.allocWithOptions(u8, HEAP_SIZE, 16, null),
         );
         const val = inter.run();
         std.debug.print("{}\n", .{val});

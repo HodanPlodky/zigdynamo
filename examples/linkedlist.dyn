@@ -53,11 +53,15 @@ let createlist = fn() = object {
 
 let list = createlist();
 
-list.append(1);
-list.append(2);
-list.append(3);
-list.prepend(42);
-print(list.pop());
+let i = 0;
+while (i < 100) {
+    list.append(1);
+    list.append(2);
+    list.append(3);
+    list.prepend(42);
+    print(list.pop());
+    i = i + 1;
+};
 
 list.debug();
 
