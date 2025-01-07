@@ -125,12 +125,12 @@ pub const Instruction = enum(u8) {
             Instruction.set,
             Instruction.set_global,
             Instruction.set_field,
+            Instruction.methodcall,
             Instruction.print,
             Instruction.string,
             Instruction.object,
             => 4,
             Instruction.closure,
-            Instruction.methodcall,
             => 8,
             else => 0,
         };

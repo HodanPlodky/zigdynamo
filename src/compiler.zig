@@ -554,7 +554,6 @@ const Compiler = struct {
                 const string_idx = self.add_constant(string_const);
                 buffer.add_inst(I.methodcall);
                 buffer.add_u32(string_idx.index);
-                buffer.add_u32(@intCast(methodcall.args.len));
             },
             else => {
                 std.debug.print("{}\n", .{expr});
@@ -812,8 +811,8 @@ test "object 2 compiler" {
         \\	42: get_field 0 0 0 2
         \\	47: print 0 0 0 1
         \\	52: pop
-        \\	53: get_global_small 0
-        \\	55: push_byte 2
+        \\	53: push_byte 2
+        \\	55: get_global_small 0
         \\	57: set_field 0 0 0 1
         \\	62: pop
         \\	63: get_global_small 0
@@ -861,7 +860,7 @@ test "object 3 compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (84 bytes)
+        \\main_function (76 bytes)
         \\	5: nil
         \\	6: push_byte 1
         \\	8: string 0 0 0 3
@@ -871,20 +870,20 @@ test "object 3 compiler" {
         \\	32: pop
         \\	33: push_byte 1
         \\	35: get_global_small 0
-        \\	37: methodcall 0 0 0 4 0 0 0 1
-        \\	46: pop
-        \\	47: get_global_small 0
-        \\	49: get_field 0 0 0 2
-        \\	54: print 0 0 0 1
-        \\	59: pop
-        \\	60: push_byte 2
-        \\	62: get_global_small 0
-        \\	64: set_field 0 0 0 1
-        \\	69: pop
-        \\	70: push_byte 2
-        \\	72: get_global_small 0
-        \\	74: methodcall 0 0 0 4 0 0 0 1
-        \\	83: ret_main
+        \\	37: methodcall 0 0 0 4
+        \\	42: pop
+        \\	43: get_global_small 0
+        \\	45: get_field 0 0 0 2
+        \\	50: print 0 0 0 1
+        \\	55: pop
+        \\	56: push_byte 2
+        \\	58: get_global_small 0
+        \\	60: set_field 0 0 0 1
+        \\	65: pop
+        \\	66: push_byte 2
+        \\	68: get_global_small 0
+        \\	70: methodcall 0 0 0 4
+        \\	75: ret_main
         \\
         \\string (6 bytes)
         \\string: a

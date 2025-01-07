@@ -1,0 +1,11 @@
+let o = object {
+    a: 1,
+    val: "lalal",
+    f: fn(x) = {
+        print(this.a + x);
+    },
+};
+o.f(1);
+print(o.val);
+o.a = 2;
+o.f(2);

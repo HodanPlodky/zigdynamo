@@ -92,6 +92,19 @@ const LocalEnv = struct {
         self.buffer.appendAssumeCapacity(ret);
     }
 
+    pub fn push_locals_this(self: *LocalEnv, this: Value, args: []Value, local_count: u32, ret_pc: u32, ret_const: bc.ConstantIndex) void {
+        const old_fp: Value = Value.new_raw(@intCast(self.current_ptr));
+        const tmp_pc: usize = @intCast(ret_pc);
+        const ret = Value.new_raw(tmp_pc << 32 | ret_const.index);
+        self.current_ptr = @intCast(self.buffer.items.len);
+        self.buffer.ensureTotalCapacity(self.buffer.items.len + args.len + local_count + 2 + 1) catch unreachable;
+        self.buffer.appendAssumeCapacity(this);
+        self.buffer.appendSliceAssumeCapacity(args);
+        self.buffer.appendNTimesAssumeCapacity(Value.new_nil(), local_count);
+        self.buffer.appendAssumeCapacity(old_fp);
+        self.buffer.appendAssumeCapacity(ret);
+    }
+
     pub fn pop_locals(self: *LocalEnv) void {
         const old_fp = self.get_old_fp();
         self.buffer.shrinkRetainingCapacity(self.current_ptr);
@@ -386,13 +399,50 @@ pub const Interpreter = struct {
                     const target = self.stack.pop();
                     const val = self.stack.top();
 
-                    if (target.get_type() != ValueType.object) {}
+                    if (target.get_type() != ValueType.object) {
+                        @panic("cannot set into non object");
+                    }
 
                     const object = target.get_ptr(bc.Object);
                     const class_constant = self.bytecode.get_constant(object.class_idx);
                     const position: ?usize = class_constant.get_class_field_position(bc.ConstantIndex.new(field_idx));
                     if (position) |pos| {
                         object.values.set(pos, val);
+                    } else {
+                        @panic("non existant field");
+                    }
+                },
+                bc.Instruction.methodcall => {
+                    const field_idx = self.read_u32();
+                    const target = self.stack.pop();
+                    if (target.get_type() != ValueType.object) {
+                        @panic("cannot call method on non object");
+                    }
+
+                    const object = target.get_ptr(bc.Object);
+                    const class_constant = self.bytecode.get_constant(object.class_idx);
+                    const position: ?usize = class_constant.get_class_field_position(bc.ConstantIndex.new(field_idx));
+                    if (position) |pos| {
+                        const item = object.values.get(pos);
+                        if (item.get_type() != runtime.ValueType.closure) {
+                            @panic("cannot call this object");
+                        }
+                        const closure = item.get_ptr(bc.Closure);
+                        const local_count = closure.local_count;
+                        const param_count = closure.param_count;
+                        const arg_slice = self.stack.slice_top(param_count);
+                        self.env.local.push_locals_this(target, arg_slice, local_count, @intCast(self.pc), self.curr_const);
+                        for (0..closure.env.count) |idx| {
+                            const index: u32 = @intCast(idx);
+                            const val = closure.env.get(closure.env.count - idx - 1);
+                            self.env.local.set(local_count - index - 1, val);
+                        }
+                        self.stack.pop_n(param_count);
+                        self.bytecode.set_curr_const(closure.constant_idx);
+                        self.curr_const = closure.constant_idx;
+
+                        // header size of the closure
+                        self.pc = 4 + 1 + 4 + 4;
                     } else {
                         @panic("non existant field");
                     }
