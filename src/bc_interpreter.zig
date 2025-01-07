@@ -223,6 +223,16 @@ pub const Interpreter = struct {
                 bc.Instruction.div => self.handle_binop(Value.div),
                 bc.Instruction.gt => self.handle_binop(Value.gt),
                 bc.Instruction.lt => self.handle_binop(Value.lt),
+                bc.Instruction.eq => {
+                    const right = self.stack.pop();
+                    const left = self.stack.top();
+                    self.stack.set_top(Value.eq(left, right));
+                },
+                bc.Instruction.ne => {
+                    const right = self.stack.pop();
+                    const left = self.stack.top();
+                    self.stack.set_top(Value.ne(left, right));
+                },
                 bc.Instruction.ret => {
                     const restore_data = self.env.local.get_ret();
                     self.pc = restore_data.ret_pc;

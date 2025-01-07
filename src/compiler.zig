@@ -479,6 +479,10 @@ const Compiler = struct {
                 buffer.set_label_position(after_label);
             },
             ast.Ast.block => |exprs| {
+                if (exprs.len == 0) {
+                    buffer.add_inst(I.nil);
+                    return;
+                }
                 for (exprs[0..(exprs.len - 1)]) |*item| {
                     self.compile_expr(buffer, unbound_vars, false, item);
                     buffer.add_inst(I.pop);
