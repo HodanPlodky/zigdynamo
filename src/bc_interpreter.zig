@@ -395,11 +395,10 @@ pub const Interpreter = struct {
                         @panic("invalid object");
                     }
                     const object = val.get_ptr(bc.Object);
-                    const class_constant = self.bytecode.get_constant(object.class_idx);
-                    const position: ?usize = class_constant.get_class_field_position(bc.ConstantIndex.new(field_idx));
+                    const field: ?Value = self.get_field(object, bc.ConstantIndex.new(field_idx));
 
-                    if (position) |pos| {
-                        self.stack.set_top(object.values.get(pos));
+                    if (field) |result| {
+                        self.stack.set_top(result);
                     } else {
                         @panic("non existant field");
                     }
@@ -414,10 +413,9 @@ pub const Interpreter = struct {
                     }
 
                     const object = target.get_ptr(bc.Object);
-                    const class_constant = self.bytecode.get_constant(object.class_idx);
-                    const position: ?usize = class_constant.get_class_field_position(bc.ConstantIndex.new(field_idx));
-                    if (position) |pos| {
-                        object.values.set(pos, val);
+                    const field_ptr: ?*Value = self.get_field_ptr(object, bc.ConstantIndex.new(field_idx));
+                    if (field_ptr) |field| {
+                        field.* = val;
                     } else {
                         @panic("non existant field");
                     }
@@ -430,10 +428,8 @@ pub const Interpreter = struct {
                     }
 
                     const object = target.get_ptr(bc.Object);
-                    const class_constant = self.bytecode.get_constant(object.class_idx);
-                    const position: ?usize = class_constant.get_class_field_position(bc.ConstantIndex.new(field_idx));
-                    if (position) |pos| {
-                        const item = object.values.get(pos);
+                    const field: ?runtime.Value = self.get_field(object, bc.ConstantIndex.new(field_idx));
+                    if (field) |item| {
                         if (item.get_type() != runtime.ValueType.closure) {
                             @panic("cannot call this object");
                         }
@@ -459,6 +455,38 @@ pub const Interpreter = struct {
                 },
                 else => @panic("unimplemented instruction"),
             }
+        }
+    }
+
+    fn get_field(self: *const Interpreter, object: *bc.Object, string_field_idx: bc.ConstantIndex) ?runtime.Value {
+        var tmp: *bc.Object = object;
+        while (true) {
+            const class_constant = self.bytecode.get_constant(tmp.class_idx);
+            const position: ?usize = class_constant.get_class_field_position(string_field_idx);
+            if (position) |pos| {
+                return tmp.values.get(pos);
+            }
+            const proto = tmp.prototype;
+            if (proto.get_type() != runtime.ValueType.object) {
+                return null;
+            }
+            tmp = proto.get_ptr(bc.Object);
+        }
+    }
+
+    fn get_field_ptr(self: *const Interpreter, object: *bc.Object, string_field_idx: bc.ConstantIndex) ?*runtime.Value {
+        var tmp: *bc.Object = object;
+        while (true) {
+            const class_constant = self.bytecode.get_constant(tmp.class_idx);
+            const position: ?usize = class_constant.get_class_field_position(string_field_idx);
+            if (position) |pos| {
+                return tmp.values.get_ptr(pos);
+            }
+            const proto = tmp.prototype;
+            if (proto.get_type() != runtime.ValueType.object) {
+                return null;
+            }
+            tmp = proto.get_ptr(bc.Object);
         }
     }
 
