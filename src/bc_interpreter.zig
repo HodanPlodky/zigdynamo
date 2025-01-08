@@ -453,7 +453,6 @@ pub const Interpreter = struct {
                         @panic("non existant field");
                     }
                 },
-                else => @panic("unimplemented instruction"),
             }
         }
     }
