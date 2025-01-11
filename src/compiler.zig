@@ -454,9 +454,7 @@ const Compiler = struct {
                 }
             },
             ast.Ast.string => |string| {
-                var string_buffer = self.create_constant(bytecode.ConstantType.string);
-                string_buffer.buffer.appendSlice(string) catch unreachable;
-                const string_idx = self.add_constant(string_buffer);
+                const string_idx = self.create_string_constant(string);
                 buffer.add_inst(I.string);
                 buffer.add_u32(string_idx.index);
             },
@@ -518,9 +516,7 @@ const Compiler = struct {
                 }
                 var class_const = self.create_constant(bytecode.ConstantType.class);
                 for (object.fields) |field| {
-                    var string_const = self.create_constant(bytecode.ConstantType.string);
-                    string_const.buffer.appendSlice(field.name) catch unreachable;
-                    const string_idx = self.add_constant(string_const);
+                    const string_idx = self.create_string_constant(field.name);
                     class_const.add_u32(string_idx.index);
                     switch (field.value.*) {
                         ast.Ast.function => |function| self.compile_fn(buffer, true, function),
@@ -533,18 +529,14 @@ const Compiler = struct {
             },
             ast.Ast.field_access => |access| {
                 self.compile_expr(buffer, unbound_vars, false, access.target);
-                var string_const = self.create_constant(bytecode.ConstantType.string);
-                string_const.buffer.appendSlice(access.field) catch unreachable;
-                const string_idx = self.add_constant(string_const);
+                const string_idx = self.create_string_constant(access.field);
                 buffer.add_inst(I.get_field);
                 buffer.add_u32(string_idx.index);
             },
             ast.Ast.field_assign => |assign| {
                 self.compile_expr(buffer, unbound_vars, false, assign.value);
                 self.compile_expr(buffer, unbound_vars, false, assign.object);
-                var string_const = self.create_constant(bytecode.ConstantType.string);
-                string_const.buffer.appendSlice(assign.field) catch unreachable;
-                const string_idx = self.add_constant(string_const);
+                const string_idx = self.create_string_constant(assign.field);
                 buffer.add_inst(I.set_field);
                 buffer.add_u32(string_idx.index);
             },
@@ -553,9 +545,7 @@ const Compiler = struct {
                     self.compile_expr(buffer, unbound_vars, false, arg);
                 }
                 self.compile_expr(buffer, unbound_vars, false, methodcall.target);
-                var string_const = self.create_constant(bytecode.ConstantType.string);
-                string_const.buffer.appendSlice(methodcall.field) catch unreachable;
-                const string_idx = self.add_constant(string_const);
+                const string_idx = self.create_string_constant(methodcall.field);
                 buffer.add_inst(I.methodcall);
                 buffer.add_u32(string_idx.index);
             },
@@ -608,6 +598,12 @@ const Compiler = struct {
         constant_buffer.add_u32(0);
         constant_buffer.buffer.append(@intFromEnum(const_type)) catch unreachable;
         return constant_buffer;
+    }
+
+    fn create_string_constant(self: *Compiler, string: []const u8) bytecode.ConstantIndex {
+        var string_buffer = self.create_constant(bytecode.ConstantType.string);
+        string_buffer.buffer.appendSlice(string) catch unreachable;
+        return self.add_constant(string_buffer);
     }
 
     fn add_constant(self: *Compiler, constant_buffer: ConstantBuffer) bytecode.ConstantIndex {

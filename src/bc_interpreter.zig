@@ -5,19 +5,45 @@ const bc = @import("bytecode.zig");
 const Value = runtime.Value;
 const ValueType = runtime.ValueType;
 
+const Roots = struct {
+    stack: *const Stack,
+    env: *const Environment,
+};
+
+/// Garbage collection
+/// implemeted via copying semispaces
 const GC = struct {
-    heap: runtime.Heap,
+    from: runtime.Heap,
+    to: runtime.Heap,
+    done: usize,
 
     pub fn init(heap_data: []u8) GC {
-        return GC{ .heap = runtime.Heap.init(heap_data) };
+        // this is to make sure that all the aligns are ok
+        std.debug.assert(heap_data.len % 16 == 0);
+        return GC{
+            .from = runtime.Heap.init(heap_data[0 .. heap_data.len / 2]),
+            .to = runtime.Heap.init(heap_data[heap_data.len / 2 ..]),
+            .done = 0,
+        };
     }
 
-    pub fn alloc(self: *GC, comptime T: type) *T {
-        return self.heap.alloc(T);
+    pub fn alloc_with_additional(self: *GC, comptime T: type, count: usize, roots: Roots) *T {
+        if (!self.from.check_available(T, count)) {
+            self.collect(roots);
+        }
+        return self.from.alloc_with_additional(T, count);
     }
 
-    pub fn alloc_with_additional(self: *GC, comptime T: type, count: usize) *T {
-        return self.heap.alloc_with_additional(T, count);
+    pub fn collect(self: *GC, roots: Roots) void {
+        self.done = 0;
+        self.copy_roots(roots);
+        @panic("collect");
+    }
+
+    pub fn copy_roots(self: *GC, roots: Roots) void {
+        _ = roots; // autofix
+        _ = self; // autofix
+
     }
 };
 
@@ -303,7 +329,7 @@ pub const Interpreter = struct {
                     const constant_idx = self.read_u32();
                     const unbound_count = self.read_u32();
                     const env = self.stack.slice_top(unbound_count);
-                    const closure = self.gc.alloc_with_additional(bc.Closure, unbound_count);
+                    const closure = self.gc.alloc_with_additional(bc.Closure, unbound_count, self.get_roots());
                     closure.env.count = unbound_count;
                     for (env, 0..) |val, idx| {
                         closure.env.set(idx, val);
@@ -376,7 +402,7 @@ pub const Interpreter = struct {
                     const field_count = class_constant.get_class_field_count();
                     const values = self.stack.slice_top(field_count);
                     self.stack.pop_n(field_count);
-                    const object = self.gc.alloc_with_additional(bc.Object, field_count);
+                    const object = self.gc.alloc_with_additional(bc.Object, field_count, self.get_roots());
                     object.values.count = field_count;
                     for (values, 0..) |val, idx| {
                         object.values.set(idx, val);
@@ -517,5 +543,12 @@ pub const Interpreter = struct {
         const res = self.bytecode.read_u8(self.pc);
         self.pc += 1;
         return res;
+    }
+
+    fn get_roots(self: *const Interpreter) Roots {
+        return Roots{
+            .stack = &self.stack,
+            .env = &self.env,
+        };
     }
 };

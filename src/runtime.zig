@@ -22,6 +22,11 @@ pub const Heap = struct {
         self.curr_ptr -= self.curr_ptr % @alignOf(T);
         return @ptrCast(@alignCast(&self.data[self.curr_ptr]));
     }
+
+    pub fn check_available(self: *const Heap, comptime T: type, count: usize) bool {
+        const needed = @sizeOf(T) + T.additional_size(count);
+        return self.curr_ptr > needed;
+    }
 };
 
 pub fn FlexibleArr(comptime T: type) type {
