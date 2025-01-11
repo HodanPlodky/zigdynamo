@@ -7,25 +7,32 @@ pub const Heap = struct {
     pub fn init(data: []u8) Heap {
         return Heap{
             .data = data,
-            .curr_ptr = data.len,
+            .curr_ptr = 0,
         };
     }
 
     pub fn alloc(self: *Heap, comptime T: type) *T {
-        self.curr_ptr -= @sizeOf(T);
-        self.curr_ptr -= self.curr_ptr % 8;
-        return @ptrCast(@alignCast(&self.data[self.curr_ptr]));
+        // align without the branch
+        self.curr_ptr = (self.curr_ptr + (@alignOf(T) - 1)) & ~(@as(usize, @alignOf(T) - 1));
+
+        const res: *T = @ptrCast(@alignCast(&self.data[self.curr_ptr]));
+        self.curr_ptr += @sizeOf(T);
+        return res;
     }
 
     pub fn alloc_with_additional(self: *Heap, comptime T: type, count: usize) *T {
-        self.curr_ptr -= @sizeOf(T) + T.additional_size(count);
-        self.curr_ptr -= self.curr_ptr % @alignOf(T);
-        return @ptrCast(@alignCast(&self.data[self.curr_ptr]));
+        // align without the branch
+        self.curr_ptr = (self.curr_ptr + (@alignOf(T) - 1)) & ~(@as(usize, @alignOf(T) - 1));
+
+        const res: *T = @ptrCast(@alignCast(&self.data[self.curr_ptr]));
+        self.curr_ptr += @sizeOf(T) + T.additional_size(count);
+        return res;
     }
 
     pub fn check_available(self: *const Heap, comptime T: type, count: usize) bool {
+        const pos = (self.curr_ptr + (@alignOf(T) - 1)) & ~(@as(usize, @alignOf(T) - 1));
         const needed = @sizeOf(T) + T.additional_size(count);
-        return self.curr_ptr > needed;
+        return (self.data.len - pos) > needed;
     }
 };
 
