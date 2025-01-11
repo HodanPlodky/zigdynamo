@@ -8,6 +8,8 @@ const ValueType = runtime.ValueType;
 const Value = runtime.Value;
 
 const Closure = packed struct {
+    tag: u32,
+    padding: u32,
     body: *ast.Ast,
     env: *StoreEnv,
     args: FlexibleArr([]const u8),
@@ -23,6 +25,8 @@ const Field = struct {
 };
 
 const Object = packed struct {
+    tag: u32,
+    padding: u32,
     prototype: Value,
     fields: FlexibleArr(Field),
 
@@ -58,11 +62,15 @@ const Object = packed struct {
     }
 };
 
-const String = struct {
-    data: []const u8,
+const String = packed struct {
+    tag: u32,
+    len: u32,
+    data: [*]const u8,
 };
 
 const StoreVar = struct {
+    tag: u32,
+    padding: u32,
     name: []const u8,
     value: Value,
 };
@@ -286,7 +294,8 @@ pub const Interpret = struct {
             ast.Ast.number => |num| return Value.new_num(num),
             ast.Ast.string => |string| {
                 var res = self.heap.alloc(String);
-                res.data = string;
+                res.len = @intCast(string.len);
+                res.data = @ptrCast(string);
                 return Value.new_ptr(String, res, ValueType.string);
             },
             ast.Ast.nil => return Value.new_nil(),
@@ -374,7 +383,7 @@ pub const Interpret = struct {
             switch (val.get_type()) {
                 ValueType.string => {
                     const data = val.get_ptr(String);
-                    std.debug.print("{s} ", .{data.data});
+                    std.debug.print("{s} ", .{data.data[0..data.len]});
                 },
                 ValueType.number => {
                     const data = val.get_number();
@@ -411,6 +420,8 @@ pub const Interpret = struct {
         var index: usize = 0;
         while (iter.next()) |item| {
             const store_var = StoreVar{
+                .tag = 0,
+                .padding = 0,
                 .name = item.key_ptr.*,
                 .value = item.value_ptr.*,
             };

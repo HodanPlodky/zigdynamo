@@ -110,7 +110,20 @@ pub const Value = packed struct {
         }
     }
 
-    pub fn new_ptr(comptime T: type, val: *T, heap_type: ValueType) Value {
+    pub fn new_ptr(comptime T: type, val: *T, comptime heap_type: ValueType) Value {
+        comptime {
+            const info = @typeInfo(T);
+            if (info.Struct.layout != std.builtin.Type.ContainerLayout.@"packed") {
+                @compileError("struct on heap must be packed " ++ @typeName(T));
+            }
+            if (info.Struct.fields.len == 0) {
+                @compileError("struct on heap have tag");
+            }
+            if (!std.mem.eql(u8, "tag", info.Struct.fields[0].name)) {
+                @compileError("struct on heap have tag as a first field");
+            }
+        }
+        @field(val.*, "tag") = @intFromEnum(heap_type);
         return Value{
             .data = @intFromPtr(val) | @intFromEnum(heap_type),
         };

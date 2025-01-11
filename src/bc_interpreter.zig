@@ -45,6 +45,12 @@ const GC = struct {
         _ = self; // autofix
 
     }
+
+    pub fn copy_object(self: *GC, addr: *Value) void {
+        _ = addr; // autofix
+        _ = self; // autofix
+
+    }
 };
 
 const Stack = struct {

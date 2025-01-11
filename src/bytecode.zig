@@ -272,10 +272,11 @@ pub const ConstantIndex = packed struct {
 };
 
 pub const Closure = packed struct {
+    // tag is u32 because of the padding
+    tag: u32,
     constant_idx: ConstantIndex,
     param_count: u32,
     local_count: u32,
-    paddingdontuse: u32,
     env: runtime.FlexibleArr(runtime.Value),
 
     pub fn additional_size(count: usize) usize {
@@ -284,9 +285,10 @@ pub const Closure = packed struct {
 };
 
 pub const Object = packed struct {
+    // tag is u32 because of the padding
+    tag: u32,
     prototype: runtime.Value,
     class_idx: ConstantIndex,
-    paddingdontuse: u32,
     values: runtime.FlexibleArr(runtime.Value),
 
     pub fn additional_size(count: usize) usize {
