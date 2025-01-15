@@ -4,6 +4,14 @@ pub const Heap = struct {
     data: []u8,
     curr_ptr: usize,
 
+    // there are some object that are
+    // 16 align and I need to be able
+    // to parse the heap
+    // so that is why I set static
+    // align and not do the align in
+    // comptime
+    pub const heap_align: usize = 16;
+
     pub fn init(data: []u8) Heap {
         return Heap{
             .data = data,
@@ -13,7 +21,7 @@ pub const Heap = struct {
 
     pub fn alloc(self: *Heap, comptime T: type) *T {
         // align without the branch
-        self.curr_ptr = (self.curr_ptr + (@alignOf(T) - 1)) & ~(@as(usize, @alignOf(T) - 1));
+        self.curr_ptr = (self.curr_ptr + (heap_align - 1)) & ~(heap_align - 1);
 
         const res: *T = @ptrCast(@alignCast(&self.data[self.curr_ptr]));
         self.curr_ptr += @sizeOf(T);
@@ -22,7 +30,7 @@ pub const Heap = struct {
 
     pub fn alloc_with_additional(self: *Heap, comptime T: type, count: usize) *T {
         // align without the branch
-        self.curr_ptr = (self.curr_ptr + (@alignOf(T) - 1)) & ~(@as(usize, @alignOf(T) - 1));
+        self.curr_ptr = (self.curr_ptr + (heap_align - 1)) & ~(heap_align - 1);
 
         const res: *T = @ptrCast(@alignCast(&self.data[self.curr_ptr]));
         self.curr_ptr += @sizeOf(T) + T.additional_size(count);
@@ -30,7 +38,7 @@ pub const Heap = struct {
     }
 
     pub fn check_available(self: *const Heap, comptime T: type, count: usize) bool {
-        const pos = (self.curr_ptr + (@alignOf(T) - 1)) & ~(@as(usize, @alignOf(T) - 1));
+        const pos = (self.curr_ptr + (heap_align - 1)) & ~(heap_align - 1);
         const needed = @sizeOf(T) + T.additional_size(count);
         return (self.data.len - pos) > needed;
     }
@@ -139,6 +147,16 @@ pub const Value = packed struct {
         return @enumFromInt(self.data & 0x7);
     }
 
+    pub fn is_ptr(self: Value) bool {
+        return switch (self.get_type()) {
+            ValueType.closure,
+            ValueType.object,
+            ValueType.array,
+            => true,
+            else => false,
+        };
+    }
+
     pub fn get_number(self: Value) u32 {
         switch (self.get_type()) {
             ValueType.number => return @intCast(self.data >> 32),
@@ -150,6 +168,11 @@ pub const Value = packed struct {
     // uncheck if it is even pointer
     pub fn get_ptr(self: Value, comptime T: type) *T {
         const ptr: *T = @ptrFromInt(self.data & (0xfffffffffffffff8));
+        return ptr;
+    }
+
+    pub fn get_ptr_raw(self: Value) [*]u8 {
+        const ptr: [*]u8 = @ptrFromInt(self.data & (0xfffffffffffffff8));
         return ptr;
     }
 

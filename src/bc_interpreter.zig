@@ -15,7 +15,6 @@ const Roots = struct {
 const GC = struct {
     from: runtime.Heap,
     to: runtime.Heap,
-    done: usize,
 
     pub fn init(heap_data: []u8) GC {
         // this is to make sure that all the aligns are ok
@@ -23,7 +22,6 @@ const GC = struct {
         return GC{
             .from = runtime.Heap.init(heap_data[0 .. heap_data.len / 2]),
             .to = runtime.Heap.init(heap_data[heap_data.len / 2 ..]),
-            .done = 0,
         };
     }
 
@@ -34,22 +32,151 @@ const GC = struct {
         return self.from.alloc_with_additional(T, count);
     }
 
-    pub fn collect(self: *GC, roots: Roots) void {
-        self.done = 0;
+    fn collect(self: *GC, roots: Roots) void {
+        std.debug.print("before : {}\n", .{self.from.curr_ptr});
         self.copy_roots(roots);
-        @panic("collect");
+        var done_ptr: usize = 0;
+        while (done_ptr < self.to.curr_ptr) {
+            std.debug.print("done: {}, curr_ptr: {}\n", .{ done_ptr, self.to.curr_ptr });
+            const tag_bytes: *u32 = @ptrCast(@alignCast(self.to.data[done_ptr..(done_ptr + 4)]));
+            const tag = tag_bytes.*;
+            const object_type: ValueType = @enumFromInt(tag);
+            switch (object_type) {
+                ValueType.object => {
+                    const object: *bc.Object = @ptrCast(@alignCast(tag_bytes));
+
+                    for (0..object.values.count) |idx| {
+                        const val = object.values.get_ptr(idx);
+                        self.copy_object(val);
+                    }
+
+                    done_ptr = GC.next_object(bc.Object, object, done_ptr);
+                },
+                ValueType.closure => {
+                    const closure: *bc.Closure = @ptrCast(@alignCast(tag_bytes));
+
+                    for (0..closure.env.count) |idx| {
+                        const val = closure.env.get_ptr(idx);
+                        self.copy_object(val);
+                    }
+
+                    done_ptr = GC.next_object(bc.Closure, closure, done_ptr);
+                },
+                else => {
+                    std.debug.print("{}\n", .{object_type});
+                    @panic("Invalid object on heap");
+                },
+            }
+        }
+        const tmp = self.from;
+        self.from = self.to;
+        self.to = tmp;
+        self.to.curr_ptr = 0;
+        std.debug.print("after : {}\n", .{self.from.curr_ptr});
     }
 
-    pub fn copy_roots(self: *GC, roots: Roots) void {
-        _ = roots; // autofix
-        _ = self; // autofix
+    fn copy_roots(self: *GC, roots: Roots) void {
+        for (roots.stack.stack.items) |*root| {
+            self.copy_object(root);
+        }
 
+        for (roots.env.global) |*root| {
+            self.copy_object(root);
+        }
+
+        var frame_helper = roots.env.local.get_last_frame();
+        while (true) {
+            for (frame_helper.frame) |*root| {
+                self.copy_object(root);
+            }
+
+            if (frame_helper.position == 0) {
+                break;
+            }
+            frame_helper = roots.env.local.get_next_frame(frame_helper);
+        }
+
+        std.debug.print("end of roots\n", .{});
     }
 
-    pub fn copy_object(self: *GC, addr: *Value) void {
-        _ = addr; // autofix
-        _ = self; // autofix
+    fn next_object(comptime T: type, object: *const T, done: usize) usize {
+        var res = done + object.get_size();
+        res = (res + (runtime.Heap.heap_align - 1)) & ~(runtime.Heap.heap_align - 1);
+        return res;
+    }
 
+    fn copy_object(self: *GC, addr: *Value) void {
+        if (!addr.is_ptr()) {
+            return;
+        }
+
+        const origin: Value = addr.*;
+
+        var to_ptr: u32 = undefined;
+        switch (addr.get_type()) {
+            ValueType.object => {
+                std.debug.print("copy object\n", .{});
+                const object = addr.get_ptr(bc.Object);
+                const dst = self.to.alloc_with_additional(bc.Object, object.values.count);
+                dst.tag = object.tag;
+                dst.class_idx = object.class_idx;
+                dst.prototype = object.prototype;
+                dst.values.count = object.values.count;
+                for (0..object.values.count) |idx| {
+                    const val = object.values.get(idx);
+                    dst.values.set(idx, self.forward_copy(val));
+                }
+
+                addr.* = Value.new_ptr(bc.Object, dst, ValueType.object);
+                const tmp: u64 = @intFromPtr(dst) - @intFromPtr(self.to.data.ptr);
+                to_ptr = @intCast(tmp);
+            },
+            ValueType.closure => {
+                std.debug.print("copy closure\n", .{});
+                const object = addr.get_ptr(bc.Closure);
+                const dst = self.to.alloc_with_additional(bc.Closure, object.env.count);
+                dst.tag = object.tag;
+                dst.local_count = object.local_count;
+                dst.param_count = object.param_count;
+                dst.constant_idx = object.constant_idx;
+                dst.env.count = object.env.count;
+                for (0..object.env.count) |idx| {
+                    const val = object.env.get(idx);
+                    dst.env.set(idx, self.forward_copy(val));
+                }
+
+                addr.* = Value.new_ptr(bc.Closure, dst, ValueType.closure);
+                const tmp: u64 = @intFromPtr(dst) - @intFromPtr(self.to.data.ptr);
+                to_ptr = @intCast(tmp);
+            },
+            else => unreachable,
+        }
+
+        const forward_ptr = origin.get_ptr(bc.Forward);
+        forward_ptr.tag = bc.FORWARD_TAG;
+        forward_ptr.ptr = to_ptr;
+    }
+
+    fn forward_copy(self: *const GC, val: Value) Value {
+        if (!val.is_ptr()) {
+            return val;
+        }
+
+        const raw = val.get_ptr_raw();
+        const forward_bytes: [4]u8 = .{ 0xff, 0xff, 0xff, 0xff };
+        if (!std.mem.eql(u8, raw[0..4], forward_bytes[0..])) {
+            return val;
+        }
+
+        const tmp_arr: [4]u8 align(4) = .{
+            raw[5 + 3],
+            raw[5 + 2],
+            raw[5 + 1],
+            raw[5],
+        };
+        const tmp: *const u32 = @ptrCast(@alignCast(&tmp_arr));
+        const forward_ptr: u64 = @intFromPtr(self.to.data.ptr) + @as(u64, tmp.*);
+        return Value.new_raw(forward_ptr | @intFromEnum(val.get_type()));
     }
 };
 
@@ -94,9 +221,15 @@ const Stack = struct {
 };
 
 const LocalEnv = struct {
+    // [locals] [old fp] [ret]
     buffer: std.ArrayList(Value),
     alloc: std.mem.Allocator,
     current_ptr: u32,
+
+    const FrameHelper = struct {
+        frame: []Value,
+        position: usize,
+    };
 
     pub fn init(alloc: std.mem.Allocator) LocalEnv {
         var buffer = std.ArrayList(Value).init(alloc);
@@ -146,6 +279,25 @@ const LocalEnv = struct {
     pub fn get_old_fp(self: *const LocalEnv) u32 {
         const old_fp = self.buffer.items[self.buffer.items.len - 2];
         return @intCast(old_fp.data);
+    }
+
+    pub fn get_last_frame(self: *const LocalEnv) FrameHelper {
+        const frame = self.buffer.items[self.current_ptr..(self.buffer.items.len - 2)];
+        const position = self.current_ptr;
+        return FrameHelper{
+            .frame = frame,
+            .position = position,
+        };
+    }
+
+    pub fn get_next_frame(self: *const LocalEnv, frame: FrameHelper) FrameHelper {
+        // we must reach outside of values of frame
+        const tmp: [*]Value = @ptrCast(frame.frame);
+        const fp = tmp[frame.frame.len].data;
+        return FrameHelper{
+            .frame = self.buffer.items[fp..(frame.position - 2)],
+            .position = fp,
+        };
     }
 
     pub fn get_ret(self: *const LocalEnv) struct { ret_pc: u32, ret_const: bc.ConstantIndex } {

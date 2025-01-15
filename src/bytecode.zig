@@ -271,6 +271,13 @@ pub const ConstantIndex = packed struct {
     }
 };
 
+pub const FORWARD_TAG = 0xffffffff;
+// must be smaller then all other heap objects
+pub const Forward = packed struct {
+    tag: u32,
+    ptr: u32,
+};
+
 pub const Closure = packed struct {
     // tag is u32 because of the padding
     tag: u32,
@@ -282,17 +289,25 @@ pub const Closure = packed struct {
     pub fn additional_size(count: usize) usize {
         return runtime.FlexibleArr(runtime.Value).additional_size(count);
     }
+
+    pub fn get_size(self: *const Closure) usize {
+        return @sizeOf(Closure) + Closure.additional_size(self.env.count);
+    }
 };
 
 pub const Object = packed struct {
     // tag is u32 because of the padding
     tag: u32,
-    prototype: runtime.Value,
     class_idx: ConstantIndex,
+    prototype: runtime.Value,
     values: runtime.FlexibleArr(runtime.Value),
 
     pub fn additional_size(count: usize) usize {
         return runtime.FlexibleArr(runtime.Value).additional_size(count);
+    }
+
+    pub fn get_size(self: *const Object) usize {
+        return @sizeOf(Object) + Object.additional_size(self.values.count);
     }
 };
 
