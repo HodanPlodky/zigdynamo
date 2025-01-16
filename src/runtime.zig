@@ -40,7 +40,7 @@ pub const Heap = struct {
     pub fn check_available(self: *const Heap, comptime T: type, count: usize) bool {
         const pos = (self.curr_ptr + (heap_align - 1)) & ~(heap_align - 1);
         const needed = @sizeOf(T) + T.additional_size(count);
-        return (self.data.len - pos) > needed;
+        return self.data.len > needed + pos;
     }
 };
 
@@ -174,6 +174,12 @@ pub const Value = packed struct {
     pub fn get_ptr_raw(self: Value) [*]u8 {
         const ptr: [*]u8 = @ptrFromInt(self.data & (0xfffffffffffffff8));
         return ptr;
+    }
+
+    // assumes this is ptr
+    pub fn rewrite_ptr(self: Value, ptr: usize) Value {
+        const data = ptr | (self.data & 0x7);
+        return Value.new_raw(data);
     }
 
     pub fn get_idx(self: Value) u32 {
