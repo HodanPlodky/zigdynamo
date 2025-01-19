@@ -26,18 +26,17 @@ const GC = struct {
     }
 
     pub fn alloc_with_additional(self: *GC, comptime T: type, count: usize, roots: Roots) *T {
-        if (true or !self.from.check_available(T, count)) {
+        if (!self.from.check_available(T, count)) {
             self.collect(roots);
         }
         return self.from.alloc_with_additional(T, count);
     }
 
     fn collect(self: *GC, roots: Roots) void {
-        std.debug.print("before : {}\n", .{self.from.curr_ptr});
+        const before_size = self.from.curr_ptr;
         self.copy_roots(roots);
         var done_ptr: usize = 0;
         while (done_ptr < self.to.curr_ptr) {
-            std.debug.print("done: {}, curr_ptr: {}\n", .{ done_ptr, self.to.curr_ptr });
             const tag_bytes: *u32 = @ptrCast(@alignCast(self.to.data[done_ptr..(done_ptr + 4)]));
             const tag = tag_bytes.*;
             const object_type: ValueType = @enumFromInt(tag);
@@ -76,7 +75,11 @@ const GC = struct {
         self.from = self.to;
         self.to = tmp;
         self.to.curr_ptr = 0;
-        std.debug.print("after : {}\n", .{self.from.curr_ptr});
+        // worst case scenarion is that all of the vals
+        // are reachable in that case it should be equal
+        // otherwise it should be lower
+        // the + 16 is there for possible differences in alignment
+        std.debug.assert(self.from.curr_ptr <= before_size + 16);
     }
 
     fn copy_roots(self: *GC, roots: Roots) void {
@@ -121,7 +124,6 @@ const GC = struct {
         const object_addr_val: usize = @intFromPtr(object_addr);
         const from_start: usize = @intFromPtr(self.from.data.ptr);
         const from_end = from_start + self.from.data.len;
-        std.debug.print("ptr {x}\n", .{object_addr_val});
         std.debug.assert(from_start <= object_addr_val and object_addr_val < from_end);
 
         // there is already forward ptr in address
@@ -134,10 +136,9 @@ const GC = struct {
         }
 
         var to_ptr: u32 = undefined;
-        switch (addr.get_type()) {
+        switch (origin.get_type()) {
             ValueType.object => {
-                std.debug.print("copy object\n", .{});
-                const object = addr.get_ptr(bc.Object);
+                const object = origin.get_ptr(bc.Object);
                 std.debug.assert(object.tag == @intFromEnum(ValueType.object));
                 const dst = self.to.alloc_with_additional(bc.Object, object.values.count);
                 dst.tag = object.tag;
@@ -146,7 +147,6 @@ const GC = struct {
                 dst.values.count = object.values.count;
                 for (0..object.values.count) |idx| {
                     const val = object.values.get(idx);
-                    std.debug.print("{x} {}\n", .{ val.data, val.get_type() });
                     dst.values.set(idx, val);
                 }
 
@@ -155,8 +155,7 @@ const GC = struct {
                 to_ptr = @intCast(tmp);
             },
             ValueType.closure => {
-                std.debug.print("copy closure\n", .{});
-                const closure = addr.get_ptr(bc.Closure);
+                const closure = origin.get_ptr(bc.Closure);
                 std.debug.assert(closure.tag == @intFromEnum(ValueType.closure));
                 const dst = self.to.alloc_with_additional(bc.Closure, closure.env.count);
                 dst.tag = closure.tag;
@@ -179,28 +178,6 @@ const GC = struct {
         const forward_ptr = origin.get_ptr(bc.Forward);
         forward_ptr.tag = bc.FORWARD_TAG;
         forward_ptr.ptr = to_ptr;
-    }
-
-    fn forward_copy(self: *const GC, val: Value) Value {
-        if (!val.is_ptr()) {
-            return val;
-        }
-
-        const raw = val.get_ptr_raw();
-        const forward_bytes: [4]u8 = .{ 0xff, 0xff, 0xff, 0xff };
-        if (!std.mem.eql(u8, raw[0..4], forward_bytes[0..])) {
-            return val;
-        }
-
-        const tmp_arr: [4]u8 align(4) = .{
-            raw[5 + 3],
-            raw[5 + 2],
-            raw[5 + 1],
-            raw[5],
-        };
-        const tmp: *const u32 = @ptrCast(@alignCast(&tmp_arr));
-        const forward_ptr: u64 = @intFromPtr(self.to.data.ptr) + @as(u64, tmp.*);
-        return Value.new_raw(forward_ptr | @intFromEnum(val.get_type()));
     }
 };
 
@@ -590,8 +567,8 @@ pub const Interpreter = struct {
                     }
                     const field_count = class_constant.get_class_field_count();
                     const values = self.stack.slice_top(field_count);
-                    self.stack.pop_n(field_count);
                     const object = self.gc.alloc_with_additional(bc.Object, field_count, self.get_roots());
+                    self.stack.pop_n(field_count);
                     object.values.count = field_count;
                     for (values, 0..) |val, idx| {
                         object.values.set(idx, val);

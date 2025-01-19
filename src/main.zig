@@ -6,7 +6,7 @@ const bc = @import("bc_interpreter.zig");
 const ast = @import("ast.zig");
 
 const STACK_SIZE = 4096;
-const HEAP_SIZE = 1024 * 20;
+const HEAP_SIZE = 1024 * 15;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
