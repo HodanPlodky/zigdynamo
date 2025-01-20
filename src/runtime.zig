@@ -4,28 +4,43 @@ pub const Heap = struct {
     data: []u8,
     curr_ptr: usize,
 
+    // there are some object that are
+    // 16 align and I need to be able
+    // to parse the heap
+    // so that is why I set static
+    // align and not do the align in
+    // comptime
+    pub const heap_align: usize = 16;
+
     pub fn init(data: []u8) Heap {
         return Heap{
             .data = data,
-            .curr_ptr = data.len,
+            .curr_ptr = 0,
         };
     }
 
     pub fn alloc(self: *Heap, comptime T: type) *T {
-        self.curr_ptr -= @sizeOf(T);
-        self.curr_ptr -= self.curr_ptr % 8;
-        return @ptrCast(@alignCast(&self.data[self.curr_ptr]));
+        // align without the branch
+        self.curr_ptr = (self.curr_ptr + (heap_align - 1)) & ~(heap_align - 1);
+
+        const res: *T = @ptrCast(@alignCast(&self.data[self.curr_ptr]));
+        self.curr_ptr += @sizeOf(T);
+        return res;
     }
 
     pub fn alloc_with_additional(self: *Heap, comptime T: type, count: usize) *T {
-        self.curr_ptr -= @sizeOf(T) + T.additional_size(count);
-        self.curr_ptr -= self.curr_ptr % @alignOf(T);
-        return @ptrCast(@alignCast(&self.data[self.curr_ptr]));
+        // align without the branch
+        self.curr_ptr = (self.curr_ptr + (heap_align - 1)) & ~(heap_align - 1);
+
+        const res: *T = @ptrCast(@alignCast(&self.data[self.curr_ptr]));
+        self.curr_ptr += @sizeOf(T) + T.additional_size(count);
+        return res;
     }
 
     pub fn check_available(self: *const Heap, comptime T: type, count: usize) bool {
+        const pos = (self.curr_ptr + (heap_align - 1)) & ~(heap_align - 1);
         const needed = @sizeOf(T) + T.additional_size(count);
-        return self.curr_ptr > needed;
+        return self.data.len > needed + pos;
     }
 };
 
@@ -103,7 +118,20 @@ pub const Value = packed struct {
         }
     }
 
-    pub fn new_ptr(comptime T: type, val: *T, heap_type: ValueType) Value {
+    pub fn new_ptr(comptime T: type, val: *T, comptime heap_type: ValueType) Value {
+        comptime {
+            const info = @typeInfo(T);
+            if (info.Struct.layout != std.builtin.Type.ContainerLayout.@"packed") {
+                @compileError("struct on heap must be packed " ++ @typeName(T));
+            }
+            if (info.Struct.fields.len == 0) {
+                @compileError("struct on heap have tag");
+            }
+            if (!std.mem.eql(u8, "tag", info.Struct.fields[0].name)) {
+                @compileError("struct on heap have tag as a first field");
+            }
+        }
+        @field(val.*, "tag") = @intFromEnum(heap_type);
         return Value{
             .data = @intFromPtr(val) | @intFromEnum(heap_type),
         };
@@ -119,6 +147,16 @@ pub const Value = packed struct {
         return @enumFromInt(self.data & 0x7);
     }
 
+    pub fn is_ptr(self: Value) bool {
+        return switch (self.get_type()) {
+            ValueType.closure,
+            ValueType.object,
+            ValueType.array,
+            => true,
+            else => false,
+        };
+    }
+
     pub fn get_number(self: Value) u32 {
         switch (self.get_type()) {
             ValueType.number => return @intCast(self.data >> 32),
@@ -131,6 +169,17 @@ pub const Value = packed struct {
     pub fn get_ptr(self: Value, comptime T: type) *T {
         const ptr: *T = @ptrFromInt(self.data & (0xfffffffffffffff8));
         return ptr;
+    }
+
+    pub fn get_ptr_raw(self: Value) [*]u8 {
+        const ptr: [*]u8 = @ptrFromInt(self.data & (0xfffffffffffffff8));
+        return ptr;
+    }
+
+    // assumes this is ptr
+    pub fn rewrite_ptr(self: Value, ptr: usize) Value {
+        const data = ptr | (self.data & 0x7);
+        return Value.new_raw(data);
     }
 
     pub fn get_idx(self: Value) u32 {

@@ -15,7 +15,6 @@ const Roots = struct {
 const GC = struct {
     from: runtime.Heap,
     to: runtime.Heap,
-    done: usize,
 
     pub fn init(heap_data: []u8) GC {
         // this is to make sure that all the aligns are ok
@@ -23,7 +22,6 @@ const GC = struct {
         return GC{
             .from = runtime.Heap.init(heap_data[0 .. heap_data.len / 2]),
             .to = runtime.Heap.init(heap_data[heap_data.len / 2 ..]),
-            .done = 0,
         };
     }
 
@@ -34,16 +32,152 @@ const GC = struct {
         return self.from.alloc_with_additional(T, count);
     }
 
-    pub fn collect(self: *GC, roots: Roots) void {
-        self.done = 0;
+    fn collect(self: *GC, roots: Roots) void {
+        const before_size = self.from.curr_ptr;
         self.copy_roots(roots);
-        @panic("collect");
+        var done_ptr: usize = 0;
+        while (done_ptr < self.to.curr_ptr) {
+            const tag_bytes: *u32 = @ptrCast(@alignCast(self.to.data[done_ptr..(done_ptr + 4)]));
+            const tag = tag_bytes.*;
+            const object_type: ValueType = @enumFromInt(tag);
+            switch (object_type) {
+                ValueType.object => {
+                    const object: *bc.Object = @ptrCast(@alignCast(tag_bytes));
+
+                    self.copy_object(&object.prototype);
+
+                    for (0..object.values.count) |idx| {
+                        const val = object.values.get_ptr(idx);
+                        self.copy_object(val);
+                    }
+
+                    done_ptr = GC.next_object(bc.Object, object, done_ptr);
+                },
+                ValueType.closure => {
+                    const closure: *bc.Closure = @ptrCast(@alignCast(tag_bytes));
+
+                    for (0..closure.env.count) |idx| {
+                        const val = closure.env.get_ptr(idx);
+                        self.copy_object(val);
+                    }
+
+                    done_ptr = GC.next_object(bc.Closure, closure, done_ptr);
+                },
+                else => {
+                    std.debug.print("{}\n", .{object_type});
+                    @panic("Invalid object on heap");
+                },
+            }
+        }
+
+        std.debug.assert(done_ptr == self.to.curr_ptr);
+        const tmp = self.from;
+        self.from = self.to;
+        self.to = tmp;
+        self.to.curr_ptr = 0;
+        // worst case scenarion is that all of the vals
+        // are reachable in that case it should be equal
+        // otherwise it should be lower
+        // the + 16 is there for possible differences in alignment
+        std.debug.assert(self.from.curr_ptr <= before_size + 16);
     }
 
-    pub fn copy_roots(self: *GC, roots: Roots) void {
-        _ = roots; // autofix
-        _ = self; // autofix
+    fn copy_roots(self: *GC, roots: Roots) void {
+        for (roots.stack.stack.items) |*root| {
+            self.copy_object(root);
+        }
 
+        for (roots.env.global) |*root| {
+            self.copy_object(root);
+        }
+
+        if (roots.env.local.get_last_frame()) |tmp| {
+            var frame_helper = tmp;
+            while (true) {
+                for (frame_helper.frame) |*root| {
+                    self.copy_object(root);
+                }
+
+                if (frame_helper.position == 0) {
+                    break;
+                }
+                frame_helper = roots.env.local.get_next_frame(frame_helper);
+            }
+        }
+    }
+
+    fn next_object(comptime T: type, object: *const T, done: usize) usize {
+        var res = done + object.get_size();
+        res = (res + (runtime.Heap.heap_align - 1)) & ~(runtime.Heap.heap_align - 1);
+        return res;
+    }
+
+    fn copy_object(self: *GC, addr: *Value) void {
+        if (!addr.is_ptr()) {
+            return;
+        }
+
+        const origin: Value = addr.*;
+
+        // always copy from from semi space
+        const object_addr = origin.get_ptr_raw();
+        const object_addr_val: usize = @intFromPtr(object_addr);
+        const from_start: usize = @intFromPtr(self.from.data.ptr);
+        const from_end = from_start + self.from.data.len;
+        std.debug.assert(from_start <= object_addr_val and object_addr_val < from_end);
+
+        // there is already forward ptr in address
+        const forward_bytes: [4]u8 = .{ 0xff, 0xff, 0xff, 0xff };
+        if (std.mem.eql(u8, object_addr[0..4], forward_bytes[0..])) {
+            const forward = origin.get_ptr(bc.Forward);
+            const start: usize = @intFromPtr(self.to.data.ptr);
+            addr.* = origin.rewrite_ptr(@as(usize, forward.ptr) + start);
+            return;
+        }
+
+        var to_ptr: u32 = undefined;
+        switch (origin.get_type()) {
+            ValueType.object => {
+                const object = origin.get_ptr(bc.Object);
+                std.debug.assert(object.tag == @intFromEnum(ValueType.object));
+                const dst = self.to.alloc_with_additional(bc.Object, object.values.count);
+                dst.tag = object.tag;
+                dst.class_idx = object.class_idx;
+                dst.prototype = object.prototype;
+                dst.values.count = object.values.count;
+                for (0..object.values.count) |idx| {
+                    const val = object.values.get(idx);
+                    dst.values.set(idx, val);
+                }
+
+                addr.* = Value.new_ptr(bc.Object, dst, ValueType.object);
+                const tmp: u64 = @intFromPtr(dst) - @intFromPtr(self.to.data.ptr);
+                to_ptr = @intCast(tmp);
+            },
+            ValueType.closure => {
+                const closure = origin.get_ptr(bc.Closure);
+                std.debug.assert(closure.tag == @intFromEnum(ValueType.closure));
+                const dst = self.to.alloc_with_additional(bc.Closure, closure.env.count);
+                dst.tag = closure.tag;
+                dst.local_count = closure.local_count;
+                dst.param_count = closure.param_count;
+                dst.constant_idx = closure.constant_idx;
+                dst.env.count = closure.env.count;
+                for (0..closure.env.count) |idx| {
+                    const val = closure.env.get(idx);
+                    dst.env.set(idx, val);
+                }
+
+                addr.* = Value.new_ptr(bc.Closure, dst, ValueType.closure);
+                const tmp: u64 = @intFromPtr(dst) - @intFromPtr(self.to.data.ptr);
+                to_ptr = @intCast(tmp);
+            },
+            else => unreachable,
+        }
+
+        const forward_ptr = origin.get_ptr(bc.Forward);
+        forward_ptr.tag = bc.FORWARD_TAG;
+        forward_ptr.ptr = to_ptr;
     }
 };
 
@@ -88,9 +222,15 @@ const Stack = struct {
 };
 
 const LocalEnv = struct {
+    // [locals] [old fp] [ret]
     buffer: std.ArrayList(Value),
     alloc: std.mem.Allocator,
     current_ptr: u32,
+
+    const FrameHelper = struct {
+        frame: []Value,
+        position: usize,
+    };
 
     pub fn init(alloc: std.mem.Allocator) LocalEnv {
         var buffer = std.ArrayList(Value).init(alloc);
@@ -142,6 +282,28 @@ const LocalEnv = struct {
         return @intCast(old_fp.data);
     }
 
+    pub fn get_last_frame(self: *const LocalEnv) ?FrameHelper {
+        if (self.buffer.items.len == 0) {
+            return null;
+        }
+        const frame = self.buffer.items[self.current_ptr..(self.buffer.items.len - 2)];
+        const position = self.current_ptr;
+        return FrameHelper{
+            .frame = frame,
+            .position = position,
+        };
+    }
+
+    pub fn get_next_frame(self: *const LocalEnv, frame: FrameHelper) FrameHelper {
+        // we must reach outside of values of frame
+        const tmp: [*]Value = @ptrCast(frame.frame);
+        const fp = tmp[frame.frame.len].data;
+        return FrameHelper{
+            .frame = self.buffer.items[fp..(frame.position - 2)],
+            .position = fp,
+        };
+    }
+
     pub fn get_ret(self: *const LocalEnv) struct { ret_pc: u32, ret_const: bc.ConstantIndex } {
         const ret = self.buffer.items[self.buffer.items.len - 1];
         const ret_pc: u32 = @intCast((ret.data >> 32));
@@ -170,10 +332,14 @@ const Environment = struct {
     local: LocalEnv,
 
     pub fn init(global_count: usize, alloc: std.mem.Allocator) Environment {
-        return Environment{
+        const res = Environment{
             .global = alloc.alloc(Value, global_count) catch unreachable,
             .local = LocalEnv.init(alloc),
         };
+
+        @memset(res.global, Value.new_nil());
+
+        return res;
     }
 
     pub fn deinit(self: *Environment) void {
@@ -401,8 +567,8 @@ pub const Interpreter = struct {
                     }
                     const field_count = class_constant.get_class_field_count();
                     const values = self.stack.slice_top(field_count);
-                    self.stack.pop_n(field_count);
                     const object = self.gc.alloc_with_additional(bc.Object, field_count, self.get_roots());
+                    self.stack.pop_n(field_count);
                     object.values.count = field_count;
                     for (values, 0..) |val, idx| {
                         object.values.set(idx, val);
@@ -486,6 +652,8 @@ pub const Interpreter = struct {
     fn get_field(self: *const Interpreter, object: *bc.Object, string_field_idx: bc.ConstantIndex) ?runtime.Value {
         var tmp: *bc.Object = object;
         while (true) {
+            //const tmp_addr = @intFromPtr(tmp);
+            //std.debug.print("{}\n", .{tmp_addr});
             const class_constant = self.bytecode.get_constant(tmp.class_idx);
             const position: ?usize = class_constant.get_class_field_position(string_field_idx);
             if (position) |pos| {
