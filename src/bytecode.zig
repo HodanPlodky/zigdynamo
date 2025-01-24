@@ -90,7 +90,6 @@ pub const Instruction = enum(u8) {
             Instruction.eq => "eq",
             Instruction.ne => "ne",
             Instruction.call => "call",
-            //Instruction.static_call => "static_call",
             Instruction.print => "print",
             Instruction.methodcall => "methodcall",
             Instruction.ret => "ret",
@@ -166,6 +165,9 @@ pub const Constant = struct {
         return @ptrCast(&self.data[4]);
     }
 
+    /// returns the number of bytes in constant
+    /// excluding the bytes used to store the len
+    /// it self (4 bytes)
     pub fn get_size(self: *const Constant) usize {
         var res: usize = 0;
         res |= @intCast(self.data[0]);
