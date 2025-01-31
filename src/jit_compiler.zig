@@ -24,6 +24,9 @@ pub const JitFunction = struct {
 /// then the bytecode interpreter
 pub const JitState = extern struct {
     intepreter: *bc_interpret.Interpreter,
+    stack: *bc_interpret.Stack,
+    env: *bc_interpret.Environment,
+    gc: *bc_interpret.GC,
 };
 
 const GPR64 = enum(u4) {

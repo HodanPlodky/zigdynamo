@@ -14,7 +14,7 @@ const Roots = struct {
 /// Garbage collection
 /// implemeted via copying semispaces
 /// size : 48
-const GC = struct {
+pub const GC = struct {
     from: runtime.Heap,
     to: runtime.Heap,
 
@@ -184,7 +184,7 @@ const GC = struct {
 };
 
 // size: 40
-const Stack = struct {
+pub const Stack = struct {
     stack: std.ArrayList(runtime.Value), // 40?
 
     pub fn init(alloc: std.mem.Allocator) Stack {
@@ -332,7 +332,7 @@ const LocalEnv = struct {
 };
 
 /// size: 76
-const Environment = struct {
+pub const Environment = struct {
     global: []Value, // 16
     local: LocalEnv, // 60
 
