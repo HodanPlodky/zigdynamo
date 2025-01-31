@@ -1,6 +1,7 @@
 const std = @import("std");
 const runtime = @import("runtime.zig");
 const bc = @import("bytecode.zig");
+const jit = @import("jit_compiler.zig");
 
 const Value = runtime.Value;
 const ValueType = runtime.ValueType;
@@ -12,6 +13,7 @@ const Roots = struct {
 
 /// Garbage collection
 /// implemeted via copying semispaces
+/// size : 48
 const GC = struct {
     from: runtime.Heap,
     to: runtime.Heap,
@@ -181,8 +183,9 @@ const GC = struct {
     }
 };
 
+// size: 40
 const Stack = struct {
-    stack: std.ArrayList(runtime.Value),
+    stack: std.ArrayList(runtime.Value), // 40?
 
     pub fn init(alloc: std.mem.Allocator) Stack {
         return Stack{
@@ -221,11 +224,12 @@ const Stack = struct {
     }
 };
 
+/// size: 60 + 4
 const LocalEnv = struct {
     // [locals] [old fp] [ret]
-    buffer: std.ArrayList(Value),
-    alloc: std.mem.Allocator,
-    current_ptr: u32,
+    buffer: std.ArrayList(Value), // 40
+    alloc: std.mem.Allocator, // 16
+    current_ptr: u32, // 4
 
     const FrameHelper = struct {
         frame: []Value,
@@ -327,9 +331,10 @@ const LocalEnv = struct {
     }
 };
 
+/// size: 76
 const Environment = struct {
-    global: []Value,
-    local: LocalEnv,
+    global: []Value, // 16
+    local: LocalEnv, // 60
 
     pub fn init(global_count: usize, alloc: std.mem.Allocator) Environment {
         const res = Environment{
@@ -355,13 +360,15 @@ const Environment = struct {
     }
 };
 
+/// size: 136 (0x88)
 pub const Interpreter = struct {
-    bytecode: bc.Bytecode,
-    pc: usize,
-    curr_const: bc.ConstantIndex,
-    gc: GC,
-    stack: Stack,
-    env: Environment,
+    bytecode: bc.Bytecode, // 32
+    pc: usize, // 8
+    curr_const: bc.ConstantIndex, // 4 + 4
+    gc: GC, // 48
+    stack: Stack, // 40
+    env: Environment, // 76
+    jit_compiler: jit.JitCompiler,
 
     pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8) Interpreter {
         return Interpreter{
@@ -371,10 +378,13 @@ pub const Interpreter = struct {
             .gc = GC.init(heap_data),
             .stack = Stack.init(alloc),
             .env = Environment.init(bytecode.global_count, alloc),
+            .jit_compiler = jit.JitCompiler.init(4096),
         };
     }
 
     pub fn run(self: *Interpreter) runtime.Value {
+        const tmp_fn: *const anyopaque = @ptrCast(&Interpreter.run);
+        std.debug.print("run addr: {x}\n", .{@intFromPtr(tmp_fn)});
         while (true) {
             const inst = self.read_inst();
             //std.debug.print("{}\n", .{inst});
@@ -524,11 +534,16 @@ pub const Interpreter = struct {
                         self.env.local.set(local_count - index - 1, val);
                     }
                     self.stack.pop_n(param_count);
-                    self.bytecode.set_curr_const(closure.constant_idx);
-                    self.curr_const = closure.constant_idx;
+
+                    const function_constant = self.bytecode.get_constant(closure.constant_idx);
+                    const compiled = self.jit_compiler.compile_fn(function_constant) catch @panic("could not compile");
+                    compiled.run(self);
+
+                    //self.bytecode.set_curr_const(closure.constant_idx);
+                    //self.curr_const = closure.constant_idx;
 
                     // header size of the closure
-                    self.pc = 4 + 1 + 4 + 4;
+                    //self.pc = 4 + 1 + 4 + 4;
                 },
                 bc.Instruction.print => {
                     const arg_count = self.read_u32();

@@ -1,5 +1,6 @@
 const std = @import("std");
 
+/// size: 24
 pub const Heap = struct {
     data: []u8,
     curr_ptr: usize,
