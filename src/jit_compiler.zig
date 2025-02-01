@@ -42,14 +42,7 @@ pub const JitState = extern struct {
     gc_alloc_closure: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Closure,
 
     pub fn get_offset(comptime field_name: []const u8) u32 {
-        return comptime {
-            for (@typeInfo(JitState).Struct.fields, 0..) |field, index| {
-                if (std.mem.eql(u8, field_name, field.name)) {
-                    return index * @sizeOf(usize);
-                }
-            }
-            @compileError("did not find field");
-        };
+        return @offsetOf(JitState, field_name);
     }
 };
 
