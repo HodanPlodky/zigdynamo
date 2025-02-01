@@ -143,11 +143,11 @@ pub const JitCompiler = struct {
                 // 0x60 is address of len of stack
                 const tmp: [4]u8 = .{ 0x48, 0xff, 0x4b, 0x60 };
                 try self.compile_add_slice(tmp[0..]);
+                unreachable;
             },
             bytecode.Instruction.ret => {
                 try self.mov_from_jit_state(GPR64.rdi, "env");
-                try self.mov_from_jit_state(GPR64.rax, "pop_locals");
-                try self.call_from_rax();
+                try self.call("pop_locals");
                 try self.compile_epilog();
 
                 // return
@@ -156,14 +156,13 @@ pub const JitCompiler = struct {
 
             bytecode.Instruction.push_byte => {
                 try self.mov_from_jit_state(GPR64.rdi, "stack");
-                try self.mov_from_jit_state(GPR64.rax, "push");
 
                 const number: u32 = @intCast(self.bytecode[self.pc]);
                 const value = runtime.Value.new_num(number);
 
                 try self.set_reg_64(GPR64.rsi, value.data);
 
-                try self.call_from_rax();
+                try self.call("push");
 
                 self.pc += 1;
             },
@@ -174,6 +173,7 @@ pub const JitCompiler = struct {
         }
     }
 
+    /// load value from JIT state based on field name of the value
     fn mov_from_jit_state(self: *JitCompiler, to_reg: GPR64, comptime field_name: []const u8) !void {
         const offset = comptime JitState.get_offset(field_name);
         try self.mov_from_jit_state_offset(to_reg, offset);
@@ -251,7 +251,13 @@ pub const JitCompiler = struct {
         try self.compile_add_slice(value_bytes[0..]);
     }
 
+    fn call(self: *JitCompiler, comptime function_name: []const u8) !void {
+        try self.mov_from_jit_state(GPR64.rax, function_name);
+        try self.call_from_rax();
+    }
+
     fn call_from_rax(self: *JitCompiler) !void {
+        // call rax
         const slice: [2]u8 = .{ 0xff, 0xd0 };
         try self.compile_add_slice(slice[0..]);
     }
