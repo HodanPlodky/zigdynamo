@@ -1,6 +1,7 @@
 const std = @import("std");
 const bytecode = @import("bytecode.zig");
 const bc_interpret = @import("bc_interpreter.zig");
+const runtime = @import("runtime.zig");
 
 pub const JitError = error{
     CanOnlyCompileFn,
@@ -10,10 +11,9 @@ pub const JitError = error{
 pub const JitFunction = struct {
     code: [*]u8,
 
-    pub fn run(self: *const JitFunction, interpreter: *anyopaque) void {
-        const f: *const fn (*anyopaque) callconv(.C) void = @alignCast(@ptrCast(self.code));
-        std.debug.print("call jit: {x}\n", .{f});
-        f(interpreter);
+    pub fn run(self: *const JitFunction, state: *const JitState) void {
+        const f: *const fn (*const JitState) callconv(.C) void = @alignCast(@ptrCast(self.code));
+        f(state);
     }
 };
 
@@ -23,10 +23,34 @@ pub const JitFunction = struct {
 /// fields and jit code needs different set of fields
 /// then the bytecode interpreter
 pub const JitState = extern struct {
-    intepreter: *bc_interpret.Interpreter,
-    stack: *bc_interpret.Stack,
-    env: *bc_interpret.Environment,
-    gc: *bc_interpret.GC,
+    intepreter: *const bc_interpret.Interpreter,
+    stack: *const bc_interpret.Stack,
+    env: *const bc_interpret.Environment,
+    gc: *const bc_interpret.GC,
+
+    // basic
+    push: *const fn (*bc_interpret.Stack, runtime.Value) callconv(.C) void,
+    get_local: *const fn (*const bc_interpret.Environment, u32) callconv(.C) runtime.Value,
+    set_local: *const fn (*bc_interpret.Environment, u32, runtime.Value) callconv(.C) void,
+
+    // call handle
+    pop_locals: *const fn (*bc_interpret.Environment) callconv(.C) void,
+    push_locals: *const fn (*bc_interpret.Environment, u64, usize, u32) callconv(.C) void,
+
+    // gc handle
+    gc_alloc_object: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Object,
+    gc_alloc_closure: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Closure,
+
+    pub fn get_offset(comptime field_name: []const u8) u32 {
+        return comptime {
+            for (@typeInfo(JitState).Struct.fields, 0..) |field, index| {
+                if (std.mem.eql(u8, field_name, field.name)) {
+                    return index * @sizeOf(usize);
+                }
+            }
+            @compileError("did not find field");
+        };
+    }
 };
 
 const GPR64 = enum(u4) {
@@ -74,7 +98,6 @@ pub const JitCompiler = struct {
             -1,
             0,
         );
-        std.debug.print("jit code: {x}\n", .{addr});
 
         const code: [*]u8 = @ptrFromInt(addr);
         const code_slice = code[0..code_buffer_size];
@@ -122,24 +145,9 @@ pub const JitCompiler = struct {
                 try self.compile_add_slice(tmp[0..]);
             },
             bytecode.Instruction.ret => {
-                // load self.env.local.buffer.ptr rcx
-                // mov rcx,QWORD PTR [rbx+0x90]
-                try self.mov_from_self_64(GPR64.rcx, 0x90);
-
-                // load self.env.local.buffer.len to rdx
-                // mov rdx,QWORD PTR [rbx+0x98]
-                try self.mov_from_self_64(GPR64.rdx, 0x98);
-
-                // load old fp
-                // mov eax,DWORD PTR [rcx+rdx*8-0x10]
-                //self.mov_index_access(G)
-
-                // mov eax,DWORD PTR [rcx+rdx*8-0x10]
-                // we can do it in the 64bit since we know that
-                // the old fp value will for sure be in lower bits
-                // 0xf0 = -10
-                try self.mov_index_access64(GPR64.rax, Scale.scale8, GPR64.rcx, GPR64.rdx, 0xf0);
-
+                try self.mov_from_jit_state(GPR64.rdi, "env");
+                try self.mov_from_jit_state(GPR64.rax, "pop_locals");
+                try self.call_from_rax();
                 try self.compile_epilog();
 
                 // return
@@ -147,15 +155,16 @@ pub const JitCompiler = struct {
             },
 
             bytecode.Instruction.push_byte => {
-                // load stack ptr
-                try self.mov_from_self_64(GPR64.rdi, 0x58);
+                try self.mov_from_jit_state(GPR64.rdi, "stack");
+                try self.mov_from_jit_state(GPR64.rax, "push");
 
-                // load stack len
-                try self.mov_from_self_64(GPR64.rsi, 0x58);
+                const number: u32 = @intCast(self.bytecode[self.pc]);
+                const value = runtime.Value.new_num(number);
 
-                // inc rsi
-                const inc_rsi: [3]u8 = .{ 0x48, 0xff, 0xc6 };
-                try self.compile_add_slice(inc_rsi[0..]);
+                try self.set_reg_64(GPR64.rsi, value.data);
+
+                try self.call_from_rax();
+
                 self.pc += 1;
             },
             else => {
@@ -165,9 +174,14 @@ pub const JitCompiler = struct {
         }
     }
 
+    fn mov_from_jit_state(self: *JitCompiler, to_reg: GPR64, comptime field_name: []const u8) !void {
+        const offset = comptime JitState.get_offset(field_name);
+        try self.mov_from_jit_state_offset(to_reg, offset);
+    }
+
     /// emits instruction for moving the 64bit value from self (Interpreter) into
     /// 64bit register, this assumes that the pointer to self is stored in rbx
-    fn mov_from_self_64(self: *JitCompiler, to_reg: GPR64, offset: u32) !void {
+    fn mov_from_jit_state_offset(self: *JitCompiler, to_reg: GPR64, offset: u32) !void {
         // REX.W + 8B /r
         const to_reg_val: u8 = @intFromEnum(to_reg);
 
@@ -206,6 +220,40 @@ pub const JitCompiler = struct {
             };
             try self.compile_add_slice(offset_bytes[0..]);
         }
+    }
+
+    fn set_reg_64(self: *JitCompiler, reg: GPR64, value: u64) !void {
+        const reg_val: u8 = @intFromEnum(reg);
+        // REX.W
+        // | 4-bit | W | R | X | B |
+        // The R could contain highest bit of reg number
+        // The B will never be set since we move immediate
+        // and there is no other reg
+        try self.compile_add_byte(0x48 | ((reg_val & 0x4) >> 1));
+
+        // opcode has in it self the lower 3 bits of reg
+        // index (0xb8 is base and you add those)
+        const base_opcode: u8 = 0xb8;
+        const opcode = base_opcode + (reg_val & 0x7);
+        try self.compile_add_byte(opcode);
+
+        const value_bytes: [8]u8 = .{
+            @intCast(value & 0xff),
+            @intCast((value >> 8) & 0xff),
+            @intCast((value >> 16) & 0xff),
+            @intCast((value >> 24) & 0xff),
+            @intCast((value >> 32) & 0xff),
+            @intCast((value >> 40) & 0xff),
+            @intCast((value >> 48) & 0xff),
+            @intCast((value >> 56) & 0xff),
+        };
+
+        try self.compile_add_slice(value_bytes[0..]);
+    }
+
+    fn call_from_rax(self: *JitCompiler) !void {
+        const slice: [2]u8 = .{ 0xff, 0xd0 };
+        try self.compile_add_slice(slice[0..]);
     }
 
     fn mov_index_access64(self: *JitCompiler, to_reg: GPR64, scale: Scale, base: GPR64, index: GPR64, offset: u8) !void {
@@ -281,6 +329,8 @@ pub const JitCompiler = struct {
     }
 
     fn compile_prolog(self: *JitCompiler) !void {
+        // push rax
+        try self.compile_add_byte(0x50);
         // push rbx
         try self.compile_add_byte(0x53);
         // mov rbx, rdi
@@ -291,6 +341,8 @@ pub const JitCompiler = struct {
     fn compile_epilog(self: *JitCompiler) !void {
         // pop rbx
         try self.compile_add_byte(0x5b);
+        // pop rax
+        try self.compile_add_byte(0x58);
     }
 
     fn compile_add_slice(self: *JitCompiler, inst: []const u8) !void {

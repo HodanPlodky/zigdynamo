@@ -383,8 +383,6 @@ pub const Interpreter = struct {
     }
 
     pub fn run(self: *Interpreter) runtime.Value {
-        const tmp_fn: *const anyopaque = @ptrCast(&Interpreter.run);
-        std.debug.print("run addr: {x}\n", .{@intFromPtr(tmp_fn)});
         while (true) {
             const inst = self.read_inst();
             //std.debug.print("{}\n", .{inst});
@@ -537,7 +535,8 @@ pub const Interpreter = struct {
 
                     const function_constant = self.bytecode.get_constant(closure.constant_idx);
                     const compiled = self.jit_compiler.compile_fn(function_constant) catch @panic("could not compile");
-                    compiled.run(self);
+                    @call(.never_inline, jit.JitFunction.run, .{ &compiled, &self.get_jit_state() });
+                    //compiled.run(self.get_jit_state());
 
                     //self.bytecode.set_curr_const(closure.constant_idx);
                     //self.curr_const = closure.constant_idx;
@@ -734,4 +733,52 @@ pub const Interpreter = struct {
             .env = &self.env,
         };
     }
+
+    fn get_jit_state(self: *const Interpreter) jit.JitState {
+        return jit.JitState{
+            .intepreter = self,
+            .stack = &self.stack,
+            .env = &self.env,
+            .gc = &self.gc,
+            .push = &push,
+            .get_local = &get_local,
+            .set_local = &set_local,
+            .pop_locals = &pop_locals,
+            .push_locals = &push_locals,
+            .gc_alloc_object = &gc_alloc_object,
+            .gc_alloc_closure = &gc_alloc_closure,
+        };
+    }
 };
+
+// JIT helper functions
+
+pub fn push(stack: *Stack, value: Value) callconv(.C) void {
+    stack.push(value);
+}
+
+pub fn get_local(env: *const Environment, idx: u32) callconv(.C) Value {
+    return env.local.get(idx);
+}
+
+pub fn set_local(env: *Environment, idx: u32, value: Value) callconv(.C) void {
+    env.local.set(idx, value);
+}
+
+pub fn pop_locals(env: *Environment) callconv(.C) void {
+    env.local.pop_locals();
+}
+
+pub fn push_locals(env: *Environment, args_ptr: u64, args_len: usize, local_count: u32) callconv(.C) void {
+    const args_tmp: [*]Value = @ptrFromInt(args_ptr);
+    const args = args_tmp[0..args_len];
+    env.local.push_locals(args, local_count, 0, bc.ConstantIndex.new(0));
+}
+
+pub fn gc_alloc_object(intepreter: *Interpreter, field_count: usize) callconv(.C) *bc.Object {
+    return intepreter.gc.alloc_with_additional(bc.Object, field_count, intepreter.get_roots());
+}
+
+pub fn gc_alloc_closure(intepreter: *Interpreter, env_size: usize) callconv(.C) *bc.Closure {
+    return intepreter.gc.alloc_with_additional(bc.Closure, env_size, intepreter.get_roots());
+}
