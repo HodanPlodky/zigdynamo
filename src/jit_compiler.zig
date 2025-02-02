@@ -212,7 +212,7 @@ pub const JitCompiler = struct {
     /// emits instruction for moving the 64bit value from JIT state into
     /// 64bit register, this assumes that the pointer to state is stored in rbx
     fn mov_from_jit_state_offset(self: *JitCompiler, to_reg: GPR64, offset: u32) !void {
-        try self.mov_from_struct_64(to_reg, GPR64.rbx, offset);
+        try self.mov_from_struct_64(to_reg, state_addr, offset);
     }
 
     //
@@ -230,14 +230,17 @@ pub const JitCompiler = struct {
         try self.emit_slice(slice[0..]);
     }
 
+    //
+    // Stack helpers
+    //
+
     /// clobers rax and rcx
     fn get_stack_to_reg(self: *JitCompiler, dst: GPR64, offset: u8) !void {
-        try self.mov_from_jit_state(GPR64.rax, "stack");
         // load len
-        try self.mov_from_struct_64(GPR64.rcx, GPR64.rax, 8);
+        try self.mov_from_struct_64(GPR64.rcx, stack_addr, 8);
 
         // load stack ptr
-        try self.deref_ptr(GPR64.rax, GPR64.rax);
+        try self.deref_ptr(GPR64.rax, stack_addr);
 
         // load value from top of stack with offset
         // mov reg, [rax + rcx*8 - offset]
@@ -246,38 +249,32 @@ pub const JitCompiler = struct {
         try self.mov_index_access64(dst, scale, GPR64.rax, GPR64.rcx, (~((offset + 1) * @sizeOf(runtime.Value))) + 1);
     }
 
-    //
-    // Stack helpers
-    //
-
     /// clobers rax
     fn stack_pop(self: *JitCompiler) !void {
-        // load ptr for stack
-        try self.mov_from_jit_state(GPR64.rax, "stack");
+        const stack_addr_val: u8 = @intFromEnum(stack_addr);
 
         const len_offset = 8;
-        // dec QWORD PTR [rax+0x60]
-        // 48 ff 4b 60
-        // 48 = REX
+        // dec QWORD PTR [stack_addr+0x60]
+        // 49 ff 4f 60
+        // 49 = REX.W | B-bit = high stack_addr
         // ff = opcode ????
-        // 48 = modrm = 01_001_000
+        // 4f = modrm = 01_001_[lower_stack_addr]
         // 60 = offset
-        const dec_slice: [4]u8 = .{ 0x48, 0xff, 0x48, len_offset };
+        const rex = 0x48 | ((stack_addr_val & 0x8) >> 3);
+        const modrm = 0b01_001_000 | (stack_addr_val & 0x7);
+        const dec_slice: [4]u8 = .{ rex, 0xff, modrm, len_offset };
         try self.emit_slice(dec_slice[0..]);
     }
 
     /// clobers rax, rcx
-    fn stack_set_top(self: *JitCompiler, reg: GPR64) !void {
-        const reg_val: u8 = @intFromEnum(reg);
-
-        // load stack
-        try self.mov_from_jit_state(GPR64.rax, "stack");
+    fn stack_set_top(self: *JitCompiler, dst: GPR64) !void {
+        const reg_val: u8 = @intFromEnum(dst);
 
         // load len
-        try self.mov_from_struct_64(GPR64.rcx, GPR64.rax, 8);
+        try self.mov_from_struct_64(GPR64.rcx, stack_addr, 8);
 
         // load stack ptr
-        try self.deref_ptr(GPR64.rax, GPR64.rax);
+        try self.deref_ptr(GPR64.rax, stack_addr);
 
         // mov QWORD PTR [rax+rcx*8-0x8],r8
         // 4c 89 44 c8 f8
@@ -302,9 +299,9 @@ pub const JitCompiler = struct {
     // Struct access
     //
 
-    fn mov_from_struct_64(self: *JitCompiler, to_reg: GPR64, base: GPR64, offset: u32) !void {
+    fn mov_from_struct_64(self: *JitCompiler, dst: GPR64, base: GPR64, offset: u32) !void {
         // REX.W + 8B /r
-        const to_reg_val: u8 = @intFromEnum(to_reg);
+        const dst_val: u8 = @intFromEnum(dst);
         const base_val: u8 = @intFromEnum(base);
 
         // REX.W
@@ -312,7 +309,7 @@ pub const JitCompiler = struct {
         // The R could contain highest bit of reg number
         // The B will never be set since we set the self
         // ptr reg as rbx and that has highes bit num 0
-        try self.emit_byte(0x48 | ((base_val & 0x8) >> 3) | ((to_reg_val & 0x8) >> 1));
+        try self.emit_byte(0x48 | ((base_val & 0x8) >> 3) | ((dst_val & 0x8) >> 1));
 
         // opcode
         try self.emit_byte(0x8b);
@@ -327,7 +324,7 @@ pub const JitCompiler = struct {
         else
             0x00;
 
-        const to_reg_lower = to_reg_val & 0x7;
+        const to_reg_lower = dst_val & 0x7;
         try self.emit_byte(mod | (to_reg_lower << 3) | (base_val & 0x7));
 
         // if offset is not zero we have to
