@@ -86,6 +86,10 @@ const Scale = enum(u2) {
     }
 };
 
+const PanicTable = struct {
+    binop_panic: usize = 0,
+};
+
 pub const JitCompiler = struct {
     const stack_addr = GPR64.r15;
     const state_addr = GPR64.rbx;
@@ -94,6 +98,7 @@ pub const JitCompiler = struct {
     code_ptr: usize,
     pc: usize,
     bytecode: []const u8,
+    panic_table: PanicTable,
 
     pub fn init(code_buffer_size: usize) JitCompiler {
         const addr = std.os.linux.mmap(
@@ -111,12 +116,70 @@ pub const JitCompiler = struct {
         const code: [*]u8 = @ptrFromInt(addr);
         const code_slice = code[0..code_buffer_size];
 
-        return JitCompiler{
+        var res = JitCompiler{
             .code_slice = code_slice,
             .code_ptr = 0,
             .pc = undefined,
             .bytecode = undefined,
+            .panic_table = .{},
         };
+        res.init_panic_handlers() catch unreachable;
+        return res;
+    }
+
+    /// emit panic calls for and populate panic call table
+    fn init_panic_handlers(self: *JitCompiler) !void {
+        try self.emit_panic_handler_with_prolog("binop_panic", JitCompiler.bin_op_panic_prolog);
+    }
+
+    fn bin_op_panic_prolog(self: *JitCompiler) !void {
+        try self.mov_reg_reg(GPR64.rdi, GPR64.r8);
+        try self.mov_reg_reg(GPR64.rsi, GPR64.r9);
+    }
+
+    fn emit_panic_handler(self: *JitCompiler, comptime panic_name: []const u8) !void {
+        @field(self.panic_table, panic_name) = self.code_ptr;
+        try self.call(panic_name);
+    }
+
+    fn emit_panic_handler_with_prolog(self: *JitCompiler, comptime panic_name: []const u8, comptime prolog: fn (*JitCompiler) JitError!void) !void {
+        @field(self.panic_table, panic_name) = self.code_ptr;
+        try prolog(self);
+        try self.call(panic_name);
+    }
+
+    fn emit_panic(self: *JitCompiler, comptime panic_name: []const u8) !void {
+        const panic_offset = @field(self.panic_table, panic_name);
+        std.debug.assert(self.code_ptr > panic_offset);
+        var diff: usize = self.code_ptr + 2 - panic_offset;
+
+        // we got signed so thats why size - 1
+        if (diff < (1 << 7)) {
+            const diff_u8: u8 = @intCast(diff);
+            const jmp_val: u8 = ~diff_u8 + 1;
+            const jmp_slice: [2]u8 = .{ 0x75, jmp_val };
+            try self.emit_slice(jmp_slice[0..]);
+            return;
+        }
+        diff += 4;
+        if (diff < (1 << 31)) {
+            // jne 401000 <tmp>
+            // 0f 85 7e 8c ed ff
+            const diff_u32: u32 = @intCast(diff);
+            const jmp_val: u32 = ~diff_u32 + 1;
+            const jmp_slice: [6]u8 = .{
+                0x0f,
+                0x85,
+                @intCast(jmp_val & 0xff),
+                @intCast((jmp_val >> 8) & 0xff),
+                @intCast((jmp_val >> 16) & 0xff),
+                @intCast((jmp_val >> 24) & 0xff),
+            };
+
+            try self.emit_slice(jmp_slice[0..]);
+            return;
+        }
+        @panic("cannot do panic jump");
     }
 
     pub fn compile_fn(self: *JitCompiler, function: bytecode.Constant) JitError!JitFunction {
@@ -192,12 +255,13 @@ pub const JitCompiler = struct {
                 // handle cond
                 // jmp over if ok
                 // je <size of panic call> = 0xf (15) bytes
-                const jump_slice: [2]u8 = .{ 0x74, 0x0f };
-                try self.emit_slice(jump_slice[0..]);
+                try self.emit_panic("binop_panic");
+                //const jump_slice: [2]u8 = .{ 0x74, 0x0f };
+                //try self.emit_slice(jump_slice[0..]);
                 // call panic
-                try self.mov_reg_reg(GPR64.rdi, GPR64.r8);
-                try self.mov_reg_reg(GPR64.rsi, GPR64.r9);
-                try self.call("binop_panic");
+                //try self.mov_reg_reg(GPR64.rdi, GPR64.r8);
+                //try self.mov_reg_reg(GPR64.rsi, GPR64.r9);
+                //try self.call("binop_panic");
 
                 // add r8,r9
                 // add r/m64 reg =>
@@ -223,9 +287,9 @@ pub const JitCompiler = struct {
     //
 
     /// load value from JIT state based on field name of the value
-    fn mov_from_jit_state(self: *JitCompiler, to_reg: GPR64, comptime field_name: []const u8) !void {
+    fn mov_from_jit_state(self: *JitCompiler, dst: GPR64, comptime field_name: []const u8) !void {
         const offset = comptime JitState.get_offset(field_name);
-        try self.mov_from_jit_state_offset(to_reg, offset);
+        try self.mov_from_jit_state_offset(dst, offset);
     }
 
     /// emits instruction for moving the 64bit value from JIT state into
