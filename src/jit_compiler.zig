@@ -148,6 +148,8 @@ pub const JitCompiler = struct {
         try self.call(panic_name);
     }
 
+    /// creates jump depending on current flags such that if the test
+    /// return false then in jumps to panic
     fn emit_panic(self: *JitCompiler, comptime panic_name: []const u8) !void {
         const panic_offset = @field(self.panic_table, panic_name);
         std.debug.assert(self.code_ptr > panic_offset);
@@ -262,15 +264,7 @@ pub const JitCompiler = struct {
                 try self.emit_slice(test_slice[0..]);
 
                 // handle cond
-                // jmp over if ok
-                // je <size of panic call> = 0xf (15) bytes
                 try self.emit_panic("binop_panic");
-                //const jump_slice: [2]u8 = .{ 0x74, 0x0f };
-                //try self.emit_slice(jump_slice[0..]);
-                // call panic
-                //try self.mov_reg_reg(GPR64.rdi, GPR64.r8);
-                //try self.mov_reg_reg(GPR64.rsi, GPR64.r9);
-                //try self.call("binop_panic");
 
                 // add r8,r9
                 // add r/m64 reg =>
