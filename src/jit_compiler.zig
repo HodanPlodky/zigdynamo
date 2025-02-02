@@ -238,9 +238,18 @@ pub const JitCompiler = struct {
 
                 self.pc += 1;
             },
+            bytecode.Instruction.nil => {
+                try self.mov_from_jit_state(GPR64.rdi, "stack");
+
+                const value = runtime.Value.new_nil();
+
+                try self.set_reg_64(GPR64.rsi, value.data);
+
+                try self.call("push");
+            },
             bytecode.Instruction.add => {
-                try self.get_stack_to_reg(GPR64.r8, 0);
-                try self.get_stack_to_reg(GPR64.r9, 1);
+                try self.get_stack_to_reg(GPR64.r9, 0);
+                try self.get_stack_to_reg(GPR64.r8, 1);
 
                 // check lower bits
                 try self.mov_reg_reg(GPR64.rdi, GPR64.r8);
