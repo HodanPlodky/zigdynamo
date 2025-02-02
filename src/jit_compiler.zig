@@ -41,6 +41,9 @@ pub const JitState = extern struct {
     gc_alloc_object: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Object,
     gc_alloc_closure: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Closure,
 
+    // panics
+    binop_panic: *const fn (runtime.Value, runtime.Value) callconv(.C) void,
+
     pub fn get_offset(comptime field_name: []const u8) u32 {
         return @offsetOf(JitState, field_name);
     }
@@ -173,16 +176,32 @@ pub const JitCompiler = struct {
                 self.pc += 1;
             },
             bytecode.Instruction.add => {
-                // TODO: create correct check
                 try self.get_stack_to_reg(GPR64.r8, 0);
                 try self.get_stack_to_reg(GPR64.r9, 1);
 
+                // check lower bits
+                try self.mov_reg_reg(GPR64.rdi, GPR64.r8);
+                // or rdi, r9
+                // or r/m64 reg
+                try self.emit_basic_reg(0x09, GPR64.r9, GPR64.rdi);
+                // test dil,0x7 (dil lowest 8 bit of rdi)
+                // 40 f6 c7 07
+                const test_slice: [4]u8 = .{ 0x40, 0xf6, 0xc7, 0x07 };
+                try self.emit_slice(test_slice[0..]);
+
+                // handle cond
+                // jmp over if ok
+                // je <size of panic call> = 0xf (15) bytes
+                const jump_slice: [2]u8 = .{ 0x74, 0x0f };
+                try self.emit_slice(jump_slice[0..]);
+                // call panic
+                try self.mov_reg_reg(GPR64.rdi, GPR64.r8);
+                try self.mov_reg_reg(GPR64.rsi, GPR64.r9);
+                try self.call("binop_panic");
+
                 // add r8,r9
-                // 4d 01 c8
-                // 4d = REX => set W R B
-                // c8 = modrm => 11_001_000 => add r/m64 reg => stores to r/m64
-                const add_slice: [3]u8 = .{ 0x4d, 0x01, 0xc8 };
-                try self.emit_slice(add_slice[0..]);
+                // add r/m64 reg =>
+                try self.emit_basic_reg(0x01, GPR64.r9, GPR64.r8);
 
                 try self.stack_pop();
                 try self.stack_set_top(GPR64.r8);
@@ -421,12 +440,10 @@ pub const JitCompiler = struct {
         // 89 = opcode (mod r/m64, r)
         // fb = modrm 11_111_011 => mod | src | dst
 
-        const dest_val: u8 = @intFromEnum(dst);
-        const src_val: u8 = @intFromEnum(src);
-
         // REX | W | R | X | B
         // reg => R, r/m64 => B
-        const rex = 0x48 | ((src_val & 0x8) >> 1) | ((dest_val & 0x8) >> 3);
+        //const rex = 0x48 | ((src_val & 0x8) >> 1) | ((dst_val & 0x8) >> 3);
+        const rex = JitCompiler.create_rex(src, dst);
         try self.emit_byte(rex);
 
         // opcode
@@ -434,8 +451,8 @@ pub const JitCompiler = struct {
 
         // MODrm
         // mod = 0b11 | lower bits src | lower bits dest
-        const mod = 0b1100_0000 | ((src_val & 0x7) << 3) | (dest_val & 0x7);
-        try self.emit_byte(mod);
+        const modrm = JitCompiler.create_modrm(src, dst);
+        try self.emit_byte(modrm);
     }
 
     fn set_reg_64(self: *JitCompiler, reg: GPR64, value: u64) !void {
@@ -547,5 +564,48 @@ pub const JitCompiler = struct {
     fn emit_byte(self: *JitCompiler, byte: u8) !void {
         const slice: [1]u8 = .{byte};
         try self.emit_slice(slice[0..]);
+    }
+
+    //
+    // Other helpers
+    //
+
+    /// creates basic REX.W assuming only regs
+    fn create_rex(reg: GPR64, rm64: GPR64) u8 {
+        const reg_val: u8 = @intFromEnum(reg);
+        const rm64_val: u8 = @intFromEnum(rm64);
+
+        // REX.W
+        // | 4-bit | W | R | X | B |
+        // The W is set
+        // The R contains highest bit of reg number
+        // The B contains highest bit of rm64 number
+        return 0x48 | ((reg_val & 0x8) >> 1) | ((rm64_val & 0x8) >> 3);
+    }
+
+    /// creates basic MODrm assuming only regs
+    fn create_modrm(reg: GPR64, rm64: GPR64) u8 {
+        const reg_val: u8 = @intFromEnum(reg);
+        const rm64_val: u8 = @intFromEnum(rm64);
+
+        // MODrm
+        // mod = 0b11 = direct | lower bits reg | lower bits rm64
+        return 0b11_000_000 | ((reg_val & 0x7) << 3) | (rm64_val & 0x7);
+    }
+
+    /// emits most basic inst like add with only regs
+    /// check if you can use this before going all in
+    fn emit_basic_reg(self: *JitCompiler, opcode: u8, reg: GPR64, rm64: GPR64) !void {
+        const inst_slice: [3]u8 = .{
+            JitCompiler.create_rex(reg, rm64),
+            opcode,
+            JitCompiler.create_modrm(reg, rm64),
+        };
+
+        try self.emit_slice(inst_slice[0..]);
+    }
+
+    fn emit_break(self: *JitCompiler) !void {
+        try self.emit_byte(0xcc);
     }
 };
