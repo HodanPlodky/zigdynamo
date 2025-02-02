@@ -84,6 +84,9 @@ const Scale = enum(u2) {
 };
 
 pub const JitCompiler = struct {
+    const stack_addr = GPR64.r15;
+    const state_addr = GPR64.rbx;
+
     code_slice: []u8,
     code_ptr: usize,
     pc: usize,
@@ -124,15 +127,15 @@ pub const JitCompiler = struct {
         // ignore the header of function
         self.bytecode = function.get_slice()[(4 + 1 + 4 + 4)..];
 
-        try self.compile_prolog();
+        try self.emit_prolog();
 
         while (self.pc < self.bytecode.len) {
             try self.compile_bytecode_inst();
         }
 
         // should not be necessary but oh well I am pussy
-        try self.compile_epilog();
-        try self.compile_add_byte(0xc3);
+        try self.emit_epilog();
+        try self.emit_byte(0xc3);
 
         return JitFunction{ .code = @ptrCast(&self.code_slice[start]) };
     }
@@ -145,16 +148,16 @@ pub const JitCompiler = struct {
                 // rbx is self ptr
                 // 0x60 is address of len of stack
                 const tmp: [4]u8 = .{ 0x48, 0xff, 0x4b, 0x60 };
-                try self.compile_add_slice(tmp[0..]);
+                try self.emit_slice(tmp[0..]);
                 unreachable;
             },
             bytecode.Instruction.ret => {
                 try self.mov_from_jit_state(GPR64.rdi, "env");
                 try self.call("pop_locals");
-                try self.compile_epilog();
+                try self.emit_epilog();
 
                 // return
-                try self.compile_add_byte(0xc3);
+                try self.emit_byte(0xc3);
             },
 
             bytecode.Instruction.push_byte => {
@@ -179,7 +182,7 @@ pub const JitCompiler = struct {
                 // 4d = REX => set W R B
                 // c8 = modrm => 11_001_000 => add r/m64 reg => stores to r/m64
                 const add_slice: [3]u8 = .{ 0x4d, 0x01, 0xc8 };
-                try self.compile_add_slice(add_slice[0..]);
+                try self.emit_slice(add_slice[0..]);
 
                 try self.stack_pop();
                 try self.stack_set_top(GPR64.r8);
@@ -190,6 +193,15 @@ pub const JitCompiler = struct {
             },
         }
     }
+    fn read_inst(self: *JitCompiler) bytecode.Instruction {
+        const res: bytecode.Instruction = @enumFromInt(self.bytecode[self.pc]);
+        self.pc += 1;
+        return res;
+    }
+
+    //
+    // State helper
+    //
 
     /// load value from JIT state based on field name of the value
     fn mov_from_jit_state(self: *JitCompiler, to_reg: GPR64, comptime field_name: []const u8) !void {
@@ -203,75 +215,9 @@ pub const JitCompiler = struct {
         try self.mov_from_struct_64(to_reg, GPR64.rbx, offset);
     }
 
-    fn mov_from_struct_64(self: *JitCompiler, to_reg: GPR64, base: GPR64, offset: u32) !void {
-        // REX.W + 8B /r
-        const to_reg_val: u8 = @intFromEnum(to_reg);
-        const base_val: u8 = @intFromEnum(base);
-
-        // REX.W
-        // | 4-bit | W | R | X | B |
-        // The R could contain highest bit of reg number
-        // The B will never be set since we set the self
-        // ptr reg as rbx and that has highes bit num 0
-        try self.compile_add_byte(0x48 | ((base_val & 0x8) >> 3) | ((to_reg_val & 0x8) >> 1));
-
-        // opcode
-        try self.compile_add_byte(0x8b);
-
-        // ModRM
-        // | mode | reg | r/m |
-        // mode will be less then 0b11 => setting it to 0b10 (thats what I saw in wild)
-        // only exception would be if the offset would be 0
-        // 10 | bottom 3 bits of to_reg | rbx bottom 3 bit (0x2)
-        const mod: u8 = if (offset != 0)
-            0x80
-        else
-            0x00;
-
-        const to_reg_lower = to_reg_val & 0x7;
-        try self.compile_add_byte(mod | (to_reg_lower << 3) | (base_val & 0x7));
-
-        // if offset is not zero we have to
-        // add it at the end of the instruction
-        if (offset != 0) {
-            const offset_bytes: [4]u8 = .{
-                @intCast(offset & 0xff),
-                @intCast((offset >> 8) & 0xff),
-                @intCast((offset >> 16) & 0xff),
-                @intCast((offset >> 24) & 0xff),
-            };
-            try self.compile_add_slice(offset_bytes[0..]);
-        }
-    }
-
-    fn set_reg_64(self: *JitCompiler, reg: GPR64, value: u64) !void {
-        const reg_val: u8 = @intFromEnum(reg);
-        // REX.W
-        // | 4-bit | W | R | X | B |
-        // The R could contain highest bit of reg number
-        // The B will never be set since we move immediate
-        // and there is no other reg
-        try self.compile_add_byte(0x48 | ((reg_val & 0x8) >> 1));
-
-        // opcode has in it self the lower 3 bits of reg
-        // index (0xb8 is base and you add those)
-        const base_opcode: u8 = 0xb8;
-        const opcode = base_opcode + (reg_val & 0x7);
-        try self.compile_add_byte(opcode);
-
-        const value_bytes: [8]u8 = .{
-            @intCast(value & 0xff),
-            @intCast((value >> 8) & 0xff),
-            @intCast((value >> 16) & 0xff),
-            @intCast((value >> 24) & 0xff),
-            @intCast((value >> 32) & 0xff),
-            @intCast((value >> 40) & 0xff),
-            @intCast((value >> 48) & 0xff),
-            @intCast((value >> 56) & 0xff),
-        };
-
-        try self.compile_add_slice(value_bytes[0..]);
-    }
+    //
+    // Calls
+    //
 
     fn call(self: *JitCompiler, comptime function_name: []const u8) !void {
         try self.mov_from_jit_state(GPR64.rax, function_name);
@@ -281,11 +227,11 @@ pub const JitCompiler = struct {
     fn call_from_rax(self: *JitCompiler) !void {
         // call rax
         const slice: [2]u8 = .{ 0xff, 0xd0 };
-        try self.compile_add_slice(slice[0..]);
+        try self.emit_slice(slice[0..]);
     }
 
     /// clobers rax and rcx
-    fn get_stack_to_reg(self: *JitCompiler, reg: GPR64, offset: u8) !void {
+    fn get_stack_to_reg(self: *JitCompiler, dst: GPR64, offset: u8) !void {
         try self.mov_from_jit_state(GPR64.rax, "stack");
         // load len
         try self.mov_from_struct_64(GPR64.rcx, GPR64.rax, 8);
@@ -297,8 +243,12 @@ pub const JitCompiler = struct {
         // mov reg, [rax + rcx*8 - offset]
         // offset is calculated with two's complement
         const scale = Scale.from_size(@sizeOf(runtime.Value));
-        try self.mov_index_access64(reg, scale, GPR64.rax, GPR64.rcx, (~((offset + 1) * @sizeOf(runtime.Value))) + 1);
+        try self.mov_index_access64(dst, scale, GPR64.rax, GPR64.rcx, (~((offset + 1) * @sizeOf(runtime.Value))) + 1);
     }
+
+    //
+    // Stack helpers
+    //
 
     /// clobers rax
     fn stack_pop(self: *JitCompiler) !void {
@@ -313,7 +263,7 @@ pub const JitCompiler = struct {
         // 48 = modrm = 01_001_000
         // 60 = offset
         const dec_slice: [4]u8 = .{ 0x48, 0xff, 0x48, len_offset };
-        try self.compile_add_slice(dec_slice[0..]);
+        try self.emit_slice(dec_slice[0..]);
     }
 
     /// clobers rax, rcx
@@ -345,31 +295,55 @@ pub const JitCompiler = struct {
         const offset = ~size + 1;
 
         const move_slice: [5]u8 = .{ rex, 0x89, modrm, sib, offset };
-        try self.compile_add_slice(move_slice[0..]);
+        try self.emit_slice(move_slice[0..]);
     }
 
-    fn deref_ptr(self: *JitCompiler, dest: GPR64, src: GPR64) !void {
-        // mov rcx,QWORD PTR [rbx]
-        // 48 8b 0b
-        // 48 = REX
-        // 8b = opcode
-        // 0b = modrm
+    //
+    // Struct access
+    //
 
-        const dest_value: u8 = @intFromEnum(dest);
-        const src_value: u8 = @intFromEnum(src);
+    fn mov_from_struct_64(self: *JitCompiler, to_reg: GPR64, base: GPR64, offset: u32) !void {
+        // REX.W + 8B /r
+        const to_reg_val: u8 = @intFromEnum(to_reg);
+        const base_val: u8 = @intFromEnum(base);
 
-        // REX
-        const rex = 0x48 | ((dest_value & 0x8) >> 1) | ((src_value & 0x8) >> 3);
-        try self.compile_add_byte(rex);
+        // REX.W
+        // | 4-bit | W | R | X | B |
+        // The R could contain highest bit of reg number
+        // The B will never be set since we set the self
+        // ptr reg as rbx and that has highes bit num 0
+        try self.emit_byte(0x48 | ((base_val & 0x8) >> 3) | ((to_reg_val & 0x8) >> 1));
 
         // opcode
-        try self.compile_add_byte(0x8b);
+        try self.emit_byte(0x8b);
 
-        const modrm = ((dest_value & 0x7) << 3) | (src_value & 0x7);
-        try self.compile_add_byte(modrm);
+        // ModRM
+        // | mode | reg | r/m |
+        // mode will be less then 0b11 => setting it to 0b10 (thats what I saw in wild)
+        // only exception would be if the offset would be 0
+        // 10 | bottom 3 bits of to_reg | rbx bottom 3 bit (0x2)
+        const mod: u8 = if (offset != 0)
+            0x80
+        else
+            0x00;
+
+        const to_reg_lower = to_reg_val & 0x7;
+        try self.emit_byte(mod | (to_reg_lower << 3) | (base_val & 0x7));
+
+        // if offset is not zero we have to
+        // add it at the end of the instruction
+        if (offset != 0) {
+            const offset_bytes: [4]u8 = .{
+                @intCast(offset & 0xff),
+                @intCast((offset >> 8) & 0xff),
+                @intCast((offset >> 16) & 0xff),
+                @intCast((offset >> 24) & 0xff),
+            };
+            try self.emit_slice(offset_bytes[0..]);
+        }
     }
 
-    fn mov_index_access64(self: *JitCompiler, to_reg: GPR64, scale: Scale, base: GPR64, index: GPR64, offset: u8) !void {
+    fn mov_index_access64(self: *JitCompiler, dst: GPR64, scale: Scale, base: GPR64, index: GPR64, offset: u8) !void {
         // example:
         //      48 8b 74 d1 f8
         //      REX.W opcode 01_110_100
@@ -387,7 +361,7 @@ pub const JitCompiler = struct {
         //      f8 = 11111000 = -8
         // mov rsi,QWORD PTR [rcx+rdx*8-0x8]
 
-        const to_reg_val: u8 = @intFromEnum(to_reg);
+        const dst_val: u8 = @intFromEnum(dst);
         var index_value: u8 = @intFromEnum(index);
         var base_value: u8 = @intFromEnum(base);
 
@@ -396,14 +370,14 @@ pub const JitCompiler = struct {
         // The R contains highest bit of reg number
         // The X contains highest bit of index number
         // The B contains highest bit of base number
-        try self.compile_add_byte(0x48 | ((to_reg_val & 0x8) >> 1) | ((index_value & 0x8) >> 2) | ((base_value & 0x8) >> 3));
+        try self.emit_byte(0x48 | ((dst_val & 0x8) >> 1) | ((index_value & 0x8) >> 2) | ((base_value & 0x8) >> 3));
 
         // after this I dont need higher bits for index and base
         index_value &= 0x7;
         base_value &= 0x7;
 
         // opcode
-        try self.compile_add_byte(0x8b);
+        try self.emit_byte(0x8b);
 
         // ModRM
         // | mode | reg | r/m |
@@ -422,60 +396,150 @@ pub const JitCompiler = struct {
         else
             0;
 
-        const to_reg_lower: u8 = (to_reg_val & 0x7) << 3;
+        const to_reg_lower: u8 = (dst_val & 0x7) << 3;
         const rm_sib: u8 = 0b100;
-        try self.compile_add_byte(mod | to_reg_lower | rm_sib);
+        try self.emit_byte(mod | to_reg_lower | rm_sib);
 
         // SIB
         // | scale : 2b | index : 3b | base : 3b |
         var scale_value: u8 = @intFromEnum(scale);
         scale_value <<= 6;
         index_value <<= 3;
-        try self.compile_add_byte(scale_value | index_value | base_value);
+        try self.emit_byte(scale_value | index_value | base_value);
 
         // if offset is zero it is captured above
         if (offset != 0) {
-            try self.compile_add_byte(offset);
+            try self.emit_byte(offset);
         }
     }
 
-    fn read_inst(self: *JitCompiler) bytecode.Instruction {
-        const res: bytecode.Instruction = @enumFromInt(self.bytecode[self.pc]);
-        self.pc += 1;
-        return res;
+    //
+    // Regs movement
+    //
+
+    fn mov_reg_reg(self: *JitCompiler, dst: GPR64, src: GPR64) !void {
+        // mov rbx, rdi
+        // 48 89 fb
+        // 48 = REX
+        // 89 = opcode (mod r/m64, r)
+        // fb = modrm 11_111_011 => mod | src | dst
+
+        const dest_val: u8 = @intFromEnum(dst);
+        const src_val: u8 = @intFromEnum(src);
+
+        // REX | W | R | X | B
+        // reg => R, r/m64 => B
+        const rex = 0x48 | ((src_val & 0x8) >> 1) | ((dest_val & 0x8) >> 3);
+        try self.emit_byte(rex);
+
+        // opcode
+        try self.emit_byte(0x89);
+
+        // MODrm
+        // mod = 0b11 | lower bits src | lower bits dest
+        const mod = 0b1100_0000 | ((src_val & 0x7) << 3) | (dest_val & 0x7);
+        try self.emit_byte(mod);
     }
 
-    fn compile_prolog(self: *JitCompiler) !void {
+    fn set_reg_64(self: *JitCompiler, reg: GPR64, value: u64) !void {
+        const reg_val: u8 = @intFromEnum(reg);
+        // REX.W
+        // | 4-bit | W | R | X | B |
+        // The R could contain highest bit of reg number
+        // The B will never be set since we move immediate
+        // and there is no other reg
+        try self.emit_byte(0x48 | ((reg_val & 0x8) >> 1));
+
+        // opcode has in it self the lower 3 bits of reg
+        // index (0xb8 is base and you add those)
+        const base_opcode: u8 = 0xb8;
+        const opcode = base_opcode + (reg_val & 0x7);
+        try self.emit_byte(opcode);
+
+        const value_bytes: [8]u8 = .{
+            @intCast(value & 0xff),
+            @intCast((value >> 8) & 0xff),
+            @intCast((value >> 16) & 0xff),
+            @intCast((value >> 24) & 0xff),
+            @intCast((value >> 32) & 0xff),
+            @intCast((value >> 40) & 0xff),
+            @intCast((value >> 48) & 0xff),
+            @intCast((value >> 56) & 0xff),
+        };
+
+        try self.emit_slice(value_bytes[0..]);
+    }
+
+    fn deref_ptr(self: *JitCompiler, dst: GPR64, src: GPR64) !void {
+        // mov rcx,QWORD PTR [rbx]
+        // 48 8b 0b
+        // 48 = REX
+        // 8b = opcode
+        // 0b = modrm
+
+        const dest_value: u8 = @intFromEnum(dst);
+        const src_value: u8 = @intFromEnum(src);
+
+        // REX
+        const rex = 0x48 | ((dest_value & 0x8) >> 1) | ((src_value & 0x8) >> 3);
+        try self.emit_byte(rex);
+
+        // opcode
+        try self.emit_byte(0x8b);
+
+        const modrm = ((dest_value & 0x7) << 3) | (src_value & 0x7);
+        try self.emit_byte(modrm);
+    }
+
+    //
+    // Prolog and epilog
+    //
+
+    fn emit_prolog(self: *JitCompiler) !void {
         // push rax
-        try self.compile_add_byte(0x50);
+        try self.emit_byte(0x50);
         // push rbx
-        try self.compile_add_byte(0x53);
+        try self.emit_byte(0x53);
         // push r8
-        try self.compile_add_byte(0x41);
-        try self.compile_add_byte(0x50);
+        try self.emit_byte(0x41);
+        try self.emit_byte(0x50);
         // push r9
-        try self.compile_add_byte(0x41);
-        try self.compile_add_byte(0x51);
+        try self.emit_byte(0x41);
+        try self.emit_byte(0x51);
+        // push r15
+        try self.emit_byte(0x41);
+        try self.emit_byte(0x57);
 
         // mov rbx, rdi
-        const move_self: [3]u8 = .{ 0x48, 0x89, 0xfb };
-        try self.compile_add_slice(move_self[0..]);
+        // rbx will store address to state
+        try self.mov_reg_reg(state_addr, GPR64.rdi);
+
+        // mov r15, [rbx + <stack offset>]
+        // r15 will store stack addr
+        try self.mov_from_jit_state(stack_addr, "stack");
     }
 
-    fn compile_epilog(self: *JitCompiler) !void {
+    fn emit_epilog(self: *JitCompiler) !void {
+        // pop r15
+        try self.emit_byte(0x41);
+        try self.emit_byte(0x5f);
         // pop r9
-        try self.compile_add_byte(0x41);
-        try self.compile_add_byte(0x59);
+        try self.emit_byte(0x41);
+        try self.emit_byte(0x59);
         // pop r8
-        try self.compile_add_byte(0x41);
-        try self.compile_add_byte(0x58);
+        try self.emit_byte(0x41);
+        try self.emit_byte(0x58);
         // pop rbx
-        try self.compile_add_byte(0x5b);
+        try self.emit_byte(0x5b);
         // pop rax
-        try self.compile_add_byte(0x58);
+        try self.emit_byte(0x58);
     }
 
-    fn compile_add_slice(self: *JitCompiler, inst: []const u8) !void {
+    //
+    // Basic emits
+    //
+
+    fn emit_slice(self: *JitCompiler, inst: []const u8) !void {
         if (inst.len > (self.code_slice.len - self.code_ptr)) {
             return JitError.OutOfMem;
         }
@@ -483,8 +547,8 @@ pub const JitCompiler = struct {
         self.code_ptr += inst.len;
     }
 
-    fn compile_add_byte(self: *JitCompiler, byte: u8) !void {
+    fn emit_byte(self: *JitCompiler, byte: u8) !void {
         const slice: [1]u8 = .{byte};
-        try self.compile_add_slice(slice[0..]);
+        try self.emit_slice(slice[0..]);
     }
 };
