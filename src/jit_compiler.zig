@@ -229,7 +229,7 @@ pub const JitCompiler = struct {
             },
 
             bytecode.Instruction.push_byte => {
-                try self.mov_from_jit_state(GPR64.rdi, "stack");
+                try self.mov_reg_reg(GPR64.rdi, stack_addr);
 
                 const number: u32 = @intCast(self.bytecode[self.pc]);
                 const value = runtime.Value.new_num(number);
@@ -241,12 +241,9 @@ pub const JitCompiler = struct {
                 self.pc += 1;
             },
             bytecode.Instruction.nil => {
-                try self.mov_from_jit_state(GPR64.rdi, "stack");
-
+                try self.mov_reg_reg(GPR64.rdi, stack_addr);
                 const value = runtime.Value.new_nil();
-
                 try self.set_reg_64(GPR64.rsi, value.data);
-
                 try self.call("push");
             },
             bytecode.Instruction.add => {
