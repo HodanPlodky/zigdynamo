@@ -212,12 +212,7 @@ pub const JitCompiler = struct {
         const inst = self.read_inst();
         switch (inst) {
             bytecode.Instruction.pop => {
-                // dec QWORD PTR [rbx+0x60]
-                // rbx is self ptr
-                // 0x60 is address of len of stack
-                const tmp: [4]u8 = .{ 0x48, 0xff, 0x4b, 0x60 };
-                try self.emit_slice(tmp[0..]);
-                unreachable;
+                try self.stack_pop();
             },
             bytecode.Instruction.ret => {
                 try self.mov_from_jit_state(GPR64.rdi, "env");
