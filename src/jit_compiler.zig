@@ -242,28 +242,22 @@ pub const JitCompiler = struct {
                 try self.call("push");
             },
             bytecode.Instruction.add => {
-                try self.get_stack_to_reg(GPR64.r9, 0);
-                try self.get_stack_to_reg(GPR64.r8, 1);
-
-                // check lower bits
-                try self.mov_reg_reg(GPR64.rdi, GPR64.r8);
-                // or rdi, r9
-                // or r/m64 reg
-                try self.emit_basic_reg(0x09, GPR64.r9, GPR64.rdi);
-                // test dil,0x7 (dil lowest 8 bit of rdi)
-                // 40 f6 c7 07
-                const test_slice: [4]u8 = .{ 0x40, 0xf6, 0xc7, 0x07 };
-                try self.emit_slice(test_slice[0..]);
-
-                // handle cond
-                try self.emit_panic("binop_panic");
-
-                // add r8,r9
-                // add r/m64 reg =>
-                try self.emit_basic_reg(0x01, GPR64.r9, GPR64.r8);
-
-                try self.stack_pop();
-                try self.stack_set_top(GPR64.r8);
+                try self.handle_binop_simple(0x1);
+            },
+            bytecode.Instruction.sub => {
+                try self.handle_binop_simple(0x29);
+            },
+            bytecode.Instruction.mul => {
+                try self.handle_binop(struct {
+                    fn f(comp: *JitCompiler) !void {
+                        // shr r9, 0x20
+                        const shift_slice: [4]u8 = .{ 0x49, 0xc1, 0xe9, 0x20 };
+                        try comp.emit_slice(shift_slice[0..]);
+                        // imul r8, r9
+                        const imul_slice: [4]u8 = .{ 0x4d, 0x0f, 0xaf, 0xc1 };
+                        try comp.emit_slice(imul_slice[0..]);
+                    }
+                }.f);
             },
             else => {
                 std.debug.print("{}\n", .{inst});
@@ -271,6 +265,38 @@ pub const JitCompiler = struct {
             },
         }
     }
+
+    fn handle_binop_simple(self: *JitCompiler, comptime opcode: u8) !void {
+        try self.handle_binop(struct {
+            fn f(comp: *JitCompiler) !void {
+                try comp.emit_basic_reg(opcode, GPR64.r9, GPR64.r8);
+            }
+        }.f);
+    }
+
+    fn handle_binop(self: *JitCompiler, comptime oper: fn (*JitCompiler) JitError!void) !void {
+        try self.get_stack_to_reg(GPR64.r9, 0);
+        try self.get_stack_to_reg(GPR64.r8, 1);
+
+        // check lower bits
+        try self.mov_reg_reg(GPR64.rdi, GPR64.r8);
+        // or rdi, r9
+        // or r/m64 reg
+        try self.emit_basic_reg(0x09, GPR64.r9, GPR64.rdi);
+        // test dil,0x7 (dil lowest 8 bit of rdi)
+        // 40 f6 c7 07
+        const test_slice: [4]u8 = .{ 0x40, 0xf6, 0xc7, 0x07 };
+        try self.emit_slice(test_slice[0..]);
+
+        // handle cond
+        try self.emit_panic("binop_panic");
+
+        try oper(self);
+
+        try self.stack_pop();
+        try self.stack_set_top(GPR64.r8);
+    }
+
     fn read_inst(self: *JitCompiler) bytecode.Instruction {
         const res: bytecode.Instruction = @enumFromInt(self.bytecode[self.pc]);
         self.pc += 1;
@@ -654,6 +680,7 @@ pub const JitCompiler = struct {
 
     /// emits most basic inst like add with only regs
     /// check if you can use this before going all in
+    /// expects format : opcode r/m64 reg
     fn emit_basic_reg(self: *JitCompiler, opcode: u8, reg: GPR64, rm64: GPR64) !void {
         const inst_slice: [3]u8 = .{
             JitCompiler.create_rex(reg, rm64),
