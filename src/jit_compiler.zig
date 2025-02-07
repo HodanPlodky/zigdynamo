@@ -43,6 +43,7 @@ pub const JitState = extern struct {
 
     // panics
     binop_panic: *const fn (runtime.Value, runtime.Value) callconv(.C) void,
+    if_condition_panic: *const fn () callconv(.C) void,
 
     pub fn get_offset(comptime field_name: []const u8) u32 {
         return @offsetOf(JitState, field_name);
@@ -88,6 +89,7 @@ const Scale = enum(u2) {
 
 const PanicTable = struct {
     binop_panic: usize = 0,
+    if_condition_panic: usize = 0,
 };
 
 pub const JitCompiler = struct {
@@ -99,6 +101,7 @@ pub const JitCompiler = struct {
     pc: usize,
     bytecode: []const u8,
     panic_table: PanicTable,
+    scratch_arena: std.heap.ArenaAllocator,
 
     pub fn init(code_buffer_size: usize) JitCompiler {
         const addr = std.os.linux.mmap(
@@ -122,6 +125,7 @@ pub const JitCompiler = struct {
             .pc = undefined,
             .bytecode = undefined,
             .panic_table = .{},
+            .scratch_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
         };
         res.init_panic_handlers() catch unreachable;
         return res;
@@ -130,6 +134,7 @@ pub const JitCompiler = struct {
     /// emit panic calls for and populate panic call table
     fn init_panic_handlers(self: *JitCompiler) !void {
         try self.emit_panic_handler_with_prolog("binop_panic", JitCompiler.bin_op_panic_prolog);
+        try self.emit_panic_handler("if_condition_panic");
     }
 
     fn bin_op_panic_prolog(self: *JitCompiler) !void {
@@ -185,10 +190,14 @@ pub const JitCompiler = struct {
     }
 
     pub fn compile_fn(self: *JitCompiler, function: bytecode.Constant) JitError!JitFunction {
+        self.scratch_arena.reset();
         switch (function.get_type()) {
             bytecode.ConstantType.function => self.pc = 0,
             else => return JitError.CanOnlyCompileFn,
         }
+
+        var offsets = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4);
+        var jumps = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4);
 
         const start = self.code_ptr;
 
@@ -198,7 +207,7 @@ pub const JitCompiler = struct {
         try self.emit_prolog();
 
         while (self.pc < self.bytecode.len) {
-            try self.compile_bytecode_inst();
+            try self.compile_bytecode_inst(&offsets, &jumps);
         }
 
         // should not be necessary but oh well I am pussy
@@ -208,8 +217,10 @@ pub const JitCompiler = struct {
         return JitFunction{ .code = @ptrCast(&self.code_slice[start]) };
     }
 
-    fn compile_bytecode_inst(self: *JitCompiler) !void {
+    fn compile_bytecode_inst(self: *JitCompiler, offsets: *std.ArrayList(u32), jumps: *std.ArrayList(u32)) !void {
         const inst = self.read_inst();
+        const offset = self.code_ptr;
+        offsets.appendNTimesAssumeCapacity(offset, inst.get_extrabytes() + 1);
         switch (inst) {
             bytecode.Instruction.pop => {
                 try self.stack_pop();
@@ -241,6 +252,18 @@ pub const JitCompiler = struct {
                 try self.set_reg_64(GPR64.rsi, value.data);
                 try self.call("push");
             },
+            bytecode.Instruction.true => {
+                try self.mov_reg_reg(GPR64.rdi, stack_addr);
+                const value = runtime.Value.new_true();
+                try self.set_reg_64(GPR64.rsi, value.data);
+                try self.call("push");
+            },
+            bytecode.Instruction.false => {
+                try self.mov_reg_reg(GPR64.rdi, stack_addr);
+                const value = runtime.Value.new_false();
+                try self.set_reg_64(GPR64.rsi, value.data);
+                try self.call("push");
+            },
             bytecode.Instruction.add => {
                 try self.handle_binop_simple(0x1);
             },
@@ -258,6 +281,30 @@ pub const JitCompiler = struct {
                         try comp.emit_slice(imul_slice[0..]);
                     }
                 }.f);
+            },
+            bytecode.Instruction.div => {
+                unreachable;
+            },
+            bytecode.Instruction.jump => {
+                // jumps will point to number it self
+                jumps.appendAssumeCapacity(offset + 1);
+                // opcode for jmp rel32
+                try self.emit_byte(0xe9);
+
+                // store original value of jump for fix up after
+                const jump_pc = self.bytecode[self.pc..(self.pc + 4)];
+                try self.emit_slice(jump_pc);
+                self.pc += 4;
+            },
+            bytecode.Instruction.branch => {
+                self.get_stack_to_reg(GPR64.rdi, 0);
+                self.stack_pop();
+
+                jumps.appendAssumeCapacity(offset + 2);
+
+                // store original value of jump for fix up after
+                const jump_pc = self.bytecode[self.pc..(self.pc + 4)];
+                try self.emit_slice(jump_pc);
             },
             else => {
                 std.debug.print("{}\n", .{inst});
