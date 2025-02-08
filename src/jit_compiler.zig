@@ -308,20 +308,24 @@ pub const JitCompiler = struct {
                 try self.get_stack_to_reg(GPR64.rax, 0);
                 try self.stack_pop();
 
-                const false_byte: u8 = @intFromEnum(runtime.ValueType.false);
                 const true_byte: u8 = @intFromEnum(runtime.ValueType.true);
-                const bool_byte: u8 = false_byte | true_byte;
+
+                // tmp store
+                try self.mov_reg_reg(GPR64.r8, GPR64.rax);
 
                 // check if the value is even bool
-                // mov r8, rax
-                // and al, <bool byte>
-                // cmp rax, r8
-                // a8 <bool byte>
-                try self.mov_reg_reg(GPR64.r8, GPR64.rax);
-                const and_slice: [2]u8 = .{ 0xa8, bool_byte };
+                // and al, 0x8 => 0x8 highest bit of tag only used by booleans
+                // 24 ib
+                // cmp al, 0x8
+                // 3c ib
+                const and_slice: [2]u8 = .{ 0x24, 0x8 };
                 try self.emit_slice(and_slice[0..]);
-                try self.emit_basic_reg(0x39, GPR64.r8, GPR64.rax);
+                const cmp_slice: [2]u8 = .{ 0x3c, 0x8 };
+                try self.emit_slice(cmp_slice[0..]);
                 try self.emit_panic("if_condition_panic");
+
+                // tmp restore
+                try self.mov_reg_reg(GPR64.rax, GPR64.r8);
 
                 // cmp eax, <true_byte>
                 try self.emit_byte(0x3d);

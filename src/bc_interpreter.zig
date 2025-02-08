@@ -519,6 +519,7 @@ pub const Interpreter = struct {
                 bc.Instruction.call => {
                     const target = self.stack.pop();
                     if (target.get_type() != runtime.ValueType.closure) {
+                        std.debug.print("{}\n", .{target.get_type()});
                         @panic("cannot call this object");
                     }
                     const closure = target.get_ptr(bc.Closure);
