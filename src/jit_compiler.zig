@@ -190,14 +190,16 @@ pub const JitCompiler = struct {
     }
 
     pub fn compile_fn(self: *JitCompiler, function: bytecode.Constant) JitError!JitFunction {
-        self.scratch_arena.reset();
         switch (function.get_type()) {
             bytecode.ConstantType.function => self.pc = 0,
             else => return JitError.CanOnlyCompileFn,
         }
 
-        var offsets = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4);
-        var jumps = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4);
+        var offsets = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4) catch unreachable;
+        var jumps = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4) catch unreachable;
+
+        // append dummy data for header
+        offsets.appendNTimesAssumeCapacity(0xfefefefe, 4 + 1 + 4 + 4);
 
         const start = self.code_ptr;
 
@@ -214,12 +216,17 @@ pub const JitCompiler = struct {
         try self.emit_epilog();
         try self.emit_byte(0xc3);
 
+        self.fix_jumps(jumps.items, offsets.items);
+
+        const ok = self.scratch_arena.reset(std.heap.ArenaAllocator.ResetMode.retain_capacity);
+        std.debug.assert(ok);
+
         return JitFunction{ .code = @ptrCast(&self.code_slice[start]) };
     }
 
     fn compile_bytecode_inst(self: *JitCompiler, offsets: *std.ArrayList(u32), jumps: *std.ArrayList(u32)) !void {
         const inst = self.read_inst();
-        const offset = self.code_ptr;
+        const offset: u32 = @intCast(self.code_ptr);
         offsets.appendNTimesAssumeCapacity(offset, inst.get_extrabytes() + 1);
         switch (inst) {
             bytecode.Instruction.pop => {
@@ -297,14 +304,39 @@ pub const JitCompiler = struct {
                 self.pc += 4;
             },
             bytecode.Instruction.branch => {
-                self.get_stack_to_reg(GPR64.rdi, 0);
-                self.stack_pop();
+                //try self.emit_break();
+                try self.get_stack_to_reg(GPR64.rax, 0);
+                try self.stack_pop();
 
-                jumps.appendAssumeCapacity(offset + 2);
+                const false_byte: u8 = @intFromEnum(runtime.ValueType.false);
+                const true_byte: u8 = @intFromEnum(runtime.ValueType.true);
+                const bool_byte: u8 = false_byte | true_byte;
 
+                // check if the value is even bool
+                // mov r8, rax
+                // and al, <bool byte>
+                // cmp rax, r8
+                // a8 <bool byte>
+                try self.mov_reg_reg(GPR64.r8, GPR64.rax);
+                const and_slice: [2]u8 = .{ 0xa8, bool_byte };
+                try self.emit_slice(and_slice[0..]);
+                try self.emit_basic_reg(0x39, GPR64.r8, GPR64.rax);
+                try self.emit_panic("if_condition_panic");
+
+                // cmp eax, <true_byte>
+                try self.emit_byte(0x3d);
+                const true_slice: [4]u8 = .{ true_byte, 0, 0, 0 };
+                try self.emit_slice(true_slice[0..]);
+
+                // opcode for jmp rel32
+                const jump_slice: [2]u8 = .{ 0x0f, 0x84 };
+                try self.emit_slice(jump_slice[0..]);
+                const jump_offset: u32 = @intCast(self.code_ptr);
+                jumps.appendAssumeCapacity(jump_offset);
                 // store original value of jump for fix up after
                 const jump_pc = self.bytecode[self.pc..(self.pc + 4)];
                 try self.emit_slice(jump_pc);
+                self.pc += 4;
             },
             else => {
                 std.debug.print("{}\n", .{inst});
@@ -348,6 +380,36 @@ pub const JitCompiler = struct {
         const res: bytecode.Instruction = @enumFromInt(self.bytecode[self.pc]);
         self.pc += 1;
         return res;
+    }
+
+    fn fix_jumps(self: *JitCompiler, jumps: []const u32, offsets: []const u32) void {
+        for (jumps) |jump| {
+            // read pc val
+            const jump_idx: usize = @intCast(jump);
+            var orig_pc: usize = 0;
+
+            // warning in bc I have different endianess
+            // then in the asm because fu future me
+            orig_pc |= self.code_slice[jump_idx];
+            orig_pc <<= 8;
+            orig_pc |= self.code_slice[jump_idx + 1];
+            orig_pc <<= 8;
+            orig_pc |= self.code_slice[jump_idx + 2];
+            orig_pc <<= 8;
+            orig_pc |= self.code_slice[jump_idx + 3];
+            // look up in offsets
+            const addr = offsets[orig_pc];
+            // compute rel
+            const rel: u32 = if (addr > jump)
+                addr - (jump + 4)
+            else
+                ~((jump + 4) - addr) + 1;
+            // set rel jump
+            self.code_slice[jump_idx] = @intCast(rel & 0xff);
+            self.code_slice[jump_idx + 1] = @intCast((rel >> 8) & 0xff);
+            self.code_slice[jump_idx + 2] = @intCast((rel >> 16) & 0xff);
+            self.code_slice[jump_idx + 3] = @intCast((rel >> 24) & 0xff);
+        }
     }
 
     //

@@ -748,6 +748,7 @@ pub const Interpreter = struct {
             .gc_alloc_object = &gc_alloc_object,
             .gc_alloc_closure = &gc_alloc_closure,
             .binop_panic = &binop_panic,
+            .if_condition_panic = &if_condition_panic,
         };
     }
 };
@@ -787,4 +788,8 @@ pub fn gc_alloc_closure(intepreter: *Interpreter, env_size: usize) callconv(.C) 
 pub fn binop_panic(left: Value, right: Value) callconv(.C) void {
     std.debug.print("left: {}, right: {}\n", .{ left, right });
     @panic("Unimplemented dispatch");
+}
+
+pub fn if_condition_panic() callconv(.C) void {
+    @panic("If condition must be boolean");
 }

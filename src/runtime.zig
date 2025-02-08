@@ -69,14 +69,14 @@ pub fn FlexibleArr(comptime T: type) type {
     };
 }
 
-pub const ValueType = enum(u3) {
+pub const ValueType = enum(u4) {
     number = 0,
     nil = 1,
     closure = 2,
     object = 3,
     array = 4,
     false = 5,
-    true = 6,
+    true = 5 | 8, // this is because of better checking
     string = 7,
 };
 
