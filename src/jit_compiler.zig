@@ -94,6 +94,7 @@ const PanicTable = struct {
 
 pub const JitCompiler = struct {
     const stack_addr = GPR64.r15;
+    const env_addr = GPR64.r14;
     const state_addr = GPR64.rbx;
 
     code_slice: []u8,
@@ -206,6 +207,7 @@ pub const JitCompiler = struct {
         // ignore the header of function
         self.bytecode = function.get_slice()[(4 + 1 + 4 + 4)..];
 
+        //try self.emit_break();
         try self.emit_prolog();
 
         while (self.pc < self.bytecode.len) {
@@ -383,6 +385,23 @@ pub const JitCompiler = struct {
                 try self.emit_slice(jump_pc);
                 self.pc += 4;
             },
+            bytecode.Instruction.get_small => {
+                const index: u32 = @intCast(self.bytecode[self.pc]);
+                self.pc += 1;
+
+                // load current ptr into the rax
+                try self.mov_from_struct_64(GPR64.rax, env_addr, @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "current_ptr"));
+
+                // load local.buffer ptr
+                try self.mov_from_struct_64(GPR64.rcx, env_addr, @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "buffer"));
+
+                // load val from index
+                try self.mov_index_access64(GPR64.rsi, Scale.scale8, GPR64.rcx, GPR64.rax, index * 8);
+
+                // move stack addr to rdi for push call
+                try self.mov_reg_reg(GPR64.rdi, stack_addr);
+                try self.call("push");
+            },
             else => {
                 std.debug.print("{}\n", .{inst});
                 @panic("unimplemented");
@@ -504,7 +523,7 @@ pub const JitCompiler = struct {
         // mov reg, [rax + rcx*8 - offset]
         // offset is calculated with two's complement
         const scale = Scale.from_size(@sizeOf(runtime.Value));
-        try self.mov_index_access64(dst, scale, GPR64.rax, GPR64.rcx, (~((offset + 1) * @sizeOf(runtime.Value))) + 1);
+        try self.mov_index_access64(dst, scale, GPR64.rax, GPR64.rcx, @intCast((~((offset + 1) * @sizeOf(runtime.Value))) + 1));
     }
 
     /// clobers rax
@@ -554,6 +573,16 @@ pub const JitCompiler = struct {
     }
 
     //
+    // env helpers
+    //
+
+    fn get_local(self: *JitCompiler, dst: GPR64, index: usize) !void {
+        _ = index; // autofix
+        _ = dst; // autofix
+        _ = self; // autofix
+    }
+
+    //
     // Struct access
     //
 
@@ -598,7 +627,7 @@ pub const JitCompiler = struct {
         }
     }
 
-    fn mov_index_access64(self: *JitCompiler, dst: GPR64, scale: Scale, base: GPR64, index: GPR64, offset: u8) !void {
+    fn mov_index_access64(self: *JitCompiler, dst: GPR64, scale: Scale, base: GPR64, index: GPR64, offset: usize) !void {
         // example:
         //      48 8b 74 d1 f8
         //      REX.W opcode 01_110_100
@@ -636,17 +665,15 @@ pub const JitCompiler = struct {
 
         // ModRM
         // | mode | reg | r/m |
-        // mode = 01 =>
-        //      it is indirect but still not sure why
-        //      whats difference between 10 and 01
-        //      I think it has to do with sib
-        //      again there is an exception for cases
-        //      where there is not data after sib
-        //      (or in our case offset is zero) in that
-        //      case the mod is 0
+        // mode = 00/01/10 =>
+        //      this depends on size of the
+        //      offset 0 => 00, 1-255 => 01
+        //      otherwise 10
         // reg = bottom 3 bits of to_reg_val
         // rm = 100 => the sib follows
-        const mod: u8 = if (offset != 0)
+        const mod: u8 = if (offset >= 256)
+            0b1000_0000
+        else if (offset != 0)
             0b0100_0000
         else
             0;
@@ -664,7 +691,17 @@ pub const JitCompiler = struct {
 
         // if offset is zero it is captured above
         if (offset != 0) {
-            try self.emit_byte(offset);
+            if (offset < 256) {
+                try self.emit_byte(@intCast(offset));
+            } else {
+                const offset_bytes: [4]u8 = .{
+                    @intCast(offset & 0xff),
+                    @intCast((offset >> 8) & 0xff),
+                    @intCast((offset >> 16) & 0xff),
+                    @intCast((offset >> 24) & 0xff),
+                };
+                try self.emit_slice(offset_bytes[0..]);
+            }
         }
     }
 
@@ -759,6 +796,9 @@ pub const JitCompiler = struct {
         // push r9
         try self.emit_byte(0x41);
         try self.emit_byte(0x51);
+        // push r14
+        try self.emit_byte(0x41);
+        try self.emit_byte(0x56);
         // push r15
         try self.emit_byte(0x41);
         try self.emit_byte(0x57);
@@ -770,12 +810,19 @@ pub const JitCompiler = struct {
         // mov r15, [rbx + <stack offset>]
         // r15 will store stack addr
         try self.mov_from_jit_state(stack_addr, "stack");
+
+        // mov r14, [rbx + <stack offset>]
+        // r14 will store env addr
+        try self.mov_from_jit_state(env_addr, "env");
     }
 
     fn emit_epilog(self: *JitCompiler) !void {
         // pop r15
         try self.emit_byte(0x41);
         try self.emit_byte(0x5f);
+        // pop r14
+        try self.emit_byte(0x41);
+        try self.emit_byte(0x5e);
         // pop r9
         try self.emit_byte(0x41);
         try self.emit_byte(0x59);

@@ -225,7 +225,7 @@ pub const Stack = struct {
 };
 
 /// size: 60 + 4
-const LocalEnv = struct {
+pub const LocalEnv = struct {
     // [locals] [old fp] [ret]
     buffer: std.ArrayList(Value), // 40
     alloc: std.mem.Allocator, // 16
