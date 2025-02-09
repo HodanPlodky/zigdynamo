@@ -292,6 +292,47 @@ pub const JitCompiler = struct {
             bytecode.Instruction.div => {
                 unreachable;
             },
+            bytecode.Instruction.gt => {
+                try self.handle_binop(struct {
+                    fn f(comp: *JitCompiler) !void {
+                        // xor rdi, rdi (opcode 0x31)
+                        try comp.emit_basic_reg(0x31, GPR64.rdi, GPR64.rdi);
+
+                        // cmp r9, r8
+                        // opcode 0x39, cmp r/m64 reg
+                        try comp.emit_basic_reg(0x39, GPR64.r8, GPR64.r9);
+
+                        // adc rdi,0x8
+                        // add with carry
+                        // 48 83 d7 05
+                        const adc_slice: [4]u8 = .{ 0x48, 0x83, 0xd7, 0x08 };
+                        try comp.emit_slice(adc_slice[0..]);
+
+                        try comp.mov_reg_reg(GPR64.r8, GPR64.rdi);
+                    }
+                }.f);
+            },
+            bytecode.Instruction.lt => {
+                try self.handle_binop(struct {
+                    fn f(comp: *JitCompiler) !void {
+                        // xor rdi, rdi (opcode 0x31)
+                        try comp.emit_basic_reg(0x31, GPR64.rdi, GPR64.rdi);
+
+                        // here is change from gt!
+                        // cmp r8, r8
+                        // opcode 0x39, cmp r/m64 reg
+                        try comp.emit_basic_reg(0x39, GPR64.r9, GPR64.r8);
+
+                        // adc rdi,0x8
+                        // add with carry
+                        // 48 83 d7 05
+                        const adc_slice: [4]u8 = .{ 0x48, 0x83, 0xd7, 0x08 };
+                        try comp.emit_slice(adc_slice[0..]);
+
+                        try comp.mov_reg_reg(GPR64.r8, GPR64.rdi);
+                    }
+                }.f);
+            },
             bytecode.Instruction.jump => {
                 // jumps will point to number it self
                 jumps.appendAssumeCapacity(offset + 1);
