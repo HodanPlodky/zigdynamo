@@ -517,33 +517,7 @@ pub const Interpreter = struct {
                     self.stack.push(val);
                 },
                 bc.Instruction.call => {
-                    const target = self.stack.pop();
-                    if (target.get_type() != runtime.ValueType.closure) {
-                        std.debug.print("{}\n", .{target.get_type()});
-                        @panic("cannot call this object");
-                    }
-                    const closure = target.get_ptr(bc.Closure);
-                    const local_count = closure.local_count;
-                    const param_count = closure.param_count;
-                    const arg_slice = self.stack.slice_top(param_count);
-                    self.env.local.push_locals(arg_slice, local_count, @intCast(self.pc), self.curr_const);
-                    for (0..closure.env.count) |idx| {
-                        const index: u32 = @intCast(idx);
-                        const val = closure.env.get(closure.env.count - idx - 1);
-                        self.env.local.set(local_count - index - 1, val);
-                    }
-                    self.stack.pop_n(param_count);
-
-                    const function_constant = self.bytecode.get_constant(closure.constant_idx);
-                    const compiled = self.jit_compiler.compile_fn(function_constant) catch @panic("could not compile");
-                    @call(.never_inline, jit.JitFunction.run, .{ &compiled, &self.get_jit_state() });
-                    //compiled.run(self.get_jit_state());
-
-                    //self.bytecode.set_curr_const(closure.constant_idx);
-                    //self.curr_const = closure.constant_idx;
-
-                    // header size of the closure
-                    //self.pc = 4 + 1 + 4 + 4;
+                    @call(.always_inline, do_call, .{self});
                 },
                 bc.Instruction.print => {
                     const arg_count = self.read_u32();
@@ -748,6 +722,7 @@ pub const Interpreter = struct {
             .push_locals = &push_locals,
             .gc_alloc_object = &gc_alloc_object,
             .gc_alloc_closure = &gc_alloc_closure,
+            .call = &do_call,
             .binop_panic = &binop_panic,
             .if_condition_panic = &if_condition_panic,
         };
@@ -784,6 +759,36 @@ pub fn gc_alloc_object(intepreter: *Interpreter, field_count: usize) callconv(.C
 
 pub fn gc_alloc_closure(intepreter: *Interpreter, env_size: usize) callconv(.C) *bc.Closure {
     return intepreter.gc.alloc_with_additional(bc.Closure, env_size, intepreter.get_roots());
+}
+
+pub fn do_call(interpret: *Interpreter) callconv(.C) void {
+    const target = interpret.stack.pop();
+    if (target.get_type() != runtime.ValueType.closure) {
+        std.debug.print("{}\n", .{target.get_type()});
+        @panic("cannot call this object");
+    }
+    const closure = target.get_ptr(bc.Closure);
+    const local_count = closure.local_count;
+    const param_count = closure.param_count;
+    const arg_slice = interpret.stack.slice_top(param_count);
+    interpret.env.local.push_locals(arg_slice, local_count, @intCast(interpret.pc), interpret.curr_const);
+    for (0..closure.env.count) |idx| {
+        const index: u32 = @intCast(idx);
+        const val = closure.env.get(closure.env.count - idx - 1);
+        interpret.env.local.set(local_count - index - 1, val);
+    }
+    interpret.stack.pop_n(param_count);
+
+    const function_constant = interpret.bytecode.get_constant(closure.constant_idx);
+    const compiled = interpret.jit_compiler.compile_fn(function_constant) catch @panic("could not compile");
+    @call(.never_inline, jit.JitFunction.run, .{ &compiled, &interpret.get_jit_state() });
+    //compiled.run(self.get_jit_state());
+
+    //self.bytecode.set_curr_const(closure.constant_idx);
+    //self.curr_const = closure.constant_idx;
+
+    // header size of the closure
+    //self.pc = bc.Constant.function_header_size;
 }
 
 pub fn binop_panic(left: Value, right: Value) callconv(.C) void {

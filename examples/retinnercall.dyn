@@ -1,0 +1,3 @@
+let inc = fn(x) = x + 1;
+let double_inc = fn(x) = inc(inc(x));
+double_inc(1);

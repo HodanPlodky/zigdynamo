@@ -340,6 +340,8 @@ const Compiler = struct {
         // local count padding
         function_constant.add_u32(0);
         function_constant.add_u32(@intCast(function.params.len));
+        // jit offset set to 0 which is always panic handler
+        function_constant.add_u32(0);
         var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
         self.env.push();
         if (method) {

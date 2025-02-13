@@ -41,6 +41,9 @@ pub const JitState = extern struct {
     gc_alloc_object: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Object,
     gc_alloc_closure: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Closure,
 
+    // call
+    call: *const fn (*bc_interpret.Interpreter) callconv(.C) void,
+
     // panics
     binop_panic: *const fn (runtime.Value, runtime.Value) callconv(.C) void,
     if_condition_panic: *const fn () callconv(.C) void,
@@ -95,6 +98,7 @@ const PanicTable = struct {
 pub const JitCompiler = struct {
     const stack_addr = GPR64.r15;
     const env_addr = GPR64.r14;
+    const intepret_addr = GPR64.r13;
     const state_addr = GPR64.rbx;
 
     code_slice: []u8,
@@ -196,16 +200,24 @@ pub const JitCompiler = struct {
             else => return JitError.CanOnlyCompileFn,
         }
 
+        const jit_offset = bytecode.Constant.function_header_size - 4;
+        const jit_state: u32 = function.get_u32(@intCast(jit_offset));
+        if (jit_state != 0) {
+            //std.debug.print("reuse\n", .{});
+            return JitFunction{ .code = @ptrCast(&self.code_slice[jit_state]) };
+        }
+        //std.debug.print("compilation\n", .{});
+
         var offsets = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4) catch unreachable;
         var jumps = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4) catch unreachable;
 
         // append dummy data for header
-        offsets.appendNTimesAssumeCapacity(0xfefefefe, 4 + 1 + 4 + 4);
+        offsets.appendNTimesAssumeCapacity(0xfefefefe, bytecode.Constant.function_header_size);
 
         const start = self.code_ptr;
 
         // ignore the header of function
-        self.bytecode = function.get_slice()[(4 + 1 + 4 + 4)..];
+        self.bytecode = function.get_slice()[(bytecode.Constant.function_header_size)..];
 
         //try self.emit_break();
         try self.emit_prolog();
@@ -222,6 +234,12 @@ pub const JitCompiler = struct {
 
         const ok = self.scratch_arena.reset(std.heap.ArenaAllocator.ResetMode.retain_capacity);
         std.debug.assert(ok);
+
+        // set jit offset
+        function.data[jit_offset] = @intCast((start >> 24) & 0xff);
+        function.data[jit_offset + 1] = @intCast((start >> 16) & 0xff);
+        function.data[jit_offset + 2] = @intCast((start >> 8) & 0xff);
+        function.data[jit_offset + 3] = @intCast(start & 0xff);
 
         return JitFunction{ .code = @ptrCast(&self.code_slice[start]) };
     }
@@ -401,6 +419,25 @@ pub const JitCompiler = struct {
                 // move stack addr to rdi for push call
                 try self.mov_reg_reg(GPR64.rdi, stack_addr);
                 try self.call("push");
+            },
+            bytecode.Instruction.get_global_small => {
+                //try self.emit_break();
+                const index: u32 = @intCast(self.bytecode[self.pc]);
+                self.pc += 1;
+
+                // load buffer into the rax
+                try self.mov_from_struct_64(GPR64.rax, env_addr, @offsetOf(bc_interpret.Environment, "global"));
+                try self.set_reg_64(GPR64.rcx, @intCast(index));
+                // load val from index
+                try self.mov_index_access64(GPR64.rsi, Scale.scale8, GPR64.rax, GPR64.rcx, 0);
+
+                // move stack addr to rdi for push call
+                try self.mov_reg_reg(GPR64.rdi, stack_addr);
+                try self.call("push");
+            },
+            bytecode.Instruction.call => {
+                try self.mov_reg_reg(GPR64.rdi, intepret_addr);
+                try self.call("call");
             },
             else => {
                 std.debug.print("{}\n", .{inst});
@@ -796,6 +833,9 @@ pub const JitCompiler = struct {
         // push r9
         try self.emit_byte(0x41);
         try self.emit_byte(0x51);
+        // push r13
+        try self.emit_byte(0x41);
+        try self.emit_byte(0x55);
         // push r14
         try self.emit_byte(0x41);
         try self.emit_byte(0x56);
@@ -814,6 +854,10 @@ pub const JitCompiler = struct {
         // mov r14, [rbx + <stack offset>]
         // r14 will store env addr
         try self.mov_from_jit_state(env_addr, "env");
+
+        // mov r13, [rbx + <stack offset>]
+        // r14 will store env addr
+        try self.mov_from_jit_state(intepret_addr, "intepreter");
     }
 
     fn emit_epilog(self: *JitCompiler) !void {
@@ -823,6 +867,9 @@ pub const JitCompiler = struct {
         // pop r14
         try self.emit_byte(0x41);
         try self.emit_byte(0x5e);
+        // pop r13
+        try self.emit_byte(0x41);
+        try self.emit_byte(0x5d);
         // pop r9
         try self.emit_byte(0x41);
         try self.emit_byte(0x59);

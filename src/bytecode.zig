@@ -155,7 +155,14 @@ pub const ConstantType = enum(u8) {
 };
 
 pub const Constant = struct {
-    data: [*]const u8,
+    /// this is length of function header
+    ///
+    /// Header
+    /// len (4 bytes) | type (byte) | locals count (4 bytes)| param count (4 bytes) | jit offset (4 bytes) | instructions...
+    /// if the jit offset is zero then you can assume that the
+    /// function is not jitted and still in bytecode
+    pub const function_header_size: usize = 4 + 1 + 4 + 4 + 4;
+    data: [*]u8,
 
     pub fn new(data: [*]u8) Constant {
         return Constant{ .data = data };
@@ -247,7 +254,7 @@ pub const Constant = struct {
         writer: anytype,
     ) !void {
         var i: usize = switch (self.get_type()) {
-            ConstantType.function => 13,
+            ConstantType.function => Constant.function_header_size,
             ConstantType.main_function => 5,
             else => 0,
         };
