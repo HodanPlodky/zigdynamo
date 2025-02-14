@@ -517,7 +517,8 @@ pub const Interpreter = struct {
                     self.stack.push(val);
                 },
                 bc.Instruction.call => {
-                    @call(.always_inline, do_call, .{self});
+                    const jit_state = self.get_jit_state();
+                    @call(.always_inline, do_call, .{ self, &jit_state });
                 },
                 bc.Instruction.print => {
                     const arg_count = self.read_u32();
@@ -761,7 +762,7 @@ pub fn gc_alloc_closure(intepreter: *Interpreter, env_size: usize) callconv(.C) 
     return intepreter.gc.alloc_with_additional(bc.Closure, env_size, intepreter.get_roots());
 }
 
-pub fn do_call(interpret: *Interpreter) callconv(.C) void {
+pub fn do_call(interpret: *Interpreter, jit_state: *const jit.JitState) callconv(.C) void {
     const target = interpret.stack.pop();
     if (target.get_type() != runtime.ValueType.closure) {
         std.debug.print("{}\n", .{target.get_type()});
@@ -781,7 +782,7 @@ pub fn do_call(interpret: *Interpreter) callconv(.C) void {
 
     const function_constant = interpret.bytecode.get_constant(closure.constant_idx);
     const compiled = interpret.jit_compiler.compile_fn(function_constant) catch @panic("could not compile");
-    @call(.never_inline, jit.JitFunction.run, .{ &compiled, &interpret.get_jit_state() });
+    @call(.never_inline, jit.JitFunction.run, .{ &compiled, jit_state });
     //compiled.run(self.get_jit_state());
 
     //self.bytecode.set_curr_const(closure.constant_idx);

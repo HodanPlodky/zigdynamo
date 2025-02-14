@@ -42,7 +42,7 @@ pub const JitState = extern struct {
     gc_alloc_closure: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Closure,
 
     // call
-    call: *const fn (*bc_interpret.Interpreter) callconv(.C) void,
+    call: *const fn (*bc_interpret.Interpreter, *const JitState) callconv(.C) void,
 
     // panics
     binop_panic: *const fn (runtime.Value, runtime.Value) callconv(.C) void,
@@ -437,6 +437,7 @@ pub const JitCompiler = struct {
             },
             bytecode.Instruction.call => {
                 try self.mov_reg_reg(GPR64.rdi, intepret_addr);
+                try self.mov_reg_reg(GPR64.rsi, state_addr);
                 try self.call("call");
             },
             else => {
