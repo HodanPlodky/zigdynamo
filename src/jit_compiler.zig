@@ -824,6 +824,8 @@ pub const JitCompiler = struct {
     //
 
     fn emit_prolog(self: *JitCompiler) !void {
+        // push rax
+        try self.emit_byte(0x50);
         // push rbx
         try self.emit_byte(0x53);
         // push r8
@@ -877,6 +879,8 @@ pub const JitCompiler = struct {
         try self.emit_byte(0x58);
         // pop rbx
         try self.emit_byte(0x5b);
+        // pop rax
+        try self.emit_byte(0x58);
     }
 
     //
