@@ -716,14 +716,14 @@ pub const Interpreter = struct {
             .stack = &self.stack,
             .env = &self.env,
             .gc = &self.gc,
-            .push = &push,
-            .get_local = &get_local,
-            .set_local = &set_local,
+            .alloc_stack = &alloc_stack,
             .pop_locals = &pop_locals,
-            .push_locals = &push_locals,
             .gc_alloc_object = &gc_alloc_object,
             .gc_alloc_closure = &gc_alloc_closure,
             .call = &do_call,
+            .dbg = &dbg,
+            .dbg_raw = &dbg_raw,
+            .dbg_inst = &dbg_inst,
             .binop_panic = &binop_panic,
             .if_condition_panic = &if_condition_panic,
         };
@@ -732,8 +732,11 @@ pub const Interpreter = struct {
 
 // JIT helper functions
 
-pub fn push(stack: *Stack, value: Value) callconv(.C) void {
-    stack.push(value);
+pub fn alloc_stack(stack: *Stack, new_len: usize) callconv(.C) void {
+    //const before = stack.stack.capacity;
+    stack.stack.ensureTotalCapacity(new_len) catch unreachable;
+    //std.debug.print("len: {} ", .{stack.stack.items.len});
+    //std.debug.print("caps: {} -> {}\n", .{ before, stack.stack.capacity });
 }
 
 pub fn get_local(env: *const Environment, idx: u32) callconv(.C) Value {
@@ -762,7 +765,7 @@ pub fn gc_alloc_closure(intepreter: *Interpreter, env_size: usize) callconv(.C) 
     return intepreter.gc.alloc_with_additional(bc.Closure, env_size, intepreter.get_roots());
 }
 
-pub fn do_call(interpret: *Interpreter, jit_state: *const jit.JitState) callconv(.C) void {
+pub fn do_call(noalias interpret: *Interpreter, noalias jit_state: *const jit.JitState) callconv(.C) void {
     const target = interpret.stack.pop();
     if (target.get_type() != runtime.ValueType.closure) {
         std.debug.print("{}\n", .{target.get_type()});
@@ -782,7 +785,8 @@ pub fn do_call(interpret: *Interpreter, jit_state: *const jit.JitState) callconv
 
     const function_constant = interpret.bytecode.get_constant(closure.constant_idx);
     const compiled = interpret.jit_compiler.compile_fn(function_constant) catch @panic("could not compile");
-    @call(.never_inline, jit.JitFunction.run, .{ &compiled, jit_state });
+    compiled.run(jit_state);
+    //@call(.never_inline, jit.JitFunction.run, .{ &compiled, jit_state });
     //compiled.run(self.get_jit_state());
 
     //self.bytecode.set_curr_const(closure.constant_idx);
@@ -790,6 +794,20 @@ pub fn do_call(interpret: *Interpreter, jit_state: *const jit.JitState) callconv
 
     // header size of the closure
     //self.pc = bc.Constant.function_header_size;
+}
+
+pub fn dbg(value: Value) callconv(.C) void {
+    std.debug.print("VALUE {x} ", .{value.data});
+    std.debug.print("{}\n", .{value});
+}
+
+pub fn dbg_raw(val: u64) callconv(.C) void {
+    std.debug.print("RAW {x}\n", .{val});
+}
+
+pub fn dbg_inst(inst_val: u64) callconv(.C) void {
+    const inst: bc.Instruction = @enumFromInt(inst_val);
+    std.debug.print("INST: {}\n", .{inst});
 }
 
 pub fn binop_panic(left: Value, right: Value) callconv(.C) void {

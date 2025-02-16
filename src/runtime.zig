@@ -145,6 +145,7 @@ pub const Value = packed struct {
     }
 
     pub fn get_type(self: Value) ValueType {
+        //std.debug.print("{x}\n", .{self.data});
         return @enumFromInt(self.data & 0xf);
     }
 

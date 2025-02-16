@@ -3,6 +3,9 @@ const bytecode = @import("bytecode.zig");
 const bc_interpret = @import("bc_interpreter.zig");
 const runtime = @import("runtime.zig");
 
+const BREAKPOINT: bool = false;
+const DGB: bool = false;
+
 pub const JitError = error{
     CanOnlyCompileFn,
     OutOfMem,
@@ -29,20 +32,22 @@ pub const JitState = extern struct {
     gc: *const bc_interpret.GC,
 
     // basic
-    push: *const fn (*bc_interpret.Stack, runtime.Value) callconv(.C) void,
-    get_local: *const fn (*const bc_interpret.Environment, u32) callconv(.C) runtime.Value,
-    set_local: *const fn (*bc_interpret.Environment, u32, runtime.Value) callconv(.C) void,
+    alloc_stack: *const fn (*bc_interpret.Stack, usize) callconv(.C) void,
 
     // call handle
     pop_locals: *const fn (*bc_interpret.Environment) callconv(.C) void,
-    push_locals: *const fn (*bc_interpret.Environment, u64, usize, u32) callconv(.C) void,
 
     // gc handle
     gc_alloc_object: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Object,
     gc_alloc_closure: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Closure,
 
     // call
-    call: *const fn (*bc_interpret.Interpreter, *const JitState) callconv(.C) void,
+    call: *const fn (noalias *bc_interpret.Interpreter, noalias *const JitState) callconv(.C) void,
+
+    // debug
+    dbg: *const fn (runtime.Value) callconv(.C) void,
+    dbg_raw: *const fn (u64) callconv(.C) void,
+    dbg_inst: *const fn (u64) callconv(.C) void,
 
     // panics
     binop_panic: *const fn (runtime.Value, runtime.Value) callconv(.C) void,
@@ -112,7 +117,7 @@ pub const JitCompiler = struct {
         const addr = std.os.linux.mmap(
             null,
             code_buffer_size,
-            std.os.linux.PROT.READ | std.os.linux.PROT.WRITE | std.os.linux.PROT.EXEC,
+            std.os.linux.PROT.READ | std.os.linux.PROT.WRITE,
             std.os.linux.MAP{
                 .ANONYMOUS = true,
                 .TYPE = std.os.linux.MAP_TYPE.PRIVATE,
@@ -208,18 +213,25 @@ pub const JitCompiler = struct {
         }
         //std.debug.print("compilation\n", .{});
 
+        _ = std.os.linux.mprotect(self.code_slice.ptr, self.code_slice.len, std.os.linux.PROT.WRITE | std.os.linux.PROT.READ);
+
         var offsets = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4) catch unreachable;
         var jumps = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4) catch unreachable;
 
         // append dummy data for header
         offsets.appendNTimesAssumeCapacity(0xfefefefe, bytecode.Constant.function_header_size);
 
+        // align
+        self.code_ptr = (self.code_ptr + 15) & 0xffffffff_fffffff0;
+
         const start = self.code_ptr;
 
         // ignore the header of function
         self.bytecode = function.get_slice()[(bytecode.Constant.function_header_size)..];
 
-        //try self.emit_break();
+        if (BREAKPOINT) {
+            try self.emit_break();
+        }
         try self.emit_prolog();
 
         while (self.pc < self.bytecode.len) {
@@ -227,8 +239,8 @@ pub const JitCompiler = struct {
         }
 
         // should not be necessary but oh well I am pussy
-        try self.emit_epilog();
-        try self.emit_byte(0xc3);
+        //try self.emit_epilog();
+        //try self.emit_byte(0xc3);
 
         self.fix_jumps(jumps.items, offsets.items);
 
@@ -241,6 +253,7 @@ pub const JitCompiler = struct {
         function.data[jit_offset + 2] = @intCast((start >> 8) & 0xff);
         function.data[jit_offset + 3] = @intCast(start & 0xff);
 
+        _ = std.os.linux.mprotect(self.code_slice.ptr, self.code_slice.len, std.os.linux.PROT.EXEC | std.os.linux.PROT.READ);
         return JitFunction{ .code = @ptrCast(&self.code_slice[start]) };
     }
 
@@ -248,6 +261,12 @@ pub const JitCompiler = struct {
         const inst = self.read_inst();
         const offset: u32 = @intCast(self.code_ptr);
         offsets.appendNTimesAssumeCapacity(offset, inst.get_extrabytes() + 1);
+
+        if (DGB) {
+            const inst_raw: u64 = @intFromEnum(inst);
+            try self.set_reg_64(GPR64.rdi, inst_raw);
+            try self.call("dbg_inst");
+        }
         switch (inst) {
             bytecode.Instruction.pop => {
                 try self.stack_pop();
@@ -262,34 +281,29 @@ pub const JitCompiler = struct {
             },
 
             bytecode.Instruction.push_byte => {
-                try self.mov_reg_reg(GPR64.rdi, stack_addr);
-
                 const number: u32 = @intCast(self.bytecode[self.pc]);
                 const value = runtime.Value.new_num(number);
 
-                try self.set_reg_64(GPR64.rsi, value.data);
+                try self.set_reg_64(GPR64.rbp, value.data);
 
-                try self.call("push");
+                try self.stack_push(GPR64.rbp);
 
                 self.pc += 1;
             },
             bytecode.Instruction.nil => {
-                try self.mov_reg_reg(GPR64.rdi, stack_addr);
                 const value = runtime.Value.new_nil();
-                try self.set_reg_64(GPR64.rsi, value.data);
-                try self.call("push");
+                try self.set_reg_64(GPR64.rbp, value.data);
+                try self.stack_push(GPR64.rbp);
             },
             bytecode.Instruction.true => {
-                try self.mov_reg_reg(GPR64.rdi, stack_addr);
                 const value = runtime.Value.new_true();
-                try self.set_reg_64(GPR64.rsi, value.data);
-                try self.call("push");
+                try self.set_reg_64(GPR64.rbp, value.data);
+                try self.stack_push(GPR64.rbp);
             },
             bytecode.Instruction.false => {
-                try self.mov_reg_reg(GPR64.rdi, stack_addr);
                 const value = runtime.Value.new_false();
-                try self.set_reg_64(GPR64.rsi, value.data);
-                try self.call("push");
+                try self.set_reg_64(GPR64.rbp, value.data);
+                try self.stack_push(GPR64.rbp);
             },
             bytecode.Instruction.add => {
                 try self.handle_binop_simple(0x1);
@@ -414,11 +428,9 @@ pub const JitCompiler = struct {
                 try self.mov_from_struct_64(GPR64.rcx, env_addr, @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "buffer"));
 
                 // load val from index
-                try self.mov_index_access64(GPR64.rsi, Scale.scale8, GPR64.rcx, GPR64.rax, index * 8);
+                try self.mov_index_access64(GPR64.rbp, Scale.scale8, GPR64.rcx, GPR64.rax, index * 8);
 
-                // move stack addr to rdi for push call
-                try self.mov_reg_reg(GPR64.rdi, stack_addr);
-                try self.call("push");
+                try self.stack_push(GPR64.rbp);
             },
             bytecode.Instruction.get_global_small => {
                 //try self.emit_break();
@@ -429,11 +441,9 @@ pub const JitCompiler = struct {
                 try self.mov_from_struct_64(GPR64.rax, env_addr, @offsetOf(bc_interpret.Environment, "global"));
                 try self.set_reg_64(GPR64.rcx, @intCast(index));
                 // load val from index
-                try self.mov_index_access64(GPR64.rsi, Scale.scale8, GPR64.rax, GPR64.rcx, 0);
+                try self.mov_index_access64(GPR64.rbp, Scale.scale8, GPR64.rax, GPR64.rcx, 0);
 
-                // move stack addr to rdi for push call
-                try self.mov_reg_reg(GPR64.rdi, stack_addr);
-                try self.call("push");
+                try self.stack_push(GPR64.rbp);
             },
             bytecode.Instruction.call => {
                 try self.mov_reg_reg(GPR64.rdi, intepret_addr);
@@ -581,9 +591,52 @@ pub const JitCompiler = struct {
         try self.emit_slice(dec_slice[0..]);
     }
 
+    fn stack_push(self: *JitCompiler, src: GPR64) !void {
+        std.debug.assert(src != GPR64.rax);
+        std.debug.assert(src != GPR64.rcx);
+        std.debug.assert(src != GPR64.rdi);
+        std.debug.assert(src != GPR64.rsi);
+
+        if (DGB) {
+            try self.mov_reg_reg(GPR64.rdi, src);
+            try self.call("dbg");
+        }
+
+        try self.mov_reg_reg(GPR64.rdi, stack_addr);
+        // load len
+        try self.mov_from_struct_64(GPR64.rsi, stack_addr, 0x8);
+        // inc rsi
+        // 48 ff c6 why the fuck it is also 0xff ????
+        const inc_slice: [3]u8 = .{ 0x48, 0xff, 0xc6 };
+        try self.emit_slice(inc_slice[0..]);
+
+        try self.call("alloc_stack");
+
+        try self.mov_from_struct_64(GPR64.rcx, stack_addr, 0x8);
+
+        // inc rcx
+        // 48 ff c1
+        const inc_rcx_slice: [3]u8 = .{ 0x48, 0xff, 0xc1 };
+        try self.emit_slice(inc_rcx_slice[0..]);
+
+        // store new len
+        // mov [r15 + 0x8], rcx (r15 is stack addr)
+        // 49 89 4f 08
+        const len_store_slice: [4]u8 = .{ 0x49, 0x89, 0x4f, 0x08 };
+        try self.emit_slice(len_store_slice[0..]);
+
+        try self.stack_set_top(src);
+
+        // do dbg
+        if (DGB) {
+            try self.get_stack_to_reg(GPR64.rdi, 0);
+            try self.call("dbg");
+        }
+    }
+
     /// clobers rax, rcx
-    fn stack_set_top(self: *JitCompiler, dst: GPR64) !void {
-        const reg_val: u8 = @intFromEnum(dst);
+    fn stack_set_top(self: *JitCompiler, src: GPR64) !void {
+        const reg_val: u8 = @intFromEnum(src);
 
         // load len
         try self.mov_from_struct_64(GPR64.rcx, stack_addr, 8);
@@ -776,7 +829,7 @@ pub const JitCompiler = struct {
         // The R could contain highest bit of reg number
         // The B will never be set since we move immediate
         // and there is no other reg
-        try self.emit_byte(0x48 | ((reg_val & 0x8) >> 1));
+        try self.emit_byte(0x48 | ((reg_val & 0x8) >> 3));
 
         // opcode has in it self the lower 3 bits of reg
         // index (0xb8 is base and you add those)
