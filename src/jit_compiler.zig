@@ -605,25 +605,36 @@ pub const JitCompiler = struct {
         try self.mov_reg_reg(GPR64.rdi, stack_addr);
         // load len
         try self.mov_from_struct_64(GPR64.rsi, stack_addr, 0x8);
+
         // inc rsi
         // 48 ff c6 why the fuck it is also 0xff ????
         const inc_slice: [3]u8 = .{ 0x48, 0xff, 0xc6 };
         try self.emit_slice(inc_slice[0..]);
 
-        try self.call("alloc_stack");
-
-        try self.mov_from_struct_64(GPR64.rcx, stack_addr, 0x8);
-
-        // inc rcx
-        // 48 ff c1
-        const inc_rcx_slice: [3]u8 = .{ 0x48, 0xff, 0xc1 };
-        try self.emit_slice(inc_rcx_slice[0..]);
-
         // store new len
-        // mov [r15 + 0x8], rcx (r15 is stack addr)
-        // 49 89 4f 08
-        const len_store_slice: [4]u8 = .{ 0x49, 0x89, 0x4f, 0x08 };
+        // mov [r15 + 0x8], rsi (r15 is stack addr)
+        // 49 89 77 08
+        const len_store_slice: [4]u8 = .{ 0x49, 0x89, 0x77, 0x08 };
         try self.emit_slice(len_store_slice[0..]);
+
+        // check capacity and jump over call if
+        // it is not necessary
+
+        // load cap
+        const cap_offset = @offsetOf(std.ArrayList(runtime.Value), "capacity");
+        try self.mov_from_struct_64(GPR64.rcx, stack_addr, cap_offset);
+
+        // cmp rsi, rcx
+        // 48 39 ce
+        const cmp_slice: [3]u8 = .{ 0x48, 0x39, 0xce };
+        try self.emit_slice(cmp_slice[0..]);
+
+        // jle <after_alloc_stack>
+        // 7e 09
+        const jump_slice: [2]u8 = .{ 0x7e, 0x09 };
+        try self.emit_slice(jump_slice[0..]);
+
+        try self.call("alloc_stack");
 
         try self.stack_set_top(src);
 
@@ -636,6 +647,8 @@ pub const JitCompiler = struct {
 
     /// clobers rax, rcx
     fn stack_set_top(self: *JitCompiler, src: GPR64) !void {
+        std.debug.assert(src != GPR64.rax);
+        std.debug.assert(src != GPR64.rcx);
         const reg_val: u8 = @intFromEnum(src);
 
         // load len
