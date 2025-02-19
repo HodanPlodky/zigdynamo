@@ -285,10 +285,25 @@ pub const JitCompiler = struct {
                 const value = runtime.Value.new_num(number);
 
                 try self.set_reg_64(GPR64.rbp, value.data);
-
                 try self.stack_push(GPR64.rbp);
 
                 self.pc += 1;
+            },
+            bytecode.Instruction.push => {
+                var number: u32 = 0;
+                number |= self.bytecode[self.pc];
+                number <<= 8;
+                number |= self.bytecode[self.pc + 1];
+                number <<= 8;
+                number |= self.bytecode[self.pc + 2];
+                number <<= 8;
+                number |= self.bytecode[self.pc + 3];
+                self.pc += 4;
+
+                const value = runtime.Value.new_num(number);
+
+                try self.set_reg_64(GPR64.rbp, value.data);
+                try self.stack_push(GPR64.rbp);
             },
             bytecode.Instruction.nil => {
                 const value = runtime.Value.new_nil();
