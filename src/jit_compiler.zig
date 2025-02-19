@@ -447,6 +447,32 @@ pub const JitCompiler = struct {
 
                 try self.stack_push(GPR64.rbp);
             },
+            bytecode.Instruction.set_small => {
+                unreachable;
+            },
+            bytecode.Instruction.set => {
+                var number: u32 = 0;
+                number |= self.bytecode[self.pc];
+                number <<= 8;
+                number |= self.bytecode[self.pc + 1];
+                number <<= 8;
+                number |= self.bytecode[self.pc + 2];
+                number <<= 8;
+                number |= self.bytecode[self.pc + 3];
+                self.pc += 4;
+
+                // load top of stack
+                try self.get_stack_to_reg(GPR64.rbp, 0);
+                try self.stack_pop();
+
+                // load current ptr into the rax
+                try self.mov_from_struct_64(GPR64.rax, env_addr, @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "current_ptr"));
+
+                // load local.buffer ptr
+                try self.mov_from_struct_64(GPR64.rcx, env_addr, @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "buffer"));
+
+                try self.set_to_index64(Scale.scale8, GPR64.rcx, GPR64.rax, number * 8, GPR64.rbp);
+            },
             bytecode.Instruction.get_global_small => {
                 //try self.emit_break();
                 const index: u32 = @intCast(self.bytecode[self.pc]);
@@ -746,7 +772,7 @@ pub const JitCompiler = struct {
         }
     }
 
-    fn mov_index_access64(self: *JitCompiler, dst: GPR64, scale: Scale, base: GPR64, index: GPR64, offset: usize) !void {
+    fn mov_index_access64(self: *JitCompiler, dst: GPR64, scale: Scale, base: GPR64, index: GPR64, offset: u32) !void {
         // example:
         //      48 8b 74 d1 f8
         //      REX.W opcode 01_110_100
@@ -782,32 +808,43 @@ pub const JitCompiler = struct {
         // opcode
         try self.emit_byte(0x8b);
 
-        // ModRM
-        // | mode | reg | r/m |
-        // mode = 00/01/10 =>
-        //      this depends on size of the
-        //      offset 0 => 00, 1-255 => 01
-        //      otherwise 10
-        // reg = bottom 3 bits of to_reg_val
-        // rm = 100 => the sib follows
-        const mod: u8 = if (offset >= 256)
-            0b1000_0000
-        else if (offset != 0)
-            0b0100_0000
-        else
-            0;
+        const modrm = create_modrm_sib(dst, offset);
+        try self.emit_byte(modrm);
 
-        const to_reg_lower: u8 = (dst_val & 0x7) << 3;
-        const rm_sib: u8 = 0b100;
-        try self.emit_byte(mod | to_reg_lower | rm_sib);
+        const sib = create_sib(scale, base, index);
+        try self.emit_byte(sib);
 
-        // SIB
-        // | scale : 2b | index : 3b | base : 3b |
-        var scale_value: u8 = @intFromEnum(scale);
-        scale_value <<= 6;
-        index_value <<= 3;
-        try self.emit_byte(scale_value | index_value | base_value);
+        try self.emit_offset(offset);
+    }
 
+    fn set_to_index64(self: *JitCompiler, scale: Scale, base: GPR64, index: GPR64, offset: u32, src: GPR64) !void {
+        // mov QWORD PTR [rax+rcx*8],r9 (mov r/m64, reg)
+        // 4c 89 0c c8
+        // 4c = REX.W | W, R (from r9)
+        // 89 = opcode
+        // 0c = modrm 00_001_100
+        // c8 = sib 11 001 000 = scale 8 | rcx | rax
+
+        const src_val: u8 = @intFromEnum(src);
+        const base_val: u8 = @intFromEnum(base);
+        const index_val: u8 = @intFromEnum(index);
+
+        const rex = 0x48 | ((src_val & 0x8) >> 1) | ((index_val & 0x8) >> 2) | ((base_val & 0x8) >> 3);
+        try self.emit_byte(rex);
+
+        // opcode
+        try self.emit_byte(0x89);
+
+        const modrm = create_modrm_sib(src, offset);
+        try self.emit_byte(modrm);
+
+        const sib = create_sib(scale, base, index);
+        try self.emit_byte(sib);
+
+        try self.emit_offset(offset);
+    }
+
+    fn emit_offset(self: *JitCompiler, offset: u32) !void {
         // if offset is zero it is captured above
         if (offset != 0) {
             if (offset < 256) {
@@ -846,7 +883,7 @@ pub const JitCompiler = struct {
 
         // MODrm
         // mod = 0b11 | lower bits src | lower bits dest
-        const modrm = JitCompiler.create_modrm(src, dst);
+        const modrm = JitCompiler.create_modrm_regs(src, dst);
         try self.emit_byte(modrm);
     }
 
@@ -999,13 +1036,49 @@ pub const JitCompiler = struct {
     }
 
     /// creates basic MODrm assuming only regs
-    fn create_modrm(reg: GPR64, rm64: GPR64) u8 {
+    fn create_modrm_regs(reg: GPR64, rm64: GPR64) u8 {
         const reg_val: u8 = @intFromEnum(reg);
         const rm64_val: u8 = @intFromEnum(rm64);
 
         // MODrm
         // mod = 0b11 = direct | lower bits reg | lower bits rm64
         return 0b11_000_000 | ((reg_val & 0x7) << 3) | (rm64_val & 0x7);
+    }
+
+    /// creates basic MODrm assuming only regs
+    fn create_modrm_sib(reg: GPR64, offset: u32) u8 {
+        const reg_val: u8 = @intFromEnum(reg);
+
+        // ModRM
+        // | mode | reg | r/m |
+        // mode = 00/01/10 =>
+        //      this depends on size of the
+        //      offset 0 => 00, 1-255 => 01
+        //      otherwise 10
+        // reg = bottom 3 bits of to_reg_val
+        // rm = 100 => the sib follows
+        const mod: u8 = if (offset >= 256)
+            0b1000_0000
+        else if (offset != 0)
+            0b0100_0000
+        else
+            0;
+
+        const to_reg_lower: u8 = (reg_val & 0x7) << 3;
+        const rm_sib: u8 = 0b100;
+        return mod | to_reg_lower | rm_sib;
+    }
+
+    fn create_sib(scale: Scale, base: GPR64, index: GPR64) u8 {
+        const base_val = @intFromEnum(base);
+        var index_val = @intFromEnum(index);
+
+        // SIB
+        // | scale : 2b | index : 3b | base : 3b |
+        var scale_val: u8 = @intFromEnum(scale);
+        scale_val <<= 6;
+        index_val <<= 3;
+        return scale_val | index_val | base_val;
     }
 
     /// emits most basic inst like add with only regs
@@ -1015,7 +1088,7 @@ pub const JitCompiler = struct {
         const inst_slice: [3]u8 = .{
             JitCompiler.create_rex(reg, rm64),
             opcode,
-            JitCompiler.create_modrm(reg, rm64),
+            JitCompiler.create_modrm_regs(reg, rm64),
         };
 
         try self.emit_slice(inst_slice[0..]);
