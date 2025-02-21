@@ -41,8 +41,9 @@ pub const JitState = extern struct {
     gc_alloc_object: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Object,
     gc_alloc_closure: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Closure,
 
-    // call
+    // calls
     call: *const fn (noalias *bc_interpret.Interpreter, noalias *const JitState) callconv(.C) void,
+    print: *const fn (noalias *bc_interpret.Interpreter, arg_count: u64) callconv(.C) void,
 
     // debug
     dbg: *const fn (runtime.Value) callconv(.C) void,
@@ -489,6 +490,22 @@ pub const JitCompiler = struct {
                 try self.mov_reg_reg(GPR64.rdi, intepret_addr);
                 try self.mov_reg_reg(GPR64.rsi, state_addr);
                 try self.call("call");
+            },
+            bytecode.Instruction.print => {
+                var arg_count: u32 = 0;
+                arg_count |= self.bytecode[self.pc];
+                arg_count <<= 8;
+                arg_count |= self.bytecode[self.pc + 1];
+                arg_count <<= 8;
+                arg_count |= self.bytecode[self.pc + 2];
+                arg_count <<= 8;
+                arg_count |= self.bytecode[self.pc + 3];
+                self.pc += 4;
+
+                try self.mov_reg_reg(GPR64.rdi, intepret_addr);
+                try self.set_reg_64(GPR64.rsi, @intCast(arg_count));
+
+                try self.call("print");
             },
             else => {
                 std.debug.print("{}\n", .{inst});

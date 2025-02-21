@@ -521,26 +521,8 @@ pub const Interpreter = struct {
                     @call(.always_inline, do_call, .{ self, &jit_state });
                 },
                 bc.Instruction.print => {
-                    const arg_count = self.read_u32();
-                    const arg_slice = self.stack.slice_top(arg_count);
-                    for (arg_slice) |val| {
-                        switch (val.get_type()) {
-                            ValueType.string => {
-                                const idx = bc.ConstantIndex.new(val.get_idx());
-                                const string_const = self.bytecode.get_constant(idx);
-                                const tmp = string_const.get_slice()[5..];
-                                std.debug.print("{s} ", .{tmp});
-                            },
-                            ValueType.number => {
-                                const data = val.get_number();
-                                std.debug.print("{} ", .{data});
-                            },
-                            else => @panic("Cannot print"),
-                        }
-                    }
-                    self.stack.pop_n(arg_count);
-                    std.debug.print("\n", .{});
-                    self.stack.push(Value.new_nil());
+                    const arg_count: u64 = @intCast(self.read_u32());
+                    @call(.always_inline, do_print, .{ self, arg_count });
                 },
                 bc.Instruction.string => {
                     const idx = bc.ConstantIndex.new(self.read_u32());
@@ -722,6 +704,7 @@ pub const Interpreter = struct {
             .gc_alloc_object = &gc_alloc_object,
             .gc_alloc_closure = &gc_alloc_closure,
             .call = &do_call,
+            .print = &do_print,
             .dbg = &dbg,
             .dbg_raw = &dbg_raw,
             .dbg_inst = &dbg_inst,
@@ -734,10 +717,7 @@ pub const Interpreter = struct {
 // JIT helper functions
 
 pub fn alloc_stack(stack: *Stack, new_len: usize) callconv(.C) void {
-    //const before = stack.stack.capacity;
     stack.stack.ensureTotalCapacity(new_len) catch unreachable;
-    //std.debug.print("len: {} ", .{stack.stack.items.len});
-    //std.debug.print("caps: {} -> {}\n", .{ before, stack.stack.capacity });
 }
 
 pub fn get_local(env: *const Environment, idx: u32) callconv(.C) Value {
@@ -795,6 +775,29 @@ pub fn do_call(noalias interpret: *Interpreter, noalias jit_state: *const jit.Ji
 
     // header size of the closure
     //self.pc = bc.Constant.function_header_size;
+}
+
+pub fn do_print(noalias interpret: *Interpreter, arg_count: u64) callconv(.C) void {
+    const arg_count_tmp: u32 = @intCast(arg_count);
+    const arg_slice = interpret.stack.slice_top(arg_count_tmp);
+    for (arg_slice) |val| {
+        switch (val.get_type()) {
+            ValueType.string => {
+                const idx = bc.ConstantIndex.new(val.get_idx());
+                const string_const = interpret.bytecode.get_constant(idx);
+                const tmp = string_const.get_slice()[5..];
+                std.debug.print("{s} ", .{tmp});
+            },
+            ValueType.number => {
+                const data = val.get_number();
+                std.debug.print("{} ", .{data});
+            },
+            else => @panic("Cannot print"),
+        }
+    }
+    interpret.stack.pop_n(arg_count_tmp);
+    std.debug.print("\n", .{});
+    interpret.stack.push(Value.new_nil());
 }
 
 const DBG_VALUE: bool = false;
