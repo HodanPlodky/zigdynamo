@@ -796,18 +796,28 @@ pub fn do_call(noalias interpret: *Interpreter, noalias jit_state: *const jit.Ji
     //self.pc = bc.Constant.function_header_size;
 }
 
+const DBG_VALUE: bool = false;
+const DBG_RAW: bool = false;
+const DBG_INST: bool = true;
+
 pub fn dbg(value: Value) callconv(.C) void {
-    std.debug.print("VALUE {x} ", .{value.data});
-    std.debug.print("{}\n", .{value});
+    if (DBG_VALUE) {
+        std.debug.print("VALUE {x} ", .{value.data});
+        std.debug.print("{}\n", .{value});
+    }
 }
 
 pub fn dbg_raw(val: u64) callconv(.C) void {
-    std.debug.print("RAW {x}\n", .{val});
+    if (DBG_RAW) {
+        std.debug.print("RAW {x}\n", .{val});
+    }
 }
 
 pub fn dbg_inst(inst_val: u64) callconv(.C) void {
-    const inst: bc.Instruction = @enumFromInt(inst_val);
-    std.debug.print("INST: {}\n", .{inst});
+    if (DBG_INST) {
+        const inst: bc.Instruction = @enumFromInt(inst_val);
+        std.debug.print("INST: {}\n", .{inst});
+    }
 }
 
 pub fn binop_panic(left: Value, right: Value) callconv(.C) void {

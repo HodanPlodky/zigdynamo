@@ -383,10 +383,11 @@ pub const JitCompiler = struct {
                 }.f);
             },
             bytecode.Instruction.jump => {
-                // jumps will point to number it self
-                jumps.appendAssumeCapacity(offset + 1);
                 // opcode for jmp rel32
                 try self.emit_byte(0xe9);
+                // jumps will point to number it self
+                const jump_offset: u32 = @intCast(self.code_ptr);
+                jumps.appendAssumeCapacity(jump_offset);
 
                 // store original value of jump for fix up after
                 const jump_pc = self.bytecode[self.pc..(self.pc + 4)];
@@ -394,7 +395,6 @@ pub const JitCompiler = struct {
                 self.pc += 4;
             },
             bytecode.Instruction.branch => {
-                //try self.emit_break();
                 try self.get_stack_to_reg(GPR64.rax, 0);
                 try self.stack_pop();
 
@@ -463,7 +463,6 @@ pub const JitCompiler = struct {
 
                 // load top of stack
                 try self.get_stack_to_reg(GPR64.rbp, 0);
-                try self.stack_pop();
 
                 // load current ptr into the rax
                 try self.mov_from_struct_64(GPR64.rax, env_addr, @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "current_ptr"));
