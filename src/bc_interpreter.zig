@@ -538,6 +538,7 @@ pub const Interpreter = struct {
                             else => @panic("Cannot print"),
                         }
                     }
+                    self.stack.pop_n(arg_count);
                     std.debug.print("\n", .{});
                     self.stack.push(Value.new_nil());
                 },
