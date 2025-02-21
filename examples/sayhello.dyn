@@ -1,4 +1,4 @@
-let say_one = fn() = print(1);
+let say_one = fn() = print("hello");
 
 let do_it_more = fn() = {
     let n = 0;

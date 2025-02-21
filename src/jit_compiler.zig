@@ -53,6 +53,7 @@ pub const JitState = extern struct {
     // panics
     binop_panic: *const fn (runtime.Value, runtime.Value) callconv(.C) void,
     if_condition_panic: *const fn () callconv(.C) void,
+    string_panic: *const fn () callconv(.C) void,
 
     pub fn get_offset(comptime field_name: []const u8) u32 {
         return @offsetOf(JitState, field_name);
@@ -99,6 +100,7 @@ const Scale = enum(u2) {
 const PanicTable = struct {
     binop_panic: usize = 0,
     if_condition_panic: usize = 0,
+    string_panic: usize = 0,
 };
 
 pub const JitCompiler = struct {
@@ -146,6 +148,7 @@ pub const JitCompiler = struct {
     fn init_panic_handlers(self: *JitCompiler) !void {
         try self.emit_panic_handler_with_prolog("binop_panic", JitCompiler.bin_op_panic_prolog);
         try self.emit_panic_handler("if_condition_panic");
+        try self.emit_panic_handler("string_panic");
     }
 
     fn bin_op_panic_prolog(self: *JitCompiler) !void {
@@ -291,15 +294,7 @@ pub const JitCompiler = struct {
                 self.pc += 1;
             },
             bytecode.Instruction.push => {
-                var number: u32 = 0;
-                number |= self.bytecode[self.pc];
-                number <<= 8;
-                number |= self.bytecode[self.pc + 1];
-                number <<= 8;
-                number |= self.bytecode[self.pc + 2];
-                number <<= 8;
-                number |= self.bytecode[self.pc + 3];
-                self.pc += 4;
+                const number = self.read_u32();
 
                 const value = runtime.Value.new_num(number);
 
@@ -452,15 +447,7 @@ pub const JitCompiler = struct {
                 unreachable;
             },
             bytecode.Instruction.set => {
-                var number: u32 = 0;
-                number |= self.bytecode[self.pc];
-                number <<= 8;
-                number |= self.bytecode[self.pc + 1];
-                number <<= 8;
-                number |= self.bytecode[self.pc + 2];
-                number <<= 8;
-                number |= self.bytecode[self.pc + 3];
-                self.pc += 4;
+                const number = self.read_u32();
 
                 // load top of stack
                 try self.get_stack_to_reg(GPR64.rbp, 0);
@@ -492,20 +479,42 @@ pub const JitCompiler = struct {
                 try self.call("call");
             },
             bytecode.Instruction.print => {
-                var arg_count: u32 = 0;
-                arg_count |= self.bytecode[self.pc];
-                arg_count <<= 8;
-                arg_count |= self.bytecode[self.pc + 1];
-                arg_count <<= 8;
-                arg_count |= self.bytecode[self.pc + 2];
-                arg_count <<= 8;
-                arg_count |= self.bytecode[self.pc + 3];
-                self.pc += 4;
+                const arg_count = self.read_u32();
 
                 try self.mov_reg_reg(GPR64.rdi, intepret_addr);
                 try self.set_reg_64(GPR64.rsi, @intCast(arg_count));
 
                 try self.call("print");
+            },
+            bytecode.Instruction.string => {
+                const const_idx = self.read_u32();
+                const string = runtime.Value.new_string(const_idx);
+                try self.set_reg_64(GPR64.rbp, string.data);
+
+                // load bytecode.constants.ptr
+                try self.mov_from_struct_64(
+                    GPR64.rax,
+                    intepret_addr,
+                    @offsetOf(bc_interpret.Interpreter, "bytecode") + @offsetOf(bytecode.Bytecode, "constants"),
+                );
+
+                // load constant
+                try self.set_reg_64(GPR64.rcx, @intCast(const_idx));
+                try self.mov_index_access64(GPR64.rax, Scale.scale8, GPR64.rax, GPR64.rcx, 0);
+
+                // cmp BYTE PTR [rax+0x4], <string_type> (0x2)
+                // 80 78 04 02
+                const cmp_slice: [4]u8 = .{
+                    0x80,
+                    0x78,
+                    0x04,
+                    @intFromEnum(bytecode.ConstantType.string),
+                };
+                try self.emit_slice(cmp_slice[0..]);
+
+                try self.emit_panic("string_panic");
+
+                try self.stack_push(GPR64.rbp);
             },
             else => {
                 std.debug.print("{}\n", .{inst});
@@ -767,7 +776,17 @@ pub const JitCompiler = struct {
         // mode will be less then 0b11 => setting it to 0b10 (thats what I saw in wild)
         // only exception would be if the offset would be 0
         // 10 | bottom 3 bits of to_reg | rbx bottom 3 bit (0x2)
-        const mod: u8 = if (offset != 0)
+        //
+        // The reason for the check against 0b101 is that for
+        // some ungodly fucking manifested reason the x86 has fucking
+        // exeption only for this case in the modrm byte which
+        // says it had different purpouse for this value. The
+        // reson is different on 64 and 32 bit no less so just check
+        // the fucking table
+        //
+        // I cound have handle it also by emitting one byte but you
+        // know what fuck that right now just adding TODO for future fucker
+        const mod: u8 = if (offset != 0 or base_val & 0x7 == 0b101)
             0x80
         else
             0x00;
@@ -777,7 +796,7 @@ pub const JitCompiler = struct {
 
         // if offset is not zero we have to
         // add it at the end of the instruction
-        if (offset != 0) {
+        if (offset != 0 or base_val & 0x7 == 0b101) {
             const offset_bytes: [4]u8 = .{
                 @intCast(offset & 0xff),
                 @intCast((offset >> 8) & 0xff),
@@ -1112,5 +1131,23 @@ pub const JitCompiler = struct {
 
     fn emit_break(self: *JitCompiler) !void {
         try self.emit_byte(0xcc);
+    }
+
+    fn set_reg_from_u32_bc(self: *JitCompiler, dst: GPR64) !void {
+        const num: u64 = @intCast(self.read_u32());
+        try self.set_reg_64(dst, num);
+    }
+
+    fn read_u32(self: *JitCompiler) u32 {
+        var num: u32 = 0;
+        num |= self.bytecode[self.pc];
+        num <<= 8;
+        num |= self.bytecode[self.pc + 1];
+        num <<= 8;
+        num |= self.bytecode[self.pc + 2];
+        num <<= 8;
+        num |= self.bytecode[self.pc + 3];
+        self.pc += 4;
+        return num;
     }
 };

@@ -710,6 +710,7 @@ pub const Interpreter = struct {
             .dbg_inst = &dbg_inst,
             .binop_panic = &binop_panic,
             .if_condition_panic = &if_condition_panic,
+            .string_panic = &string_panic,
         };
     }
 };
@@ -831,4 +832,8 @@ pub fn binop_panic(left: Value, right: Value) callconv(.C) void {
 
 pub fn if_condition_panic() callconv(.C) void {
     @panic("If condition must be boolean");
+}
+
+pub fn string_panic() callconv(.C) void {
+    @panic("Incorrect string");
 }
