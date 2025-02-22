@@ -34,9 +34,6 @@ pub const JitState = extern struct {
     // basic
     alloc_stack: *const fn (*bc_interpret.Stack, usize) callconv(.C) void,
 
-    // call handle
-    pop_locals: *const fn (*bc_interpret.Environment) callconv(.C) void,
-
     // objects handle
     create_closure: *const fn (noalias *bc_interpret.Interpreter, u64, u64) callconv(.C) void,
 
@@ -211,10 +208,8 @@ pub const JitCompiler = struct {
         const jit_offset = bytecode.Constant.function_header_size - 4;
         const jit_state: u32 = function.get_u32(@intCast(jit_offset));
         if (jit_state != 0) {
-            //std.debug.print("reuse\n", .{});
             return JitFunction{ .code = @ptrCast(&self.code_slice[jit_state]) };
         }
-        //std.debug.print("compilation\n", .{});
 
         _ = std.os.linux.mprotect(self.code_slice.ptr, self.code_slice.len, std.os.linux.PROT.WRITE | std.os.linux.PROT.READ);
 
@@ -240,10 +235,6 @@ pub const JitCompiler = struct {
         while (self.pc < self.bytecode.len) {
             try self.compile_bytecode_inst(&offsets, &jumps);
         }
-
-        // should not be necessary but oh well I am pussy
-        //try self.emit_epilog();
-        //try self.emit_byte(0xc3);
 
         self.fix_jumps(jumps.items, offsets.items);
 
@@ -275,8 +266,7 @@ pub const JitCompiler = struct {
                 try self.stack_pop();
             },
             bytecode.Instruction.ret => {
-                try self.mov_from_jit_state(GPR64.rdi, "env");
-                try self.call("pop_locals");
+                try self.env_pop_locals();
                 try self.emit_epilog();
 
                 // return
@@ -529,10 +519,6 @@ pub const JitCompiler = struct {
 
                 try self.stack_push(GPR64.rbp);
             },
-            else => {
-                std.debug.print("{}\n", .{inst});
-                @panic("unimplemented");
-            },
             bytecode.Instruction.closure => {
                 const constant_idx: u64 = self.read_u32();
                 const unbound_count: u64 = self.read_u32();
@@ -541,6 +527,10 @@ pub const JitCompiler = struct {
                 try self.set_reg_64(GPR64.rdx, unbound_count);
 
                 try self.call("create_closure");
+            },
+            else => {
+                std.debug.print("{}\n", .{inst});
+                @panic("unimplemented");
             },
         }
     }
@@ -768,10 +758,59 @@ pub const JitCompiler = struct {
     // env helpers
     //
 
-    fn get_local(self: *JitCompiler, dst: GPR64, index: usize) !void {
-        _ = index; // autofix
-        _ = dst; // autofix
-        _ = self; // autofix
+    fn env_pop_locals(self: *JitCompiler) !void {
+        // load local buffer ptr
+        try self.mov_from_struct_64(
+            GPR64.rax,
+            env_addr,
+            @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "buffer"),
+        );
+
+        // load local buffer len
+        try self.mov_from_struct_64(
+            GPR64.rcx,
+            env_addr,
+            @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "buffer") + 8,
+        );
+
+        // this is done with 32bit so I dont
+        // have the machinery to do that
+        // mov eax,DWORD PTR [rax+rcx*8-<2 * sizeof(Value)>]
+        // 8b 44 c8 f0
+        const load_old_fp_slice: [4]u8 = .{ 0x8b, 0x44, 0xc8, 0xf0 };
+        try self.emit_slice(load_old_fp_slice[0..]);
+
+        // load current fp again 32bit
+        // mov ecx,DWORD PTR [r14+<current_fp_offset>]
+        // 41 8b 4e 48
+        const load_current_fp_slice: [4]u8 = .{
+            0x41,
+            0x8b,
+            0x4e,
+            @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "current_ptr"),
+        };
+        try self.emit_slice(load_current_fp_slice[0..]);
+
+        // store current ptr to len of buffer
+        // mov QWORD PTR [r14+<len offset>],rcx
+        // 49 89 4e 18
+        const store_len_slice: [4]u8 = .{
+            0x49,
+            0x89,
+            0x4e,
+            @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "buffer") + 8,
+        };
+        try self.emit_slice(store_len_slice[0..]);
+
+        // mov DWORD PTR [r14+<current_ptr>],eax
+        // 41 89 46 48
+        const store_curent_ptr_slice: [4]u8 = .{
+            0x41,
+            0x89,
+            0x46,
+            @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "current_ptr"),
+        };
+        try self.emit_slice(store_curent_ptr_slice[0..]);
     }
 
     //

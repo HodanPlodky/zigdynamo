@@ -688,7 +688,6 @@ pub const Interpreter = struct {
             .env = &self.env,
             .gc = &self.gc,
             .alloc_stack = &alloc_stack,
-            .pop_locals = &pop_locals,
             .create_closure = &create_closure,
             .call = &do_call,
             .print = &do_print,
