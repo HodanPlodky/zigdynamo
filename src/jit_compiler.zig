@@ -479,6 +479,7 @@ pub const JitCompiler = struct {
             bytecode.Instruction.call => {
                 try self.mov_reg_reg(GPR64.rdi, intepret_addr);
                 try self.mov_reg_reg(GPR64.rsi, state_addr);
+                try self.vzeroupper();
                 try self.call("call");
             },
             bytecode.Instruction.print => {
@@ -1197,6 +1198,14 @@ pub const JitCompiler = struct {
     fn set_reg_from_u32_bc(self: *JitCompiler, dst: GPR64) !void {
         const num: u64 = @intCast(self.read_u32());
         try self.set_reg_64(dst, num);
+    }
+
+    /// instruction to reset flags
+    /// this can be used to better
+    /// asm emit
+    fn vzeroupper(self: *JitCompiler) !void {
+        const vzeroupper_slice: [3]u8 = .{ 0xc5, 0xf8, 0x77 };
+        try self.emit_slice(vzeroupper_slice[0..]);
     }
 
     fn read_u32(self: *JitCompiler) u32 {
