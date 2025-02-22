@@ -500,21 +500,9 @@ pub const Interpreter = struct {
                     }
                 },
                 bc.Instruction.closure => {
-                    const constant_idx = self.read_u32();
-                    const unbound_count = self.read_u32();
-                    const env = self.stack.slice_top(unbound_count);
-                    const closure = self.gc.alloc_with_additional(bc.Closure, unbound_count, self.get_roots());
-                    closure.env.count = unbound_count;
-                    for (env, 0..) |val, idx| {
-                        closure.env.set(idx, val);
-                    }
-                    self.stack.pop_n(unbound_count);
-                    closure.constant_idx = bc.ConstantIndex.new(constant_idx);
-                    const code = self.bytecode.get_constant(closure.constant_idx);
-                    closure.local_count = code.get_u32(5);
-                    closure.param_count = code.get_u32(9);
-                    const val = Value.new_ptr(bc.Closure, closure, ValueType.closure);
-                    self.stack.push(val);
+                    const constant_idx: u64 = self.read_u32();
+                    const unbound_count: u64 = self.read_u32();
+                    @call(.always_inline, create_closure, .{ self, constant_idx, unbound_count });
                 },
                 bc.Instruction.call => {
                     const jit_state = self.get_jit_state();
@@ -701,8 +689,7 @@ pub const Interpreter = struct {
             .gc = &self.gc,
             .alloc_stack = &alloc_stack,
             .pop_locals = &pop_locals,
-            .gc_alloc_object = &gc_alloc_object,
-            .gc_alloc_closure = &gc_alloc_closure,
+            .create_closure = &create_closure,
             .call = &do_call,
             .print = &do_print,
             .dbg = &dbg,
@@ -799,6 +786,24 @@ pub fn do_print(noalias interpret: *Interpreter, arg_count: u64) callconv(.C) vo
     interpret.stack.pop_n(arg_count_tmp);
     std.debug.print("\n", .{});
     interpret.stack.push(Value.new_nil());
+}
+
+pub fn create_closure(noalias self: *Interpreter, constant_idx: u64, unbound_count: u64) callconv(.C) void {
+    const constant_idx_tmp: u32 = @intCast(constant_idx);
+    const unbound_count_tmp: u32 = @intCast(unbound_count);
+    const env = self.stack.slice_top(unbound_count_tmp);
+    const closure = self.gc.alloc_with_additional(bc.Closure, unbound_count_tmp, self.get_roots());
+    closure.env.count = unbound_count_tmp;
+    for (env, 0..) |val, idx| {
+        closure.env.set(idx, val);
+    }
+    self.stack.pop_n(unbound_count_tmp);
+    closure.constant_idx = bc.ConstantIndex.new(constant_idx_tmp);
+    const code = self.bytecode.get_constant(closure.constant_idx);
+    closure.local_count = code.get_u32(5);
+    closure.param_count = code.get_u32(9);
+    const val = Value.new_ptr(bc.Closure, closure, ValueType.closure);
+    self.stack.push(val);
 }
 
 const DBG_VALUE: bool = false;

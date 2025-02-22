@@ -37,9 +37,8 @@ pub const JitState = extern struct {
     // call handle
     pop_locals: *const fn (*bc_interpret.Environment) callconv(.C) void,
 
-    // gc handle
-    gc_alloc_object: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Object,
-    gc_alloc_closure: *const fn (*bc_interpret.Interpreter, usize) callconv(.C) *bytecode.Closure,
+    // objects handle
+    create_closure: *const fn (noalias *bc_interpret.Interpreter, u64, u64) callconv(.C) void,
 
     // calls
     call: *const fn (noalias *bc_interpret.Interpreter, noalias *const JitState) callconv(.C) void,
@@ -443,6 +442,20 @@ pub const JitCompiler = struct {
 
                 try self.stack_push(GPR64.rbp);
             },
+            bytecode.Instruction.get => {
+                const index: u32 = self.read_u32();
+
+                // load current ptr into the rax
+                try self.mov_from_struct_64(GPR64.rax, env_addr, @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "current_ptr"));
+
+                // load local.buffer ptr
+                try self.mov_from_struct_64(GPR64.rcx, env_addr, @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "buffer"));
+
+                // load val from index
+                try self.mov_index_access64(GPR64.rbp, Scale.scale8, GPR64.rcx, GPR64.rax, index * 8);
+
+                try self.stack_push(GPR64.rbp);
+            },
             bytecode.Instruction.set_small => {
                 unreachable;
             },
@@ -519,6 +532,15 @@ pub const JitCompiler = struct {
             else => {
                 std.debug.print("{}\n", .{inst});
                 @panic("unimplemented");
+            },
+            bytecode.Instruction.closure => {
+                const constant_idx: u64 = self.read_u32();
+                const unbound_count: u64 = self.read_u32();
+                try self.mov_reg_reg(GPR64.rdi, intepret_addr);
+                try self.set_reg_64(GPR64.rsi, constant_idx);
+                try self.set_reg_64(GPR64.rdx, unbound_count);
+
+                try self.call("create_closure");
             },
         }
     }
