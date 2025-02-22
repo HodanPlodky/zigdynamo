@@ -675,6 +675,7 @@ pub const JitCompiler = struct {
         std.debug.assert(src != GPR64.rcx);
         std.debug.assert(src != GPR64.rdi);
         std.debug.assert(src != GPR64.rsi);
+        try self.vzeroupper();
 
         if (DGB) {
             try self.mov_reg_reg(GPR64.rdi, src);
