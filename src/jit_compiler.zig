@@ -36,6 +36,7 @@ pub const JitState = extern struct {
 
     // objects handle
     create_closure: *const fn (noalias *bc_interpret.Interpreter, u64, u64) callconv(.C) void,
+    create_object: *const fn (noalias *bc_interpret.Interpreter, bytecode.ConstantIndex) callconv(.C) void,
 
     // calls
     call: *const fn (noalias *bc_interpret.Interpreter, noalias *const JitState) callconv(.C) void,
@@ -528,6 +529,12 @@ pub const JitCompiler = struct {
                 try self.set_reg_64(GPR64.rdx, unbound_count);
 
                 try self.call("create_closure");
+            },
+            bytecode.Instruction.object => {
+                try self.mov_reg_reg(GPR64.rdi, intepret_addr);
+                try self.set_reg_from_u32_bc(GPR64.rsi);
+
+                try self.call("create_object");
             },
             else => {
                 std.debug.print("{}\n", .{inst});

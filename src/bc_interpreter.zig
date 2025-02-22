@@ -522,22 +522,7 @@ pub const Interpreter = struct {
                 },
                 bc.Instruction.object => {
                     const class_idx = bc.ConstantIndex.new(self.read_u32());
-                    const class_constant = self.bytecode.get_constant(class_idx);
-                    if (class_constant.get_type() != bc.ConstantType.class) {
-                        @panic("invalid object class");
-                    }
-                    const field_count = class_constant.get_class_field_count();
-                    const values = self.stack.slice_top(field_count);
-                    const object = self.gc.alloc_with_additional(bc.Object, field_count, self.get_roots());
-                    self.stack.pop_n(field_count);
-                    object.values.count = field_count;
-                    for (values, 0..) |val, idx| {
-                        object.values.set(idx, val);
-                    }
-                    object.class_idx = class_idx;
-                    const proto = self.stack.top();
-                    object.prototype = proto;
-                    self.stack.set_top(Value.new_ptr(bc.Object, object, ValueType.object));
+                    @call(.always_inline, create_object, .{ self, class_idx });
                 },
                 bc.Instruction.get_field => {
                     const field_idx = self.read_u32();
@@ -689,6 +674,7 @@ pub const Interpreter = struct {
             .gc = &self.gc,
             .alloc_stack = &alloc_stack,
             .create_closure = &create_closure,
+            .create_object = &create_object,
             .call = &do_call,
             .print = &do_print,
             .dbg = &dbg,
@@ -803,6 +789,25 @@ pub fn create_closure(noalias self: *Interpreter, constant_idx: u64, unbound_cou
     closure.param_count = code.get_u32(9);
     const val = Value.new_ptr(bc.Closure, closure, ValueType.closure);
     self.stack.push(val);
+}
+
+pub fn create_object(noalias self: *Interpreter, class_idx: bc.ConstantIndex) callconv(.C) void {
+    const class_constant = self.bytecode.get_constant(class_idx);
+    if (class_constant.get_type() != bc.ConstantType.class) {
+        @panic("invalid object class");
+    }
+    const field_count = class_constant.get_class_field_count();
+    const values = self.stack.slice_top(field_count);
+    const object = self.gc.alloc_with_additional(bc.Object, field_count, self.get_roots());
+    self.stack.pop_n(field_count);
+    object.values.count = field_count;
+    for (values, 0..) |val, idx| {
+        object.values.set(idx, val);
+    }
+    object.class_idx = class_idx;
+    const proto = self.stack.top();
+    object.prototype = proto;
+    self.stack.set_top(Value.new_ptr(bc.Object, object, ValueType.object));
 }
 
 const DBG_VALUE: bool = false;

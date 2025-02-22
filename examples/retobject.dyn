@@ -1,0 +1,5 @@
+let f = fn(n) = object {
+    n: n + 1,
+};
+
+f(1);
