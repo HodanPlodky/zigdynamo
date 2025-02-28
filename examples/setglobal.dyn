@@ -1,0 +1,10 @@
+let n = 1;
+let f = fn() = {
+    n = n + 1;
+};
+
+print(n);
+f();
+print(n);
+f();
+print(n);

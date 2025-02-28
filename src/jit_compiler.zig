@@ -37,6 +37,7 @@ pub const JitState = extern struct {
     // objects handle
     create_closure: *const fn (noalias *bc_interpret.Interpreter, u64, u64) callconv(.C) void,
     create_object: *const fn (noalias *bc_interpret.Interpreter, bytecode.ConstantIndex) callconv(.C) void,
+    get_field: *const fn (noalias *bc_interpret.Interpreter, bytecode.ConstantIndex) callconv(.C) void,
 
     // calls
     call: *const fn (noalias *bc_interpret.Interpreter, noalias *const JitState) callconv(.C) void,
@@ -448,7 +449,19 @@ pub const JitCompiler = struct {
                 try self.stack_push(GPR64.rbp);
             },
             bytecode.Instruction.set_small => {
-                unreachable;
+                const number: u32 = @intCast(self.bytecode[self.pc]);
+                self.pc += 1;
+
+                // load top of stack
+                try self.get_stack_to_reg(GPR64.rbp, 0);
+
+                // load current ptr into the rax
+                try self.mov_from_struct_64(GPR64.rax, env_addr, @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "current_ptr"));
+
+                // load local.buffer ptr
+                try self.mov_from_struct_64(GPR64.rcx, env_addr, @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "buffer"));
+
+                try self.set_to_index64(Scale.scale8, GPR64.rcx, GPR64.rax, number * 8, GPR64.rbp);
             },
             bytecode.Instruction.set => {
                 const number = self.read_u32();
@@ -476,6 +489,42 @@ pub const JitCompiler = struct {
                 try self.mov_index_access64(GPR64.rbp, Scale.scale8, GPR64.rax, GPR64.rcx, 0);
 
                 try self.stack_push(GPR64.rbp);
+            },
+            bytecode.Instruction.get_global => {
+                const index: u32 = self.read_u32();
+
+                // load buffer into the rax
+                try self.mov_from_struct_64(GPR64.rax, env_addr, @offsetOf(bc_interpret.Environment, "global"));
+                try self.set_reg_64(GPR64.rcx, @intCast(index));
+                // load val from index
+                try self.mov_index_access64(GPR64.rbp, Scale.scale8, GPR64.rax, GPR64.rcx, 0);
+
+                try self.stack_push(GPR64.rbp);
+            },
+            bytecode.Instruction.set_global => {
+                const index: u32 = self.read_u32();
+
+                // load value
+                try self.get_stack_to_reg(GPR64.rbp, 0);
+
+                // load buffer into the rax
+                try self.mov_from_struct_64(GPR64.rax, env_addr, @offsetOf(bc_interpret.Environment, "global"));
+                try self.set_reg_64(GPR64.rcx, @intCast(index));
+
+                try self.set_to_index64(Scale.scale8, GPR64.rax, GPR64.rcx, 0, GPR64.rbp);
+            },
+            bytecode.Instruction.set_global_small => {
+                const index: u32 = @intCast(self.bytecode[self.pc]);
+                self.pc += 1;
+
+                // load value
+                try self.get_stack_to_reg(GPR64.rbp, 0);
+
+                // load buffer into the rax
+                try self.mov_from_struct_64(GPR64.rax, env_addr, @offsetOf(bc_interpret.Environment, "global"));
+                try self.set_reg_64(GPR64.rcx, @intCast(index));
+
+                try self.set_to_index64(Scale.scale8, GPR64.rax, GPR64.rcx, 0, GPR64.rbp);
             },
             bytecode.Instruction.call => {
                 try self.mov_reg_reg(GPR64.rdi, intepret_addr);
@@ -535,6 +584,12 @@ pub const JitCompiler = struct {
                 try self.set_reg_from_u32_bc(GPR64.rsi);
 
                 try self.call("create_object");
+            },
+            bytecode.Instruction.get_field => {
+                const index: u64 = @intCast(self.read_u32());
+                try self.mov_reg_reg(GPR64.rdi, intepret_addr);
+                try self.set_reg_64(GPR64.rsi, index);
+                try self.call("get_field");
             },
             else => {
                 std.debug.print("{}\n", .{inst});
@@ -683,11 +738,6 @@ pub const JitCompiler = struct {
         std.debug.assert(src != GPR64.rdi);
         std.debug.assert(src != GPR64.rsi);
         try self.vzeroupper();
-
-        if (DGB) {
-            try self.mov_reg_reg(GPR64.rdi, src);
-            try self.call("dbg");
-        }
 
         try self.mov_reg_reg(GPR64.rdi, stack_addr);
         // load len

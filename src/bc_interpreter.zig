@@ -527,19 +527,7 @@ pub const Interpreter = struct {
                 bc.Instruction.get_field => {
                     const field_idx = self.read_u32();
 
-                    // You will always set top afterwards
-                    const val = self.stack.top();
-                    if (val.get_type() != ValueType.object) {
-                        @panic("invalid object");
-                    }
-                    const object = val.get_ptr(bc.Object);
-                    const field: ?Value = self.get_field(object, bc.ConstantIndex.new(field_idx));
-
-                    if (field) |result| {
-                        self.stack.set_top(result);
-                    } else {
-                        @panic("non existant field");
-                    }
+                    do_get_field(self, bc.ConstantIndex.new(field_idx));
                 },
                 bc.Instruction.set_field => {
                     const field_idx = self.read_u32();
@@ -586,7 +574,7 @@ pub const Interpreter = struct {
                         self.curr_const = closure.constant_idx;
 
                         // header size of the closure
-                        self.pc = 4 + 1 + 4 + 4;
+                        self.pc = bc.Constant.function_header_size;
                     } else {
                         @panic("non existant field");
                     }
@@ -675,6 +663,7 @@ pub const Interpreter = struct {
             .alloc_stack = &alloc_stack,
             .create_closure = &create_closure,
             .create_object = &create_object,
+            .get_field = &do_get_field,
             .call = &do_call,
             .print = &do_print,
             .dbg = &dbg,
@@ -810,7 +799,27 @@ pub fn create_object(noalias self: *Interpreter, class_idx: bc.ConstantIndex) ca
     self.stack.set_top(Value.new_ptr(bc.Object, object, ValueType.object));
 }
 
-const DBG_VALUE: bool = false;
+pub fn do_get_field(noalias self: *Interpreter, string_idx: bc.ConstantIndex) callconv(.C) void {
+    const val = self.stack.top();
+    if (val.get_type() != ValueType.object) {
+        @panic("invalid object");
+    }
+    const object = val.get_ptr(bc.Object);
+    const field: ?Value = self.get_field(object, string_idx);
+
+    if (field) |result| {
+        self.stack.set_top(result);
+    } else {
+        @panic("non existant field");
+    }
+}
+
+pub fn set_field(self: *Interpreter, string_idx: bc.ConstantIndex) callconv(.C) void {
+    _ = string_idx; // autofix
+    _ = self; // autofix
+}
+
+const DBG_VALUE: bool = true;
 const DBG_RAW: bool = false;
 const DBG_INST: bool = true;
 
