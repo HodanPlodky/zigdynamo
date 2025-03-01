@@ -38,6 +38,7 @@ pub const JitState = extern struct {
     create_closure: *const fn (noalias *bc_interpret.Interpreter, u64, u64) callconv(.C) void,
     create_object: *const fn (noalias *bc_interpret.Interpreter, bytecode.ConstantIndex) callconv(.C) void,
     get_field: *const fn (noalias *bc_interpret.Interpreter, bytecode.ConstantIndex) callconv(.C) void,
+    set_field: *const fn (noalias *bc_interpret.Interpreter, bytecode.ConstantIndex) callconv(.C) void,
 
     // calls
     call: *const fn (noalias *bc_interpret.Interpreter, noalias *const JitState) callconv(.C) void,
@@ -590,6 +591,13 @@ pub const JitCompiler = struct {
                 try self.mov_reg_reg(GPR64.rdi, intepret_addr);
                 try self.set_reg_64(GPR64.rsi, index);
                 try self.call("get_field");
+            },
+            bytecode.Instruction.set_field => {
+                const index: u64 = @intCast(self.read_u32());
+                try self.mov_reg_reg(GPR64.rdi, intepret_addr);
+                try self.set_reg_64(GPR64.rsi, index);
+
+                try self.call("set_field");
             },
             else => {
                 std.debug.print("{}\n", .{inst});

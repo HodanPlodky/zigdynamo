@@ -531,20 +531,7 @@ pub const Interpreter = struct {
                 },
                 bc.Instruction.set_field => {
                     const field_idx = self.read_u32();
-                    const target = self.stack.pop();
-                    const val = self.stack.top();
-
-                    if (target.get_type() != ValueType.object) {
-                        @panic("cannot set into non object");
-                    }
-
-                    const object = target.get_ptr(bc.Object);
-                    const field_ptr: ?*Value = self.get_field_ptr(object, bc.ConstantIndex.new(field_idx));
-                    if (field_ptr) |field| {
-                        field.* = val;
-                    } else {
-                        @panic("non existant field");
-                    }
+                    do_set_field(self, bc.ConstantIndex.new(field_idx));
                 },
                 bc.Instruction.methodcall => {
                     const field_idx = self.read_u32();
@@ -664,6 +651,7 @@ pub const Interpreter = struct {
             .create_closure = &create_closure,
             .create_object = &create_object,
             .get_field = &do_get_field,
+            .set_field = &do_set_field,
             .call = &do_call,
             .print = &do_print,
             .dbg = &dbg,
@@ -814,9 +802,21 @@ pub fn do_get_field(noalias self: *Interpreter, string_idx: bc.ConstantIndex) ca
     }
 }
 
-pub fn set_field(self: *Interpreter, string_idx: bc.ConstantIndex) callconv(.C) void {
-    _ = string_idx; // autofix
-    _ = self; // autofix
+pub fn do_set_field(noalias self: *Interpreter, string_idx: bc.ConstantIndex) callconv(.C) void {
+    const target = self.stack.pop();
+    const val = self.stack.top();
+
+    if (target.get_type() != ValueType.object) {
+        @panic("cannot set into non object");
+    }
+
+    const object = target.get_ptr(bc.Object);
+    const field_ptr: ?*Value = self.get_field_ptr(object, string_idx);
+    if (field_ptr) |field| {
+        field.* = val;
+    } else {
+        @panic("non existant field");
+    }
 }
 
 const DBG_VALUE: bool = true;
