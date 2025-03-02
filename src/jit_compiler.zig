@@ -8,6 +8,7 @@ const DGB: bool = false;
 
 pub const JitError = error{
     CanOnlyCompileFn,
+    UnsupportedBcInstruction,
     OutOfMem,
 };
 
@@ -42,6 +43,7 @@ pub const JitState = extern struct {
 
     // calls
     call: *const fn (noalias *bc_interpret.Interpreter, noalias *const JitState) callconv(.C) void,
+    method_call: *const fn (noalias *bc_interpret.Interpreter, noalias *const JitState, bytecode.ConstantIndex) callconv(.C) void,
     print: *const fn (noalias *bc_interpret.Interpreter, arg_count: u64) callconv(.C) void,
 
     // debug
@@ -370,6 +372,54 @@ pub const JitCompiler = struct {
                     }
                 }.f);
             },
+            bytecode.Instruction.eq => {
+                try self.get_stack_to_reg(GPR64.r8, 0);
+                try self.get_stack_to_reg(GPR64.r9, 1);
+
+                // xor rsi, rsi
+                // technically this xor is not opcode r/m64 reg
+                // but opcode reg r/m64. However both are the same
+                try self.emit_basic_reg(0x33, GPR64.rsi, GPR64.rsi);
+                // cmp r8, r9
+                // same issue as xor but this time we only care
+                // about the equilaty so yeah does not matter
+                try self.emit_basic_reg(0x3b, GPR64.r9, GPR64.r8);
+                // sete sil (lower bytes of rsi)
+                // 40 0f 94 c6
+                const sete_slice: [4]u8 = .{ 0x40, 0x0f, 0x94, 0xc6 };
+                try self.emit_slice(sete_slice[0..]);
+                // add rsi, (false value - 8)
+                // 48 83 c6 08
+                const add_slice: [4]u8 = .{ 0x48, 0x83, 0xc6, @intFromEnum(runtime.ValueType.false) };
+                try self.emit_slice(add_slice[0..]);
+
+                try self.stack_pop();
+                try self.stack_set_top(GPR64.rsi);
+            },
+            bytecode.Instruction.ne => {
+                try self.get_stack_to_reg(GPR64.r8, 0);
+                try self.get_stack_to_reg(GPR64.r9, 1);
+
+                // xor rsi, rsi
+                // technically this xor is not opcode r/m64 reg
+                // but opcode reg r/m64. However both are the same
+                try self.emit_basic_reg(0x33, GPR64.rsi, GPR64.rsi);
+                // cmp r8, r9
+                // same issue as xor but this time we only care
+                // about the equilaty so yeah does not matter
+                try self.emit_basic_reg(0x3b, GPR64.r9, GPR64.r8);
+                // setne sil (lower bytes of rsi)
+                // 40 0f 95 c6
+                const sete_slice: [4]u8 = .{ 0x40, 0x0f, 0x94, 0xc6 };
+                try self.emit_slice(sete_slice[0..]);
+                // add rsi, (false value - 8)
+                // 48 83 c6 08
+                const add_slice: [4]u8 = .{ 0x48, 0x83, 0xc6, @intFromEnum(runtime.ValueType.false) };
+                try self.emit_slice(add_slice[0..]);
+
+                try self.stack_pop();
+                try self.stack_set_top(GPR64.rsi);
+            },
             bytecode.Instruction.jump => {
                 // opcode for jmp rel32
                 try self.emit_byte(0xe9);
@@ -599,9 +649,23 @@ pub const JitCompiler = struct {
 
                 try self.call("set_field");
             },
-            else => {
-                std.debug.print("{}\n", .{inst});
-                @panic("unimplemented");
+            bytecode.Instruction.methodcall => {
+                const index: u64 = @intCast(self.read_u32());
+                try self.mov_reg_reg(GPR64.rdi, intepret_addr);
+                try self.mov_reg_reg(GPR64.rsi, state_addr);
+                try self.set_reg_64(GPR64.rdx, index);
+
+                try self.call("method_call");
+            },
+            bytecode.Instruction.dup => {
+                try self.get_stack_to_reg(GPR64.rbp, 0);
+                try self.stack_push(GPR64.rbp);
+            },
+            bytecode.Instruction.ret_main => {
+                // only support jiting normal
+                // function but ret_main should only
+                // occur in main function
+                return JitError.UnsupportedBcInstruction;
             },
         }
     }

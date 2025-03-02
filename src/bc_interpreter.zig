@@ -535,36 +535,39 @@ pub const Interpreter = struct {
                 },
                 bc.Instruction.methodcall => {
                     const field_idx = self.read_u32();
-                    const target = self.stack.pop();
-                    if (target.get_type() != ValueType.object) {
-                        @panic("cannot call method on non object");
-                    }
+                    const jit_state = self.get_jit_state();
+                    do_method_call(self, &jit_state, bc.ConstantIndex.new(field_idx));
 
-                    const object = target.get_ptr(bc.Object);
-                    const field: ?runtime.Value = self.get_field(object, bc.ConstantIndex.new(field_idx));
-                    if (field) |item| {
-                        if (item.get_type() != runtime.ValueType.closure) {
-                            @panic("cannot call this object");
-                        }
-                        const closure = item.get_ptr(bc.Closure);
-                        const local_count = closure.local_count;
-                        const param_count = closure.param_count;
-                        const arg_slice = self.stack.slice_top(param_count);
-                        self.env.local.push_locals_this(target, arg_slice, local_count, @intCast(self.pc), self.curr_const);
-                        for (0..closure.env.count) |idx| {
-                            const index: u32 = @intCast(idx);
-                            const val = closure.env.get(closure.env.count - idx - 1);
-                            self.env.local.set(local_count - index - 1, val);
-                        }
-                        self.stack.pop_n(param_count);
-                        self.bytecode.set_curr_const(closure.constant_idx);
-                        self.curr_const = closure.constant_idx;
-
-                        // header size of the closure
-                        self.pc = bc.Constant.function_header_size;
-                    } else {
-                        @panic("non existant field");
-                    }
+                    //const target = self.stack.pop();
+                    //if (target.get_type() != ValueType.object) {
+                    //@panic("cannot call method on non object");
+                    //}
+                    //
+                    //const object = target.get_ptr(bc.Object);
+                    //const field: ?runtime.Value = self.get_field(object, bc.ConstantIndex.new(field_idx));
+                    //if (field) |item| {
+                    //if (item.get_type() != runtime.ValueType.closure) {
+                    //@panic("cannot call this object");
+                    //}
+                    //const closure = item.get_ptr(bc.Closure);
+                    //const local_count = closure.local_count;
+                    //const param_count = closure.param_count;
+                    //const arg_slice = self.stack.slice_top(param_count);
+                    //self.env.local.push_locals_this(target, arg_slice, local_count, @intCast(self.pc), self.curr_const);
+                    //for (0..closure.env.count) |idx| {
+                    //const index: u32 = @intCast(idx);
+                    //const val = closure.env.get(closure.env.count - idx - 1);
+                    //self.env.local.set(local_count - index - 1, val);
+                    //}
+                    //self.stack.pop_n(param_count);
+                    //self.bytecode.set_curr_const(closure.constant_idx);
+                    //self.curr_const = closure.constant_idx;
+                    //
+                    //// header size of the closure
+                    //self.pc = bc.Constant.function_header_size;
+                    //} else {
+                    //@panic("non existant field");
+                    //}
                 },
             }
         }
@@ -653,6 +656,7 @@ pub const Interpreter = struct {
             .get_field = &do_get_field,
             .set_field = &do_set_field,
             .call = &do_call,
+            .method_call = &do_method_call,
             .print = &do_print,
             .dbg = &dbg,
             .dbg_raw = &dbg_raw,
@@ -698,6 +702,26 @@ pub fn gc_alloc_closure(intepreter: *Interpreter, env_size: usize) callconv(.C) 
 
 pub fn do_call(noalias interpret: *Interpreter, noalias jit_state: *const jit.JitState) callconv(.C) void {
     const target = interpret.stack.pop();
+    do_value_call(interpret, null, jit_state, target);
+}
+
+pub fn do_method_call(noalias self: *Interpreter, noalias jit_state: *const jit.JitState, method_idx: bc.ConstantIndex) callconv(.C) void {
+    const target = self.stack.pop();
+    if (target.get_type() != ValueType.object) {
+        @panic("cannot call method on non object");
+    }
+
+    const object = target.get_ptr(bc.Object);
+    const field: ?runtime.Value = self.get_field(object, method_idx);
+    if (field) |item| {
+        //@call(.always_inline, do_value_call, .{ self, jit_state, item });
+        do_value_call(self, target, jit_state, item);
+    } else {
+        @panic("non existant field");
+    }
+}
+
+fn do_value_call(noalias interpret: *Interpreter, this: ?Value, noalias jit_state: *const jit.JitState, target: Value) void {
     if (target.get_type() != runtime.ValueType.closure) {
         std.debug.print("{}\n", .{target.get_type()});
         @panic("cannot call this object");
@@ -706,7 +730,11 @@ pub fn do_call(noalias interpret: *Interpreter, noalias jit_state: *const jit.Ji
     const local_count = closure.local_count;
     const param_count = closure.param_count;
     const arg_slice = interpret.stack.slice_top(param_count);
-    interpret.env.local.push_locals(arg_slice, local_count, @intCast(interpret.pc), interpret.curr_const);
+    if (this) |this_val| {
+        interpret.env.local.push_locals_this(this_val, arg_slice, local_count, @intCast(interpret.pc), interpret.curr_const);
+    } else {
+        interpret.env.local.push_locals(arg_slice, local_count, @intCast(interpret.pc), interpret.curr_const);
+    }
     for (0..closure.env.count) |idx| {
         const index: u32 = @intCast(idx);
         const val = closure.env.get(closure.env.count - idx - 1);
@@ -717,14 +745,6 @@ pub fn do_call(noalias interpret: *Interpreter, noalias jit_state: *const jit.Ji
     const function_constant = interpret.bytecode.get_constant(closure.constant_idx);
     const compiled = interpret.jit_compiler.compile_fn(function_constant) catch @panic("could not compile");
     compiled.run(jit_state);
-    //@call(.never_inline, jit.JitFunction.run, .{ &compiled, jit_state });
-    //compiled.run(self.get_jit_state());
-
-    //self.bytecode.set_curr_const(closure.constant_idx);
-    //self.curr_const = closure.constant_idx;
-
-    // header size of the closure
-    //self.pc = bc.Constant.function_header_size;
 }
 
 pub fn do_print(noalias interpret: *Interpreter, arg_count: u64) callconv(.C) void {
