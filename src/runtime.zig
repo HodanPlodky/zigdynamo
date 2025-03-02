@@ -209,12 +209,12 @@ pub const Value = packed struct {
 
     pub fn gt(left: Value, right: Value) Value {
         const tmp: u64 = @intFromBool(left.data > right.data);
-        return Value.new_raw(tmp + 5);
+        return Value.new_raw(tmp + @intFromEnum(ValueType.false));
     }
 
     pub fn lt(left: Value, right: Value) Value {
         const tmp: u64 = @intFromBool(left.data < right.data);
-        return Value.new_raw(tmp + 5);
+        return Value.new_raw(tmp + @intFromEnum(ValueType.false));
     }
 
     // either value or ptr compare

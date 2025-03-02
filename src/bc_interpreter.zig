@@ -385,7 +385,7 @@ pub const Interpreter = struct {
     pub fn run(self: *Interpreter) runtime.Value {
         while (true) {
             const inst = self.read_inst();
-            //std.debug.print("{}\n", .{inst});
+            std.debug.assert(self.stack.stack.items.len <= self.stack.stack.capacity);
             switch (inst) {
                 bc.Instruction.push => {
                     const num = self.read_u32();
