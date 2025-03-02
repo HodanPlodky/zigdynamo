@@ -410,7 +410,7 @@ pub const JitCompiler = struct {
                 try self.emit_basic_reg(0x3b, GPR64.r9, GPR64.r8);
                 // setne sil (lower bytes of rsi)
                 // 40 0f 95 c6
-                const sete_slice: [4]u8 = .{ 0x40, 0x0f, 0x94, 0xc6 };
+                const sete_slice: [4]u8 = .{ 0x40, 0x0f, 0x95, 0xc6 };
                 try self.emit_slice(sete_slice[0..]);
                 // add rsi, (false value - 8)
                 // 48 83 c6 08

@@ -378,7 +378,7 @@ pub const Interpreter = struct {
             .gc = GC.init(heap_data),
             .stack = Stack.init(alloc),
             .env = Environment.init(bytecode.global_count, alloc),
-            .jit_compiler = jit.JitCompiler.init(4096),
+            .jit_compiler = jit.JitCompiler.init(4096 * 1024),
         };
     }
 
@@ -537,37 +537,6 @@ pub const Interpreter = struct {
                     const field_idx = self.read_u32();
                     const jit_state = self.get_jit_state();
                     do_method_call(self, &jit_state, bc.ConstantIndex.new(field_idx));
-
-                    //const target = self.stack.pop();
-                    //if (target.get_type() != ValueType.object) {
-                    //@panic("cannot call method on non object");
-                    //}
-                    //
-                    //const object = target.get_ptr(bc.Object);
-                    //const field: ?runtime.Value = self.get_field(object, bc.ConstantIndex.new(field_idx));
-                    //if (field) |item| {
-                    //if (item.get_type() != runtime.ValueType.closure) {
-                    //@panic("cannot call this object");
-                    //}
-                    //const closure = item.get_ptr(bc.Closure);
-                    //const local_count = closure.local_count;
-                    //const param_count = closure.param_count;
-                    //const arg_slice = self.stack.slice_top(param_count);
-                    //self.env.local.push_locals_this(target, arg_slice, local_count, @intCast(self.pc), self.curr_const);
-                    //for (0..closure.env.count) |idx| {
-                    //const index: u32 = @intCast(idx);
-                    //const val = closure.env.get(closure.env.count - idx - 1);
-                    //self.env.local.set(local_count - index - 1, val);
-                    //}
-                    //self.stack.pop_n(param_count);
-                    //self.bytecode.set_curr_const(closure.constant_idx);
-                    //self.curr_const = closure.constant_idx;
-                    //
-                    //// header size of the closure
-                    //self.pc = bc.Constant.function_header_size;
-                    //} else {
-                    //@panic("non existant field");
-                    //}
                 },
             }
         }
