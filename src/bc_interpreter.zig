@@ -504,7 +504,13 @@ pub fn Interpreter(comptime use_jit: bool) type {
                     bc.Instruction.call => {
                         const jit_state = self.get_jit_state();
                         const target = self.stack.pop();
-                        self.do_value_call(null, &jit_state, target);
+
+                        // dont ask just trust lol
+                        if (use_jit) {
+                            self.do_value_call(null, &jit_state, target);
+                        } else {
+                            @call(.always_inline, Self.do_value_call, .{ self, null, &jit_state, target });
+                        }
                     },
                     bc.Instruction.print => {
                         const arg_count: u64 = @intCast(self.read_u32());
