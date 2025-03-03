@@ -810,42 +810,42 @@ pub const BcIntepreter = Interpreter(false);
 
 // JIT helper functions
 
-pub fn alloc_stack(stack: *Stack, new_len: usize) callconv(.C) void {
+fn alloc_stack(stack: *Stack, new_len: usize) callconv(.C) void {
     stack.stack.ensureTotalCapacity(new_len) catch unreachable;
 }
 
-pub fn get_local(env: *const Environment, idx: u32) callconv(.C) Value {
+fn get_local(env: *const Environment, idx: u32) callconv(.C) Value {
     return env.local.get(idx);
 }
 
-pub fn set_local(env: *Environment, idx: u32, value: Value) callconv(.C) void {
+fn set_local(env: *Environment, idx: u32, value: Value) callconv(.C) void {
     env.local.set(idx, value);
 }
 
-pub fn pop_locals(env: *Environment) callconv(.C) void {
+fn pop_locals(env: *Environment) callconv(.C) void {
     env.local.pop_locals();
 }
 
-pub fn push_locals(env: *Environment, args_ptr: u64, args_len: usize, local_count: u32) callconv(.C) void {
+fn push_locals(env: *Environment, args_ptr: u64, args_len: usize, local_count: u32) callconv(.C) void {
     const args_tmp: [*]Value = @ptrFromInt(args_ptr);
     const args = args_tmp[0..args_len];
     env.local.push_locals(args, local_count, 0, bc.ConstantIndex.new(0));
 }
 
-pub fn gc_alloc_object(intepreter: *JitIntepreter, field_count: usize) callconv(.C) *bc.Object {
+fn gc_alloc_object(intepreter: *JitIntepreter, field_count: usize) callconv(.C) *bc.Object {
     return intepreter.gc.alloc_with_additional(bc.Object, field_count, intepreter.get_roots());
 }
 
-pub fn gc_alloc_closure(intepreter: *JitIntepreter, env_size: usize) callconv(.C) *bc.Closure {
+fn gc_alloc_closure(intepreter: *JitIntepreter, env_size: usize) callconv(.C) *bc.Closure {
     return intepreter.gc.alloc_with_additional(bc.Closure, env_size, intepreter.get_roots());
 }
 
-pub fn do_call(noalias interpret: *JitIntepreter, noalias jit_state: *const jit.JitState) callconv(.C) void {
+fn do_call(noalias interpret: *JitIntepreter, noalias jit_state: *const jit.JitState) callconv(.C) void {
     const target = interpret.stack.pop();
     interpret.do_value_call(null, jit_state, target);
 }
 
-pub fn do_method_call_jit(
+fn do_method_call_jit(
     noalias self: *JitIntepreter,
     noalias jit_state: *const jit.JitState,
     method_idx: bc.ConstantIndex,
@@ -864,23 +864,23 @@ pub fn do_method_call_jit(
     }
 }
 
-pub fn do_jit_print(noalias interpret: *JitIntepreter, arg_count: u64) callconv(.C) void {
+fn do_jit_print(noalias interpret: *JitIntepreter, arg_count: u64) callconv(.C) void {
     interpret.do_print(arg_count);
 }
 
-pub fn create_closure(noalias self: *JitIntepreter, constant_idx: u64, unbound_count: u64) callconv(.C) void {
+fn create_closure(noalias self: *JitIntepreter, constant_idx: u64, unbound_count: u64) callconv(.C) void {
     self.do_closure(constant_idx, unbound_count);
 }
 
-pub fn create_object(noalias self: *JitIntepreter, class_idx: bc.ConstantIndex) callconv(.C) void {
+fn create_object(noalias self: *JitIntepreter, class_idx: bc.ConstantIndex) callconv(.C) void {
     self.do_object(class_idx);
 }
 
-pub fn do_get_field_jit(noalias self: *JitIntepreter, string_idx: bc.ConstantIndex) callconv(.C) void {
+fn do_get_field_jit(noalias self: *JitIntepreter, string_idx: bc.ConstantIndex) callconv(.C) void {
     self.do_get_field(string_idx);
 }
 
-pub fn do_set_field_jit(noalias self: *JitIntepreter, string_idx: bc.ConstantIndex) callconv(.C) void {
+fn do_set_field_jit(noalias self: *JitIntepreter, string_idx: bc.ConstantIndex) callconv(.C) void {
     self.do_set_field(string_idx);
 }
 
@@ -888,35 +888,35 @@ const DBG_VALUE: bool = true;
 const DBG_RAW: bool = false;
 const DBG_INST: bool = true;
 
-pub fn dbg(value: Value) callconv(.C) void {
+fn dbg(value: Value) callconv(.C) void {
     if (DBG_VALUE) {
         std.debug.print("VALUE {x} ", .{value.data});
         std.debug.print("{}\n", .{value});
     }
 }
 
-pub fn dbg_raw(val: u64) callconv(.C) void {
+fn dbg_raw(val: u64) callconv(.C) void {
     if (DBG_RAW) {
         std.debug.print("RAW {x}\n", .{val});
     }
 }
 
-pub fn dbg_inst(inst_val: u64) callconv(.C) void {
+fn dbg_inst(inst_val: u64) callconv(.C) void {
     if (DBG_INST) {
         const inst: bc.Instruction = @enumFromInt(inst_val);
         std.debug.print("INST: {}\n", .{inst});
     }
 }
 
-pub fn binop_panic(left: Value, right: Value) callconv(.C) void {
+fn binop_panic(left: Value, right: Value) callconv(.C) void {
     std.debug.print("left: {}, right: {}\n", .{ left, right });
     @panic("Unimplemented dispatch");
 }
 
-pub fn if_condition_panic() callconv(.C) void {
+fn if_condition_panic() callconv(.C) void {
     @panic("If condition must be boolean");
 }
 
-pub fn string_panic() callconv(.C) void {
+fn string_panic() callconv(.C) void {
     @panic("Incorrect string");
 }
