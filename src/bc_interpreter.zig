@@ -508,7 +508,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
                     },
                     bc.Instruction.print => {
                         const arg_count: u64 = @intCast(self.read_u32());
-                        @call(.always_inline, do_print, .{ self, arg_count });
+                        self.do_print(arg_count);
                     },
                     bc.Instruction.string => {
                         const idx = bc.ConstantIndex.new(self.read_u32());
@@ -657,6 +657,29 @@ pub fn Interpreter(comptime use_jit: bool) type {
             }
         }
 
+        fn do_print(self: *Self, arg_count: u64) void {
+            const arg_count_tmp: u32 = @intCast(arg_count);
+            const arg_slice = self.stack.slice_top(arg_count_tmp);
+            for (arg_slice) |val| {
+                switch (val.get_type()) {
+                    ValueType.string => {
+                        const idx = bc.ConstantIndex.new(val.get_idx());
+                        const string_const = self.bytecode.get_constant(idx);
+                        const tmp = string_const.get_slice()[5..];
+                        std.debug.print("{s} ", .{tmp});
+                    },
+                    ValueType.number => {
+                        const data = val.get_number();
+                        std.debug.print("{} ", .{data});
+                    },
+                    else => @panic("Cannot print"),
+                }
+            }
+            self.stack.pop_n(arg_count_tmp);
+            std.debug.print("\n", .{});
+            self.stack.push(Value.new_nil());
+        }
+
         fn read_inst(self: *Self) bc.Instruction {
             const res = self.bytecode.read_inst(self.pc);
             self.pc += 1;
@@ -696,7 +719,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
                     .set_field = &do_set_field,
                     .call = &do_call,
                     .method_call = &do_method_call,
-                    .print = &do_print,
+                    .print = &do_jit_print,
                     .dbg = &dbg,
                     .dbg_raw = &dbg_raw,
                     .dbg_inst = &dbg_inst,
@@ -767,27 +790,8 @@ pub fn do_method_call(noalias self: *JitIntepreter, noalias jit_state: *const ji
     }
 }
 
-pub fn do_print(noalias interpret: *JitIntepreter, arg_count: u64) callconv(.C) void {
-    const arg_count_tmp: u32 = @intCast(arg_count);
-    const arg_slice = interpret.stack.slice_top(arg_count_tmp);
-    for (arg_slice) |val| {
-        switch (val.get_type()) {
-            ValueType.string => {
-                const idx = bc.ConstantIndex.new(val.get_idx());
-                const string_const = interpret.bytecode.get_constant(idx);
-                const tmp = string_const.get_slice()[5..];
-                std.debug.print("{s} ", .{tmp});
-            },
-            ValueType.number => {
-                const data = val.get_number();
-                std.debug.print("{} ", .{data});
-            },
-            else => @panic("Cannot print"),
-        }
-    }
-    interpret.stack.pop_n(arg_count_tmp);
-    std.debug.print("\n", .{});
-    interpret.stack.push(Value.new_nil());
+pub fn do_jit_print(noalias interpret: *JitIntepreter, arg_count: u64) callconv(.C) void {
+    interpret.do_print(arg_count);
 }
 
 pub fn create_closure(noalias self: *JitIntepreter, constant_idx: u64, unbound_count: u64) callconv(.C) void {
