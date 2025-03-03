@@ -712,8 +712,22 @@ fn do_value_call(noalias interpret: *Interpreter, this: ?Value, noalias jit_stat
     interpret.stack.pop_n(param_count);
 
     const function_constant = interpret.bytecode.get_constant(closure.constant_idx);
-    const compiled = interpret.jit_compiler.compile_fn(function_constant) catch @panic("could not compile");
-    compiled.run(jit_state);
+    const compiled = interpret.jit_compiler.compile_fn(function_constant);
+    if (compiled) |jitted| {
+        jitted.run(jit_state);
+    } else |err| {
+        switch (err) {
+            jit.JitError.HeuristicNotMet => {},
+            jit.JitError.OutOfMem => {},
+            else => @panic("cannot compile"),
+        }
+
+        interpret.bytecode.set_curr_const(closure.constant_idx);
+        interpret.curr_const = closure.constant_idx;
+
+        // header size of the closure
+        interpret.pc = bc.Constant.function_header_size;
+    }
 }
 
 pub fn do_print(noalias interpret: *Interpreter, arg_count: u64) callconv(.C) void {

@@ -10,6 +10,7 @@ pub const JitError = error{
     CanOnlyCompileFn,
     UnsupportedBcInstruction,
     OutOfMem,
+    HeuristicNotMet,
 };
 
 pub const JitFunction = struct {
@@ -212,8 +213,16 @@ pub const JitCompiler = struct {
 
         const jit_offset = bytecode.Constant.function_header_size - 4;
         const jit_state: u32 = function.get_u32(@intCast(jit_offset));
-        if (jit_state != 0) {
+        if ((jit_state & 0xfffffff0) != 0) {
             return JitFunction{ .code = @ptrCast(&self.code_slice[jit_state]) };
+        }
+        var counter: u8 = @intCast(jit_state & 0x0f);
+
+        // this heuristic is purely chosen by vibe
+        if (counter < 5) {
+            counter += 1;
+            function.data[jit_offset + 3] = counter;
+            return JitError.HeuristicNotMet;
         }
 
         _ = std.os.linux.mprotect(self.code_slice.ptr, self.code_slice.len, std.os.linux.PROT.WRITE | std.os.linux.PROT.READ);
