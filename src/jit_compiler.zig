@@ -28,7 +28,7 @@ pub const JitFunction = struct {
 /// fields and jit code needs different set of fields
 /// then the bytecode interpreter
 pub const JitState = extern struct {
-    intepreter: *const bc_interpret.Interpreter,
+    intepreter: *const bc_interpret.JitIntepreter,
     stack: *const bc_interpret.Stack,
     env: *const bc_interpret.Environment,
     gc: *const bc_interpret.GC,
@@ -37,15 +37,15 @@ pub const JitState = extern struct {
     alloc_stack: *const fn (*bc_interpret.Stack, usize) callconv(.C) void,
 
     // objects handle
-    create_closure: *const fn (noalias *bc_interpret.Interpreter, u64, u64) callconv(.C) void,
-    create_object: *const fn (noalias *bc_interpret.Interpreter, bytecode.ConstantIndex) callconv(.C) void,
-    get_field: *const fn (noalias *bc_interpret.Interpreter, bytecode.ConstantIndex) callconv(.C) void,
-    set_field: *const fn (noalias *bc_interpret.Interpreter, bytecode.ConstantIndex) callconv(.C) void,
+    create_closure: *const fn (noalias *bc_interpret.JitIntepreter, u64, u64) callconv(.C) void,
+    create_object: *const fn (noalias *bc_interpret.JitIntepreter, bytecode.ConstantIndex) callconv(.C) void,
+    get_field: *const fn (noalias *bc_interpret.JitIntepreter, bytecode.ConstantIndex) callconv(.C) void,
+    set_field: *const fn (noalias *bc_interpret.JitIntepreter, bytecode.ConstantIndex) callconv(.C) void,
 
     // calls
-    call: *const fn (noalias *bc_interpret.Interpreter, noalias *const JitState) callconv(.C) void,
-    method_call: *const fn (noalias *bc_interpret.Interpreter, noalias *const JitState, bytecode.ConstantIndex) callconv(.C) void,
-    print: *const fn (noalias *bc_interpret.Interpreter, arg_count: u64) callconv(.C) void,
+    call: *const fn (noalias *bc_interpret.JitIntepreter, noalias *const JitState) callconv(.C) void,
+    method_call: *const fn (noalias *bc_interpret.JitIntepreter, noalias *const JitState, bytecode.ConstantIndex) callconv(.C) void,
+    print: *const fn (noalias *bc_interpret.JitIntepreter, arg_count: u64) callconv(.C) void,
 
     // debug
     dbg: *const fn (runtime.Value) callconv(.C) void,
@@ -609,7 +609,7 @@ pub const JitCompiler = struct {
                 try self.mov_from_struct_64(
                     GPR64.rax,
                     intepret_addr,
-                    @offsetOf(bc_interpret.Interpreter, "bytecode") + @offsetOf(bytecode.Bytecode, "constants"),
+                    @offsetOf(bc_interpret.JitIntepreter, "bytecode") + @offsetOf(bytecode.Bytecode, "constants"),
                 );
 
                 // load constant
