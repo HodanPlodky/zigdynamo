@@ -520,21 +520,21 @@ pub fn Interpreter(comptime use_jit: bool) type {
                     },
                     bc.Instruction.object => {
                         const class_idx = bc.ConstantIndex.new(self.read_u32());
-                        @call(.always_inline, create_object, .{ self, class_idx });
+                        self.do_object(class_idx);
                     },
                     bc.Instruction.get_field => {
                         const field_idx = self.read_u32();
 
-                        do_get_field(self, bc.ConstantIndex.new(field_idx));
+                        self.do_get_field(bc.ConstantIndex.new(field_idx));
                     },
                     bc.Instruction.set_field => {
                         const field_idx = self.read_u32();
-                        do_set_field(self, bc.ConstantIndex.new(field_idx));
+                        self.do_set_field(bc.ConstantIndex.new(field_idx));
                     },
                     bc.Instruction.methodcall => {
                         const field_idx = self.read_u32();
                         const jit_state = self.get_jit_state();
-                        do_method_call(self, &jit_state, bc.ConstantIndex.new(field_idx));
+                        self.do_method_call(&jit_state, bc.ConstantIndex.new(field_idx));
                     },
                 }
             }
@@ -604,6 +604,25 @@ pub fn Interpreter(comptime use_jit: bool) type {
             self.stack.push(val);
         }
 
+        fn do_object(self: *Self, class_idx: bc.ConstantIndex) void {
+            const class_constant = self.bytecode.get_constant(class_idx);
+            if (class_constant.get_type() != bc.ConstantType.class) {
+                @panic("invalid object class");
+            }
+            const field_count = class_constant.get_class_field_count();
+            const values = self.stack.slice_top(field_count);
+            const object = self.gc.alloc_with_additional(bc.Object, field_count, self.get_roots());
+            self.stack.pop_n(field_count);
+            object.values.count = field_count;
+            for (values, 0..) |val, idx| {
+                object.values.set(idx, val);
+            }
+            object.class_idx = class_idx;
+            const proto = self.stack.top();
+            object.prototype = proto;
+            self.stack.set_top(Value.new_ptr(bc.Object, object, ValueType.object));
+        }
+
         fn do_value_call(
             self: *Self,
             this: ?Value,
@@ -657,6 +676,25 @@ pub fn Interpreter(comptime use_jit: bool) type {
             }
         }
 
+        fn do_method_call(
+            self: *Self,
+            jit_state: *const jit.JitState,
+            method_idx: bc.ConstantIndex,
+        ) void {
+            const target = self.stack.pop();
+            if (target.get_type() != ValueType.object) {
+                @panic("cannot call method on non object");
+            }
+
+            const object = target.get_ptr(bc.Object);
+            const field: ?runtime.Value = self.get_field(object, method_idx);
+            if (field) |item| {
+                self.do_value_call(target, jit_state, item);
+            } else {
+                @panic("non existant field");
+            }
+        }
+
         fn do_print(self: *Self, arg_count: u64) void {
             const arg_count_tmp: u32 = @intCast(arg_count);
             const arg_slice = self.stack.slice_top(arg_count_tmp);
@@ -678,6 +716,38 @@ pub fn Interpreter(comptime use_jit: bool) type {
             self.stack.pop_n(arg_count_tmp);
             std.debug.print("\n", .{});
             self.stack.push(Value.new_nil());
+        }
+
+        fn do_get_field(self: *Self, string_idx: bc.ConstantIndex) void {
+            const val = self.stack.top();
+            if (val.get_type() != ValueType.object) {
+                @panic("invalid object");
+            }
+            const object = val.get_ptr(bc.Object);
+            const field: ?Value = self.get_field(object, string_idx);
+
+            if (field) |result| {
+                self.stack.set_top(result);
+            } else {
+                @panic("non existant field");
+            }
+        }
+
+        fn do_set_field(self: *Self, string_idx: bc.ConstantIndex) void {
+            const target = self.stack.pop();
+            const val = self.stack.top();
+
+            if (target.get_type() != ValueType.object) {
+                @panic("cannot set into non object");
+            }
+
+            const object = target.get_ptr(bc.Object);
+            const field_ptr: ?*Value = self.get_field_ptr(object, string_idx);
+            if (field_ptr) |field| {
+                field.* = val;
+            } else {
+                @panic("non existant field");
+            }
         }
 
         fn read_inst(self: *Self) bc.Instruction {
@@ -715,10 +785,10 @@ pub fn Interpreter(comptime use_jit: bool) type {
                     .alloc_stack = &alloc_stack,
                     .create_closure = &create_closure,
                     .create_object = &create_object,
-                    .get_field = &do_get_field,
-                    .set_field = &do_set_field,
+                    .get_field = &do_get_field_jit,
+                    .set_field = &do_set_field_jit,
                     .call = &do_call,
-                    .method_call = &do_method_call,
+                    .method_call = &do_method_call_jit,
                     .print = &do_jit_print,
                     .dbg = &dbg,
                     .dbg_raw = &dbg_raw,
@@ -775,7 +845,11 @@ pub fn do_call(noalias interpret: *JitIntepreter, noalias jit_state: *const jit.
     interpret.do_value_call(null, jit_state, target);
 }
 
-pub fn do_method_call(noalias self: *JitIntepreter, noalias jit_state: *const jit.JitState, method_idx: bc.ConstantIndex) callconv(.C) void {
+pub fn do_method_call_jit(
+    noalias self: *JitIntepreter,
+    noalias jit_state: *const jit.JitState,
+    method_idx: bc.ConstantIndex,
+) callconv(.C) void {
     const target = self.stack.pop();
     if (target.get_type() != ValueType.object) {
         @panic("cannot call method on non object");
@@ -799,54 +873,15 @@ pub fn create_closure(noalias self: *JitIntepreter, constant_idx: u64, unbound_c
 }
 
 pub fn create_object(noalias self: *JitIntepreter, class_idx: bc.ConstantIndex) callconv(.C) void {
-    const class_constant = self.bytecode.get_constant(class_idx);
-    if (class_constant.get_type() != bc.ConstantType.class) {
-        @panic("invalid object class");
-    }
-    const field_count = class_constant.get_class_field_count();
-    const values = self.stack.slice_top(field_count);
-    const object = self.gc.alloc_with_additional(bc.Object, field_count, self.get_roots());
-    self.stack.pop_n(field_count);
-    object.values.count = field_count;
-    for (values, 0..) |val, idx| {
-        object.values.set(idx, val);
-    }
-    object.class_idx = class_idx;
-    const proto = self.stack.top();
-    object.prototype = proto;
-    self.stack.set_top(Value.new_ptr(bc.Object, object, ValueType.object));
+    self.do_object(class_idx);
 }
 
-pub fn do_get_field(noalias self: *JitIntepreter, string_idx: bc.ConstantIndex) callconv(.C) void {
-    const val = self.stack.top();
-    if (val.get_type() != ValueType.object) {
-        @panic("invalid object");
-    }
-    const object = val.get_ptr(bc.Object);
-    const field: ?Value = self.get_field(object, string_idx);
-
-    if (field) |result| {
-        self.stack.set_top(result);
-    } else {
-        @panic("non existant field");
-    }
+pub fn do_get_field_jit(noalias self: *JitIntepreter, string_idx: bc.ConstantIndex) callconv(.C) void {
+    self.do_get_field(string_idx);
 }
 
-pub fn do_set_field(noalias self: *JitIntepreter, string_idx: bc.ConstantIndex) callconv(.C) void {
-    const target = self.stack.pop();
-    const val = self.stack.top();
-
-    if (target.get_type() != ValueType.object) {
-        @panic("cannot set into non object");
-    }
-
-    const object = target.get_ptr(bc.Object);
-    const field_ptr: ?*Value = self.get_field_ptr(object, string_idx);
-    if (field_ptr) |field| {
-        field.* = val;
-    } else {
-        @panic("non existant field");
-    }
+pub fn do_set_field_jit(noalias self: *JitIntepreter, string_idx: bc.ConstantIndex) callconv(.C) void {
+    self.do_set_field(string_idx);
 }
 
 const DBG_VALUE: bool = true;
