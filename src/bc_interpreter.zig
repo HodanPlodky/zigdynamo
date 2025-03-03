@@ -13,7 +13,6 @@ const Roots = struct {
 
 /// Garbage collection
 /// implemeted via copying semispaces
-/// size : 48
 pub const GC = struct {
     from: runtime.Heap,
     to: runtime.Heap,
@@ -183,9 +182,8 @@ pub const GC = struct {
     }
 };
 
-// size: 40
 pub const Stack = struct {
-    stack: std.ArrayList(runtime.Value), // 40?
+    stack: std.ArrayList(runtime.Value),
 
     pub fn init(alloc: std.mem.Allocator) Stack {
         return Stack{
@@ -224,12 +222,11 @@ pub const Stack = struct {
     }
 };
 
-/// size: 60 + 4
 pub const LocalEnv = struct {
     // [locals] [old fp] [ret]
-    buffer: std.ArrayList(Value), // 40
-    alloc: std.mem.Allocator, // 16
-    current_ptr: u32, // 4
+    buffer: std.ArrayList(Value),
+    alloc: std.mem.Allocator,
+    current_ptr: u32,
 
     const FrameHelper = struct {
         frame: []Value,
@@ -331,10 +328,9 @@ pub const LocalEnv = struct {
     }
 };
 
-/// size: 76
 pub const Environment = struct {
-    global: []Value, // 16
-    local: LocalEnv, // 60
+    global: []Value,
+    local: LocalEnv,
 
     pub fn init(global_count: usize, alloc: std.mem.Allocator) Environment {
         const res = Environment{
@@ -360,14 +356,13 @@ pub const Environment = struct {
     }
 };
 
-/// size: 136 (0x88)
 pub const Interpreter = struct {
-    bytecode: bc.Bytecode, // 32
-    pc: usize, // 8
-    curr_const: bc.ConstantIndex, // 4 + 4
-    gc: GC, // 48
-    stack: Stack, // 40
-    env: Environment, // 76
+    bytecode: bc.Bytecode,
+    pc: usize,
+    curr_const: bc.ConstantIndex,
+    gc: GC,
+    stack: Stack,
+    env: Environment,
     jit_compiler: jit.JitCompiler,
 
     pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8) Interpreter {

@@ -320,11 +320,10 @@ pub const Object = packed struct {
     }
 };
 
-/// size : 32
 pub const Bytecode = struct {
-    constants: []Constant, // 2 * 8
-    current: Constant, // 8
-    global_count: usize, // 8
+    constants: []Constant,
+    current: Constant,
+    global_count: usize,
 
     pub fn read_inst(self: *const Bytecode, pc: usize) Instruction {
         return @enumFromInt(self.current.data[pc]);
