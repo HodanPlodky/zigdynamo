@@ -504,7 +504,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
                     bc.Instruction.call => {
                         const jit_state = self.get_jit_state();
                         const target = self.stack.pop();
-                        do_value_call(self, null, jit_state, target, use_jit);
+                        self.do_value_call(null, &jit_state, target);
                     },
                     bc.Instruction.print => {
                         const arg_count: u64 = @intCast(self.read_u32());
@@ -604,6 +604,59 @@ pub fn Interpreter(comptime use_jit: bool) type {
             self.stack.push(val);
         }
 
+        fn do_value_call(
+            self: *Self,
+            this: ?Value,
+            jit_state: *const jit.JitState,
+            target: Value,
+        ) void {
+            if (target.get_type() != runtime.ValueType.closure) {
+                std.debug.print("{}\n", .{target.get_type()});
+                @panic("cannot call this object");
+            }
+            const closure = target.get_ptr(bc.Closure);
+            const local_count = closure.local_count;
+            const param_count = closure.param_count;
+            const arg_slice = self.stack.slice_top(param_count);
+            if (this) |this_val| {
+                self.env.local.push_locals_this(this_val, arg_slice, local_count, @intCast(self.pc), self.curr_const);
+            } else {
+                self.env.local.push_locals(arg_slice, local_count, @intCast(self.pc), self.curr_const);
+            }
+            for (0..closure.env.count) |idx| {
+                const index: u32 = @intCast(idx);
+                const val = closure.env.get(closure.env.count - idx - 1);
+                self.env.local.set(local_count - index - 1, val);
+            }
+            self.stack.pop_n(param_count);
+
+            if (use_jit) {
+                const function_constant = self.bytecode.get_constant(closure.constant_idx);
+                const compiled = self.jit_compiler.compile_fn(function_constant);
+                if (compiled) |jitted| {
+                    jitted.run(jit_state);
+                } else |err| {
+                    switch (err) {
+                        jit.JitError.HeuristicNotMet => {},
+                        jit.JitError.OutOfMem => {},
+                        else => @panic("cannot compile"),
+                    }
+
+                    self.bytecode.set_curr_const(closure.constant_idx);
+                    self.curr_const = closure.constant_idx;
+
+                    // header size of the closure
+                    self.pc = bc.Constant.function_header_size;
+                }
+            } else {
+                self.bytecode.set_curr_const(closure.constant_idx);
+                self.curr_const = closure.constant_idx;
+
+                // header size of the closure
+                self.pc = bc.Constant.function_header_size;
+            }
+        }
+
         fn read_inst(self: *Self) bc.Instruction {
             const res = self.bytecode.read_inst(self.pc);
             self.pc += 1;
@@ -696,7 +749,7 @@ pub fn gc_alloc_closure(intepreter: *JitIntepreter, env_size: usize) callconv(.C
 
 pub fn do_call(noalias interpret: *JitIntepreter, noalias jit_state: *const jit.JitState) callconv(.C) void {
     const target = interpret.stack.pop();
-    do_value_call(interpret, null, jit_state, target, true);
+    interpret.do_value_call(null, jit_state, target);
 }
 
 pub fn do_method_call(noalias self: *JitIntepreter, noalias jit_state: *const jit.JitState, method_idx: bc.ConstantIndex) callconv(.C) void {
@@ -708,64 +761,9 @@ pub fn do_method_call(noalias self: *JitIntepreter, noalias jit_state: *const ji
     const object = target.get_ptr(bc.Object);
     const field: ?runtime.Value = self.get_field(object, method_idx);
     if (field) |item| {
-        //@call(.always_inline, do_value_call, .{ self, jit_state, item });
-        do_value_call(self, target, jit_state, item, true);
+        self.do_value_call(target, jit_state, item);
     } else {
         @panic("non existant field");
-    }
-}
-
-fn do_value_call(
-    noalias interpret: *JitIntepreter,
-    this: ?Value,
-    noalias jit_state: *const jit.JitState,
-    target: Value,
-    comptime use_jit: bool,
-) void {
-    if (target.get_type() != runtime.ValueType.closure) {
-        std.debug.print("{}\n", .{target.get_type()});
-        @panic("cannot call this object");
-    }
-    const closure = target.get_ptr(bc.Closure);
-    const local_count = closure.local_count;
-    const param_count = closure.param_count;
-    const arg_slice = interpret.stack.slice_top(param_count);
-    if (this) |this_val| {
-        interpret.env.local.push_locals_this(this_val, arg_slice, local_count, @intCast(interpret.pc), interpret.curr_const);
-    } else {
-        interpret.env.local.push_locals(arg_slice, local_count, @intCast(interpret.pc), interpret.curr_const);
-    }
-    for (0..closure.env.count) |idx| {
-        const index: u32 = @intCast(idx);
-        const val = closure.env.get(closure.env.count - idx - 1);
-        interpret.env.local.set(local_count - index - 1, val);
-    }
-    interpret.stack.pop_n(param_count);
-
-    if (use_jit) {
-        const function_constant = interpret.bytecode.get_constant(closure.constant_idx);
-        const compiled = interpret.jit_compiler.compile_fn(function_constant);
-        if (compiled) |jitted| {
-            jitted.run(jit_state);
-        } else |err| {
-            switch (err) {
-                jit.JitError.HeuristicNotMet => {},
-                jit.JitError.OutOfMem => {},
-                else => @panic("cannot compile"),
-            }
-
-            interpret.bytecode.set_curr_const(closure.constant_idx);
-            interpret.curr_const = closure.constant_idx;
-
-            // header size of the closure
-            interpret.pc = bc.Constant.function_header_size;
-        }
-    } else {
-        interpret.bytecode.set_curr_const(closure.constant_idx);
-        interpret.curr_const = closure.constant_idx;
-
-        // header size of the closure
-        interpret.pc = bc.Constant.function_header_size;
     }
 }
 
