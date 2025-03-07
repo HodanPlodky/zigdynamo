@@ -1,2 +1,2 @@
-let f = fn() = nil + 1;
+let f = fn() = "a" + 1;
 f();
