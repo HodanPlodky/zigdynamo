@@ -90,7 +90,6 @@ pub const Instruction = enum(u8) {
             Instruction.eq => "eq",
             Instruction.ne => "ne",
             Instruction.call => "call",
-            //Instruction.static_call => "static_call",
             Instruction.print => "print",
             Instruction.methodcall => "methodcall",
             Instruction.ret => "ret",
@@ -156,7 +155,14 @@ pub const ConstantType = enum(u8) {
 };
 
 pub const Constant = struct {
-    data: [*]const u8,
+    /// this is length of function header
+    ///
+    /// Header
+    /// len (4 bytes) | type (byte) | locals count (4 bytes)| param count (4 bytes) | jit offset (4 bytes) | instructions...
+    /// if the jit offset is zero then you can assume that the
+    /// function is not jitted and still in bytecode
+    pub const function_header_size: usize = 4 + 1 + 4 + 4 + 4;
+    data: [*]u8,
 
     pub fn new(data: [*]u8) Constant {
         return Constant{ .data = data };
@@ -166,6 +172,9 @@ pub const Constant = struct {
         return @ptrCast(&self.data[4]);
     }
 
+    /// returns the number of bytes in constant
+    /// excluding the bytes used to store the len
+    /// it self (4 bytes)
     pub fn get_size(self: *const Constant) usize {
         var res: usize = 0;
         res |= @intCast(self.data[0]);
@@ -245,7 +254,7 @@ pub const Constant = struct {
         writer: anytype,
     ) !void {
         var i: usize = switch (self.get_type()) {
-            ConstantType.function => 13,
+            ConstantType.function => Constant.function_header_size,
             ConstantType.main_function => 5,
             else => 0,
         };

@@ -68,15 +68,15 @@ pub fn FlexibleArr(comptime T: type) type {
     };
 }
 
-pub const ValueType = enum(u3) {
+pub const ValueType = enum(u4) {
     number = 0,
     nil = 1,
     closure = 2,
     object = 3,
     array = 4,
-    false = 5,
-    true = 6,
     string = 7,
+    false = 8,
+    true = 9, // this is because of better checking
 };
 
 // this will assume 64bit size of the pointer
@@ -144,7 +144,8 @@ pub const Value = packed struct {
     }
 
     pub fn get_type(self: Value) ValueType {
-        return @enumFromInt(self.data & 0x7);
+        //std.debug.print("{x}\n", .{self.data});
+        return @enumFromInt(self.data & 0xf);
     }
 
     pub fn is_ptr(self: Value) bool {
@@ -167,18 +168,18 @@ pub const Value = packed struct {
 
     // uncheck if it is even pointer
     pub fn get_ptr(self: Value, comptime T: type) *T {
-        const ptr: *T = @ptrFromInt(self.data & (0xfffffffffffffff8));
+        const ptr: *T = @ptrFromInt(self.data & (0xfffffffffffffff0));
         return ptr;
     }
 
     pub fn get_ptr_raw(self: Value) [*]u8 {
-        const ptr: [*]u8 = @ptrFromInt(self.data & (0xfffffffffffffff8));
+        const ptr: [*]u8 = @ptrFromInt(self.data & (0xfffffffffffffff0));
         return ptr;
     }
 
     // assumes this is ptr
     pub fn rewrite_ptr(self: Value, ptr: usize) Value {
-        const data = ptr | (self.data & 0x7);
+        const data = ptr | (self.data & 0xf);
         return Value.new_raw(data);
     }
 
@@ -207,12 +208,12 @@ pub const Value = packed struct {
 
     pub fn gt(left: Value, right: Value) Value {
         const tmp: u64 = @intFromBool(left.data > right.data);
-        return Value.new_raw(tmp + 5);
+        return Value.new_raw(tmp + @intFromEnum(ValueType.false));
     }
 
     pub fn lt(left: Value, right: Value) Value {
         const tmp: u64 = @intFromBool(left.data < right.data);
-        return Value.new_raw(tmp + 5);
+        return Value.new_raw(tmp + @intFromEnum(ValueType.false));
     }
 
     // either value or ptr compare

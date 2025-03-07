@@ -1,0 +1,2 @@
+let f = fn(x) = if (x < 255) f(x + 1) + f(x + 1) else x;
+f(1);

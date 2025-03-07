@@ -1,0 +1,11 @@
+let say_one = fn() = print("hello");
+
+let do_it_more = fn() = {
+    let n = 0;
+    while (n < 10) {
+        n = n + 1;
+        say_one();
+    };
+};
+
+do_it_more();

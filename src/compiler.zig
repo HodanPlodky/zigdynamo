@@ -340,6 +340,8 @@ const Compiler = struct {
         // local count padding
         function_constant.add_u32(0);
         function_constant.add_u32(@intCast(function.params.len));
+        // jit offset set to 0 which is always panic handler
+        function_constant.add_u32(0);
         var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
         self.env.push();
         if (method) {
@@ -897,13 +899,13 @@ test "object 3 compiler" {
         \\string (6 bytes)
         \\string: f
         \\
-        \\function (29 bytes)
-        \\	13: get_small 0
-        \\	15: get_field 0 0 0 1
-        \\	20: get_small 1
-        \\	22: add
-        \\	23: print 0 0 0 1
-        \\	28: ret
+        \\function (33 bytes)
+        \\	17: get_small 0
+        \\	19: get_field 0 0 0 1
+        \\	24: get_small 1
+        \\	26: add
+        \\	27: print 0 0 0 1
+        \\	32: ret
         \\
         \\class (17 bytes)
         \\class: 1 2 4

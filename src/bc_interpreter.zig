@@ -1,6 +1,7 @@
 const std = @import("std");
 const runtime = @import("runtime.zig");
 const bc = @import("bytecode.zig");
+const jit = @import("jit_compiler.zig");
 
 const Value = runtime.Value;
 const ValueType = runtime.ValueType;
@@ -12,7 +13,7 @@ const Roots = struct {
 
 /// Garbage collection
 /// implemeted via copying semispaces
-const GC = struct {
+pub const GC = struct {
     from: runtime.Heap,
     to: runtime.Heap,
 
@@ -181,7 +182,7 @@ const GC = struct {
     }
 };
 
-const Stack = struct {
+pub const Stack = struct {
     stack: std.ArrayList(runtime.Value),
 
     pub fn init(alloc: std.mem.Allocator) Stack {
@@ -221,7 +222,7 @@ const Stack = struct {
     }
 };
 
-const LocalEnv = struct {
+pub const LocalEnv = struct {
     // [locals] [old fp] [ret]
     buffer: std.ArrayList(Value),
     alloc: std.mem.Allocator,
@@ -327,7 +328,7 @@ const LocalEnv = struct {
     }
 };
 
-const Environment = struct {
+pub const Environment = struct {
     global: []Value,
     local: LocalEnv,
 
@@ -355,368 +356,573 @@ const Environment = struct {
     }
 };
 
-pub const Interpreter = struct {
-    bytecode: bc.Bytecode,
-    pc: usize,
-    curr_const: bc.ConstantIndex,
-    gc: GC,
-    stack: Stack,
-    env: Environment,
+pub fn Interpreter(comptime use_jit: bool) type {
+    return struct {
+        const Self = @This();
+        bytecode: bc.Bytecode,
+        pc: usize,
+        curr_const: bc.ConstantIndex,
+        gc: GC,
+        stack: Stack,
+        env: Environment,
+        jit_compiler: jit.JitCompiler,
 
-    pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8) Interpreter {
-        return Interpreter{
-            .bytecode = bytecode,
-            .pc = 5,
-            .curr_const = bc.ConstantIndex.new(0),
-            .gc = GC.init(heap_data),
-            .stack = Stack.init(alloc),
-            .env = Environment.init(bytecode.global_count, alloc),
-        };
-    }
+        pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8) Self {
+            return Self{
+                .bytecode = bytecode,
+                .pc = 5,
+                .curr_const = bc.ConstantIndex.new(0),
+                .gc = GC.init(heap_data),
+                .stack = Stack.init(alloc),
+                .env = Environment.init(bytecode.global_count, alloc),
+                .jit_compiler = jit.JitCompiler.init(4096 * 1024),
+            };
+        }
 
-    pub fn run(self: *Interpreter) runtime.Value {
-        while (true) {
-            const inst = self.read_inst();
-            //std.debug.print("{}\n", .{inst});
-            switch (inst) {
-                bc.Instruction.push => {
-                    const num = self.read_u32();
-                    const val = Value.new_num(num);
-                    self.stack.push(val);
-                },
-                bc.Instruction.push_byte => {
-                    const num = self.read_u8();
-                    const val = Value.new_num(@intCast(num));
-                    self.stack.push(val);
-                },
-                bc.Instruction.pop => {
-                    _ = self.stack.pop();
-                },
-                bc.Instruction.dup => {
-                    self.stack.push(self.stack.top());
-                },
-                bc.Instruction.true => {
-                    const val = Value.new_true();
-                    self.stack.push(val);
-                },
-                bc.Instruction.false => {
-                    const val = Value.new_false();
-                    self.stack.push(val);
-                },
-                bc.Instruction.nil => {
-                    const val = Value.new_nil();
-                    self.stack.push(val);
-                },
+        pub fn run(self: *Self) runtime.Value {
+            while (true) {
+                const inst = self.read_inst();
+                std.debug.assert(self.stack.stack.items.len <= self.stack.stack.capacity);
+                switch (inst) {
+                    bc.Instruction.push => {
+                        const num = self.read_u32();
+                        const val = Value.new_num(num);
+                        self.stack.push(val);
+                    },
+                    bc.Instruction.push_byte => {
+                        const num = self.read_u8();
+                        const val = Value.new_num(@intCast(num));
+                        self.stack.push(val);
+                    },
+                    bc.Instruction.pop => {
+                        _ = self.stack.pop();
+                    },
+                    bc.Instruction.dup => {
+                        self.stack.push(self.stack.top());
+                    },
+                    bc.Instruction.true => {
+                        const val = Value.new_true();
+                        self.stack.push(val);
+                    },
+                    bc.Instruction.false => {
+                        const val = Value.new_false();
+                        self.stack.push(val);
+                    },
+                    bc.Instruction.nil => {
+                        const val = Value.new_nil();
+                        self.stack.push(val);
+                    },
 
-                // should not create call
-                bc.Instruction.add => self.handle_binop(Value.add),
-                bc.Instruction.sub => self.handle_binop(Value.sub),
-                bc.Instruction.mul => self.handle_binop(Value.mul),
-                bc.Instruction.div => self.handle_binop(Value.div),
-                bc.Instruction.gt => self.handle_binop(Value.gt),
-                bc.Instruction.lt => self.handle_binop(Value.lt),
-                bc.Instruction.eq => {
-                    const right = self.stack.pop();
-                    const left = self.stack.top();
-                    self.stack.set_top(Value.eq(left, right));
-                },
-                bc.Instruction.ne => {
-                    const right = self.stack.pop();
-                    const left = self.stack.top();
-                    self.stack.set_top(Value.ne(left, right));
-                },
-                bc.Instruction.ret => {
-                    const restore_data = self.env.local.get_ret();
-                    self.pc = restore_data.ret_pc;
-                    self.curr_const = restore_data.ret_const;
-                    self.bytecode.set_curr_const(restore_data.ret_const);
-                    self.env.local.pop_locals();
-                },
-                bc.Instruction.ret_main => {
-                    return self.stack.top();
-                },
+                    // should not create call
+                    bc.Instruction.add => self.handle_binop(Value.add),
+                    bc.Instruction.sub => self.handle_binop(Value.sub),
+                    bc.Instruction.mul => self.handle_binop(Value.mul),
+                    bc.Instruction.div => self.handle_binop(Value.div),
+                    bc.Instruction.gt => self.handle_binop(Value.gt),
+                    bc.Instruction.lt => self.handle_binop(Value.lt),
+                    bc.Instruction.eq => {
+                        const right = self.stack.pop();
+                        const left = self.stack.top();
+                        self.stack.set_top(Value.eq(left, right));
+                    },
+                    bc.Instruction.ne => {
+                        const right = self.stack.pop();
+                        const left = self.stack.top();
+                        self.stack.set_top(Value.ne(left, right));
+                    },
+                    bc.Instruction.ret => {
+                        const restore_data = self.env.local.get_ret();
+                        self.pc = restore_data.ret_pc;
+                        self.curr_const = restore_data.ret_const;
+                        self.bytecode.set_curr_const(restore_data.ret_const);
+                        self.env.local.pop_locals();
+                    },
+                    bc.Instruction.ret_main => {
+                        return self.stack.top();
+                    },
 
-                bc.Instruction.set_global => {
-                    const value = self.stack.top();
-                    const idx = self.read_u32();
-                    self.env.set_global(idx, value);
-                },
-                bc.Instruction.set => {
-                    const value = self.stack.top();
-                    const idx = self.read_u32();
-                    self.env.local.set(idx, value);
-                },
-                bc.Instruction.set_global_small => {
-                    const value = self.stack.top();
-                    const idx = self.read_u8();
-                    self.env.set_global(@intCast(idx), value);
-                },
-                bc.Instruction.set_small => {
-                    const value = self.stack.top();
-                    const idx = self.read_u8();
-                    self.env.local.set(@intCast(idx), value);
-                },
+                    bc.Instruction.set_global => {
+                        const value = self.stack.top();
+                        const idx = self.read_u32();
+                        self.env.set_global(idx, value);
+                    },
+                    bc.Instruction.set => {
+                        const value = self.stack.top();
+                        const idx = self.read_u32();
+                        self.env.local.set(idx, value);
+                    },
+                    bc.Instruction.set_global_small => {
+                        const value = self.stack.top();
+                        const idx = self.read_u8();
+                        self.env.set_global(@intCast(idx), value);
+                    },
+                    bc.Instruction.set_small => {
+                        const value = self.stack.top();
+                        const idx = self.read_u8();
+                        self.env.local.set(@intCast(idx), value);
+                    },
 
-                bc.Instruction.get_global => {
-                    const idx = self.read_u32();
-                    const value = self.env.get_global(idx);
-                    self.stack.push(value);
-                },
-                bc.Instruction.get_global_small => {
-                    const idx = self.read_u8();
-                    const value = self.env.get_global(@intCast(idx));
-                    self.stack.push(value);
-                },
-                bc.Instruction.get => {
-                    const idx = self.read_u32();
-                    const value = self.env.local.get(idx);
-                    self.stack.push(value);
-                },
-                bc.Instruction.get_small => {
-                    const idx = self.read_u8();
-                    const value = self.env.local.get(@intCast(idx));
-                    self.stack.push(value);
-                },
+                    bc.Instruction.get_global => {
+                        const idx = self.read_u32();
+                        const value = self.env.get_global(idx);
+                        self.stack.push(value);
+                    },
+                    bc.Instruction.get_global_small => {
+                        const idx = self.read_u8();
+                        const value = self.env.get_global(@intCast(idx));
+                        self.stack.push(value);
+                    },
+                    bc.Instruction.get => {
+                        const idx = self.read_u32();
+                        const value = self.env.local.get(idx);
+                        self.stack.push(value);
+                    },
+                    bc.Instruction.get_small => {
+                        const idx = self.read_u8();
+                        const value = self.env.local.get(@intCast(idx));
+                        self.stack.push(value);
+                    },
 
-                bc.Instruction.jump => {
-                    const pc = self.read_u32();
-                    self.pc = pc;
-                },
-                bc.Instruction.branch => {
-                    const pc = self.read_u32();
-                    const cond = self.stack.pop();
-                    switch (cond.get_type()) {
-                        ValueType.true => self.pc = pc,
-                        ValueType.false => {},
-                        else => @panic("If condition must be boolean"),
+                    bc.Instruction.jump => {
+                        const pc = self.read_u32();
+                        self.pc = pc;
+                    },
+                    bc.Instruction.branch => {
+                        const pc = self.read_u32();
+                        const cond = self.stack.pop();
+                        switch (cond.get_type()) {
+                            ValueType.true => self.pc = pc,
+                            ValueType.false => {},
+                            else => @panic("If condition must be boolean"),
+                        }
+                    },
+                    bc.Instruction.closure => {
+                        const constant_idx: u64 = self.read_u32();
+                        const unbound_count: u64 = self.read_u32();
+                        self.do_closure(constant_idx, unbound_count);
+                    },
+                    bc.Instruction.call => {
+                        const jit_state = self.get_jit_state();
+                        const target = self.stack.pop();
+
+                        // dont ask just trust lol
+                        if (use_jit) {
+                            self.do_value_call(null, &jit_state, target);
+                        } else {
+                            @call(.always_inline, Self.do_value_call, .{ self, null, &jit_state, target });
+                        }
+                    },
+                    bc.Instruction.print => {
+                        const arg_count: u64 = @intCast(self.read_u32());
+                        self.do_print(arg_count);
+                    },
+                    bc.Instruction.string => {
+                        const idx = bc.ConstantIndex.new(self.read_u32());
+                        if (self.bytecode.get_type(idx) != bc.ConstantType.string) {
+                            @panic("Incorrect string");
+                        }
+                        const val = Value.new_string(idx.index);
+                        self.stack.push(val);
+                    },
+                    bc.Instruction.object => {
+                        const class_idx = bc.ConstantIndex.new(self.read_u32());
+                        self.do_object(class_idx);
+                    },
+                    bc.Instruction.get_field => {
+                        const field_idx = self.read_u32();
+
+                        self.do_get_field(bc.ConstantIndex.new(field_idx));
+                    },
+                    bc.Instruction.set_field => {
+                        const field_idx = self.read_u32();
+                        self.do_set_field(bc.ConstantIndex.new(field_idx));
+                    },
+                    bc.Instruction.methodcall => {
+                        const field_idx = self.read_u32();
+                        const jit_state = self.get_jit_state();
+                        self.do_method_call(&jit_state, bc.ConstantIndex.new(field_idx));
+                    },
+                }
+            }
+        }
+
+        fn get_field(self: *const Self, object: *bc.Object, string_field_idx: bc.ConstantIndex) ?runtime.Value {
+            var tmp: *bc.Object = object;
+            while (true) {
+                //const tmp_addr = @intFromPtr(tmp);
+                //std.debug.print("{}\n", .{tmp_addr});
+                const class_constant = self.bytecode.get_constant(tmp.class_idx);
+                const position: ?usize = class_constant.get_class_field_position(string_field_idx);
+                if (position) |pos| {
+                    return tmp.values.get(pos);
+                }
+                const proto = tmp.prototype;
+                if (proto.get_type() != runtime.ValueType.object) {
+                    return null;
+                }
+                tmp = proto.get_ptr(bc.Object);
+            }
+        }
+
+        fn get_field_ptr(self: *const Self, object: *bc.Object, string_field_idx: bc.ConstantIndex) ?*runtime.Value {
+            var tmp: *bc.Object = object;
+            while (true) {
+                const class_constant = self.bytecode.get_constant(tmp.class_idx);
+                const position: ?usize = class_constant.get_class_field_position(string_field_idx);
+                if (position) |pos| {
+                    return tmp.values.get_ptr(pos);
+                }
+                const proto = tmp.prototype;
+                if (proto.get_type() != runtime.ValueType.object) {
+                    return null;
+                }
+                tmp = proto.get_ptr(bc.Object);
+            }
+        }
+
+        fn handle_binop(self: *Self, comptime oper: fn (Value, Value) Value) void {
+            const right = self.stack.pop();
+            const left = self.stack.top();
+            if (left.get_type() == ValueType.number and right.get_type() == ValueType.number) {
+                const res = oper(left, right);
+                self.stack.set_top(res);
+            } else {
+                std.debug.print("left: {}, right: {}\n", .{ left, right });
+                @panic("Unimplemented dispatch");
+            }
+        }
+
+        fn do_closure(self: *Self, constant_idx: u64, unbound_count: u64) void {
+            const constant_idx_tmp: u32 = @intCast(constant_idx);
+            const unbound_count_tmp: u32 = @intCast(unbound_count);
+            const env = self.stack.slice_top(unbound_count_tmp);
+            const closure = self.gc.alloc_with_additional(bc.Closure, unbound_count_tmp, self.get_roots());
+            closure.env.count = unbound_count_tmp;
+            for (env, 0..) |val, idx| {
+                closure.env.set(idx, val);
+            }
+            self.stack.pop_n(unbound_count_tmp);
+            closure.constant_idx = bc.ConstantIndex.new(constant_idx_tmp);
+            const code = self.bytecode.get_constant(closure.constant_idx);
+            closure.local_count = code.get_u32(5);
+            closure.param_count = code.get_u32(9);
+            const val = Value.new_ptr(bc.Closure, closure, ValueType.closure);
+            self.stack.push(val);
+        }
+
+        fn do_object(self: *Self, class_idx: bc.ConstantIndex) void {
+            const class_constant = self.bytecode.get_constant(class_idx);
+            if (class_constant.get_type() != bc.ConstantType.class) {
+                @panic("invalid object class");
+            }
+            const field_count = class_constant.get_class_field_count();
+            const values = self.stack.slice_top(field_count);
+            const object = self.gc.alloc_with_additional(bc.Object, field_count, self.get_roots());
+            self.stack.pop_n(field_count);
+            object.values.count = field_count;
+            for (values, 0..) |val, idx| {
+                object.values.set(idx, val);
+            }
+            object.class_idx = class_idx;
+            const proto = self.stack.top();
+            object.prototype = proto;
+            self.stack.set_top(Value.new_ptr(bc.Object, object, ValueType.object));
+        }
+
+        fn do_value_call(
+            self: *Self,
+            this: ?Value,
+            jit_state: *const jit.JitState,
+            target: Value,
+        ) void {
+            if (target.get_type() != runtime.ValueType.closure) {
+                std.debug.print("{}\n", .{target.get_type()});
+                @panic("cannot call this object");
+            }
+            const closure = target.get_ptr(bc.Closure);
+            const local_count = closure.local_count;
+            const param_count = closure.param_count;
+            const arg_slice = self.stack.slice_top(param_count);
+            if (this) |this_val| {
+                self.env.local.push_locals_this(this_val, arg_slice, local_count, @intCast(self.pc), self.curr_const);
+            } else {
+                self.env.local.push_locals(arg_slice, local_count, @intCast(self.pc), self.curr_const);
+            }
+            for (0..closure.env.count) |idx| {
+                const index: u32 = @intCast(idx);
+                const val = closure.env.get(closure.env.count - idx - 1);
+                self.env.local.set(local_count - index - 1, val);
+            }
+            self.stack.pop_n(param_count);
+
+            if (use_jit) {
+                const function_constant = self.bytecode.get_constant(closure.constant_idx);
+                const compiled = self.jit_compiler.compile_fn(function_constant);
+                if (compiled) |jitted| {
+                    jitted.run(jit_state);
+                } else |err| {
+                    switch (err) {
+                        jit.JitError.HeuristicNotMet => {},
+                        jit.JitError.OutOfMem => {},
+                        else => @panic("cannot compile"),
                     }
-                },
-                bc.Instruction.closure => {
-                    const constant_idx = self.read_u32();
-                    const unbound_count = self.read_u32();
-                    const env = self.stack.slice_top(unbound_count);
-                    const closure = self.gc.alloc_with_additional(bc.Closure, unbound_count, self.get_roots());
-                    closure.env.count = unbound_count;
-                    for (env, 0..) |val, idx| {
-                        closure.env.set(idx, val);
-                    }
-                    self.stack.pop_n(unbound_count);
-                    closure.constant_idx = bc.ConstantIndex.new(constant_idx);
-                    const code = self.bytecode.get_constant(closure.constant_idx);
-                    closure.local_count = code.get_u32(5);
-                    closure.param_count = code.get_u32(9);
-                    const val = Value.new_ptr(bc.Closure, closure, ValueType.closure);
-                    self.stack.push(val);
-                },
-                bc.Instruction.call => {
-                    const target = self.stack.pop();
-                    if (target.get_type() != runtime.ValueType.closure) {
-                        @panic("cannot call this object");
-                    }
-                    const closure = target.get_ptr(bc.Closure);
-                    const local_count = closure.local_count;
-                    const param_count = closure.param_count;
-                    const arg_slice = self.stack.slice_top(param_count);
-                    self.env.local.push_locals(arg_slice, local_count, @intCast(self.pc), self.curr_const);
-                    for (0..closure.env.count) |idx| {
-                        const index: u32 = @intCast(idx);
-                        const val = closure.env.get(closure.env.count - idx - 1);
-                        self.env.local.set(local_count - index - 1, val);
-                    }
-                    self.stack.pop_n(param_count);
+
                     self.bytecode.set_curr_const(closure.constant_idx);
                     self.curr_const = closure.constant_idx;
 
                     // header size of the closure
-                    self.pc = 4 + 1 + 4 + 4;
-                },
-                bc.Instruction.print => {
-                    const arg_count = self.read_u32();
-                    const arg_slice = self.stack.slice_top(arg_count);
-                    for (arg_slice) |val| {
-                        switch (val.get_type()) {
-                            ValueType.string => {
-                                const idx = bc.ConstantIndex.new(val.get_idx());
-                                const string_const = self.bytecode.get_constant(idx);
-                                const tmp = string_const.get_slice()[5..];
-                                std.debug.print("{s} ", .{tmp});
-                            },
-                            ValueType.number => {
-                                const data = val.get_number();
-                                std.debug.print("{} ", .{data});
-                            },
-                            else => @panic("Cannot print"),
-                        }
-                    }
-                    std.debug.print("\n", .{});
-                    self.stack.push(Value.new_nil());
-                },
-                bc.Instruction.string => {
-                    const idx = bc.ConstantIndex.new(self.read_u32());
-                    if (self.bytecode.get_type(idx) != bc.ConstantType.string) {
-                        @panic("Incorrect string");
-                    }
-                    const val = Value.new_string(idx.index);
-                    self.stack.push(val);
-                },
-                bc.Instruction.object => {
-                    const class_idx = bc.ConstantIndex.new(self.read_u32());
-                    const class_constant = self.bytecode.get_constant(class_idx);
-                    if (class_constant.get_type() != bc.ConstantType.class) {
-                        @panic("invalid object class");
-                    }
-                    const field_count = class_constant.get_class_field_count();
-                    const values = self.stack.slice_top(field_count);
-                    const object = self.gc.alloc_with_additional(bc.Object, field_count, self.get_roots());
-                    self.stack.pop_n(field_count);
-                    object.values.count = field_count;
-                    for (values, 0..) |val, idx| {
-                        object.values.set(idx, val);
-                    }
-                    object.class_idx = class_idx;
-                    const proto = self.stack.top();
-                    object.prototype = proto;
-                    self.stack.set_top(Value.new_ptr(bc.Object, object, ValueType.object));
-                },
-                bc.Instruction.get_field => {
-                    const field_idx = self.read_u32();
+                    self.pc = bc.Constant.function_header_size;
+                }
+            } else {
+                self.bytecode.set_curr_const(closure.constant_idx);
+                self.curr_const = closure.constant_idx;
 
-                    // You will always set top afterwards
-                    const val = self.stack.top();
-                    if (val.get_type() != ValueType.object) {
-                        @panic("invalid object");
-                    }
-                    const object = val.get_ptr(bc.Object);
-                    const field: ?Value = self.get_field(object, bc.ConstantIndex.new(field_idx));
-
-                    if (field) |result| {
-                        self.stack.set_top(result);
-                    } else {
-                        @panic("non existant field");
-                    }
-                },
-                bc.Instruction.set_field => {
-                    const field_idx = self.read_u32();
-                    const target = self.stack.pop();
-                    const val = self.stack.top();
-
-                    if (target.get_type() != ValueType.object) {
-                        @panic("cannot set into non object");
-                    }
-
-                    const object = target.get_ptr(bc.Object);
-                    const field_ptr: ?*Value = self.get_field_ptr(object, bc.ConstantIndex.new(field_idx));
-                    if (field_ptr) |field| {
-                        field.* = val;
-                    } else {
-                        @panic("non existant field");
-                    }
-                },
-                bc.Instruction.methodcall => {
-                    const field_idx = self.read_u32();
-                    const target = self.stack.pop();
-                    if (target.get_type() != ValueType.object) {
-                        @panic("cannot call method on non object");
-                    }
-
-                    const object = target.get_ptr(bc.Object);
-                    const field: ?runtime.Value = self.get_field(object, bc.ConstantIndex.new(field_idx));
-                    if (field) |item| {
-                        if (item.get_type() != runtime.ValueType.closure) {
-                            @panic("cannot call this object");
-                        }
-                        const closure = item.get_ptr(bc.Closure);
-                        const local_count = closure.local_count;
-                        const param_count = closure.param_count;
-                        const arg_slice = self.stack.slice_top(param_count);
-                        self.env.local.push_locals_this(target, arg_slice, local_count, @intCast(self.pc), self.curr_const);
-                        for (0..closure.env.count) |idx| {
-                            const index: u32 = @intCast(idx);
-                            const val = closure.env.get(closure.env.count - idx - 1);
-                            self.env.local.set(local_count - index - 1, val);
-                        }
-                        self.stack.pop_n(param_count);
-                        self.bytecode.set_curr_const(closure.constant_idx);
-                        self.curr_const = closure.constant_idx;
-
-                        // header size of the closure
-                        self.pc = 4 + 1 + 4 + 4;
-                    } else {
-                        @panic("non existant field");
-                    }
-                },
+                // header size of the closure
+                self.pc = bc.Constant.function_header_size;
             }
         }
-    }
 
-    fn get_field(self: *const Interpreter, object: *bc.Object, string_field_idx: bc.ConstantIndex) ?runtime.Value {
-        var tmp: *bc.Object = object;
-        while (true) {
-            //const tmp_addr = @intFromPtr(tmp);
-            //std.debug.print("{}\n", .{tmp_addr});
-            const class_constant = self.bytecode.get_constant(tmp.class_idx);
-            const position: ?usize = class_constant.get_class_field_position(string_field_idx);
-            if (position) |pos| {
-                return tmp.values.get(pos);
+        fn do_method_call(
+            self: *Self,
+            jit_state: *const jit.JitState,
+            method_idx: bc.ConstantIndex,
+        ) void {
+            const target = self.stack.pop();
+            if (target.get_type() != ValueType.object) {
+                @panic("cannot call method on non object");
             }
-            const proto = tmp.prototype;
-            if (proto.get_type() != runtime.ValueType.object) {
-                return null;
+
+            const object = target.get_ptr(bc.Object);
+            const field: ?runtime.Value = self.get_field(object, method_idx);
+            if (field) |item| {
+                self.do_value_call(target, jit_state, item);
+            } else {
+                @panic("non existant field");
             }
-            tmp = proto.get_ptr(bc.Object);
         }
-    }
 
-    fn get_field_ptr(self: *const Interpreter, object: *bc.Object, string_field_idx: bc.ConstantIndex) ?*runtime.Value {
-        var tmp: *bc.Object = object;
-        while (true) {
-            const class_constant = self.bytecode.get_constant(tmp.class_idx);
-            const position: ?usize = class_constant.get_class_field_position(string_field_idx);
-            if (position) |pos| {
-                return tmp.values.get_ptr(pos);
+        fn do_print(self: *Self, arg_count: u64) void {
+            const arg_count_tmp: u32 = @intCast(arg_count);
+            const arg_slice = self.stack.slice_top(arg_count_tmp);
+            for (arg_slice) |val| {
+                switch (val.get_type()) {
+                    ValueType.string => {
+                        const idx = bc.ConstantIndex.new(val.get_idx());
+                        const string_const = self.bytecode.get_constant(idx);
+                        const tmp = string_const.get_slice()[5..];
+                        std.debug.print("{s} ", .{tmp});
+                    },
+                    ValueType.number => {
+                        const data = val.get_number();
+                        std.debug.print("{} ", .{data});
+                    },
+                    else => @panic("Cannot print"),
+                }
             }
-            const proto = tmp.prototype;
-            if (proto.get_type() != runtime.ValueType.object) {
-                return null;
+            self.stack.pop_n(arg_count_tmp);
+            std.debug.print("\n", .{});
+            self.stack.push(Value.new_nil());
+        }
+
+        fn do_get_field(self: *Self, string_idx: bc.ConstantIndex) void {
+            const val = self.stack.top();
+            if (val.get_type() != ValueType.object) {
+                @panic("invalid object");
             }
-            tmp = proto.get_ptr(bc.Object);
+            const object = val.get_ptr(bc.Object);
+            const field: ?Value = self.get_field(object, string_idx);
+
+            if (field) |result| {
+                self.stack.set_top(result);
+            } else {
+                @panic("non existant field");
+            }
         }
-    }
 
-    fn handle_binop(self: *Interpreter, comptime oper: fn (Value, Value) Value) void {
-        const right = self.stack.pop();
-        const left = self.stack.top();
-        if (left.get_type() == ValueType.number and right.get_type() == ValueType.number) {
-            const res = oper(left, right);
-            self.stack.set_top(res);
-        } else {
-            std.debug.print("left: {}, right: {}\n", .{ left, right });
-            @panic("Unimplemented dispatch");
+        fn do_set_field(self: *Self, string_idx: bc.ConstantIndex) void {
+            const target = self.stack.pop();
+            const val = self.stack.top();
+
+            if (target.get_type() != ValueType.object) {
+                @panic("cannot set into non object");
+            }
+
+            const object = target.get_ptr(bc.Object);
+            const field_ptr: ?*Value = self.get_field_ptr(object, string_idx);
+            if (field_ptr) |field| {
+                field.* = val;
+            } else {
+                @panic("non existant field");
+            }
         }
+
+        fn read_inst(self: *Self) bc.Instruction {
+            const res = self.bytecode.read_inst(self.pc);
+            self.pc += 1;
+            return res;
+        }
+
+        fn read_u32(self: *Self) u32 {
+            const res = self.bytecode.read_u32(self.pc);
+            self.pc += 4;
+            return res;
+        }
+
+        fn read_u8(self: *Self) u8 {
+            const res = self.bytecode.read_u8(self.pc);
+            self.pc += 1;
+            return res;
+        }
+
+        fn get_roots(self: *const Self) Roots {
+            return Roots{
+                .stack = &self.stack,
+                .env = &self.env,
+            };
+        }
+
+        fn get_jit_state(self: *const Self) jit.JitState {
+            if (use_jit) {
+                return jit.JitState{
+                    .intepreter = self,
+                    .stack = &self.stack,
+                    .env = &self.env,
+                    .gc = &self.gc,
+                    .alloc_stack = &alloc_stack,
+                    .create_closure = &create_closure,
+                    .create_object = &create_object,
+                    .get_field = &do_get_field_jit,
+                    .set_field = &do_set_field_jit,
+                    .call = &do_call,
+                    .method_call = &do_method_call_jit,
+                    .print = &do_jit_print,
+                    .dbg = &dbg,
+                    .dbg_raw = &dbg_raw,
+                    .dbg_inst = &dbg_inst,
+                    .binop_panic = &binop_panic,
+                    .if_condition_panic = &if_condition_panic,
+                    .string_panic = &string_panic,
+                };
+            } else {
+                const tmp: jit.JitState = undefined;
+                return tmp;
+            }
+        }
+    };
+}
+
+pub const JitInterpreter = Interpreter(true);
+pub const BcInterpreter = Interpreter(false);
+
+// JIT helper functions
+
+fn alloc_stack(stack: *Stack, new_len: usize) callconv(.C) void {
+    stack.stack.ensureTotalCapacity(new_len) catch unreachable;
+}
+
+fn get_local(env: *const Environment, idx: u32) callconv(.C) Value {
+    return env.local.get(idx);
+}
+
+fn set_local(env: *Environment, idx: u32, value: Value) callconv(.C) void {
+    env.local.set(idx, value);
+}
+
+fn pop_locals(env: *Environment) callconv(.C) void {
+    env.local.pop_locals();
+}
+
+fn push_locals(env: *Environment, args_ptr: u64, args_len: usize, local_count: u32) callconv(.C) void {
+    const args_tmp: [*]Value = @ptrFromInt(args_ptr);
+    const args = args_tmp[0..args_len];
+    env.local.push_locals(args, local_count, 0, bc.ConstantIndex.new(0));
+}
+
+fn gc_alloc_object(intepreter: *JitInterpreter, field_count: usize) callconv(.C) *bc.Object {
+    return intepreter.gc.alloc_with_additional(bc.Object, field_count, intepreter.get_roots());
+}
+
+fn gc_alloc_closure(intepreter: *JitInterpreter, env_size: usize) callconv(.C) *bc.Closure {
+    return intepreter.gc.alloc_with_additional(bc.Closure, env_size, intepreter.get_roots());
+}
+
+fn do_call(noalias interpret: *JitInterpreter, noalias jit_state: *const jit.JitState) callconv(.C) void {
+    const target = interpret.stack.pop();
+    interpret.do_value_call(null, jit_state, target);
+}
+
+fn do_method_call_jit(
+    noalias self: *JitInterpreter,
+    noalias jit_state: *const jit.JitState,
+    method_idx: bc.ConstantIndex,
+) callconv(.C) void {
+    const target = self.stack.pop();
+    if (target.get_type() != ValueType.object) {
+        @panic("cannot call method on non object");
     }
 
-    fn read_inst(self: *Interpreter) bc.Instruction {
-        const res = self.bytecode.read_inst(self.pc);
-        self.pc += 1;
-        return res;
+    const object = target.get_ptr(bc.Object);
+    const field: ?runtime.Value = self.get_field(object, method_idx);
+    if (field) |item| {
+        self.do_value_call(target, jit_state, item);
+    } else {
+        @panic("non existant field");
     }
+}
 
-    fn read_u32(self: *Interpreter) u32 {
-        const res = self.bytecode.read_u32(self.pc);
-        self.pc += 4;
-        return res;
-    }
+fn do_jit_print(noalias interpret: *JitInterpreter, arg_count: u64) callconv(.C) void {
+    interpret.do_print(arg_count);
+}
 
-    fn read_u8(self: *Interpreter) u8 {
-        const res = self.bytecode.read_u8(self.pc);
-        self.pc += 1;
-        return res;
-    }
+fn create_closure(noalias self: *JitInterpreter, constant_idx: u64, unbound_count: u64) callconv(.C) void {
+    self.do_closure(constant_idx, unbound_count);
+}
 
-    fn get_roots(self: *const Interpreter) Roots {
-        return Roots{
-            .stack = &self.stack,
-            .env = &self.env,
-        };
+fn create_object(noalias self: *JitInterpreter, class_idx: bc.ConstantIndex) callconv(.C) void {
+    self.do_object(class_idx);
+}
+
+fn do_get_field_jit(noalias self: *JitInterpreter, string_idx: bc.ConstantIndex) callconv(.C) void {
+    self.do_get_field(string_idx);
+}
+
+fn do_set_field_jit(noalias self: *JitInterpreter, string_idx: bc.ConstantIndex) callconv(.C) void {
+    self.do_set_field(string_idx);
+}
+
+const DBG_VALUE: bool = true;
+const DBG_RAW: bool = false;
+const DBG_INST: bool = true;
+
+fn dbg(value: Value) callconv(.C) void {
+    if (DBG_VALUE) {
+        std.debug.print("VALUE {x} ", .{value.data});
+        std.debug.print("{}\n", .{value});
     }
-};
+}
+
+fn dbg_raw(val: u64) callconv(.C) void {
+    if (DBG_RAW) {
+        std.debug.print("RAW {x}\n", .{val});
+    }
+}
+
+fn dbg_inst(inst_val: u64) callconv(.C) void {
+    if (DBG_INST) {
+        const inst: bc.Instruction = @enumFromInt(inst_val);
+        std.debug.print("INST: {}\n", .{inst});
+    }
+}
+
+fn binop_panic(left: Value, right: Value) callconv(.C) void {
+    std.debug.print("left: {}, right: {}\n", .{ left, right });
+    @panic("Unimplemented dispatch");
+}
+
+fn if_condition_panic() callconv(.C) void {
+    @panic("If condition must be boolean");
+}
+
+fn string_panic() callconv(.C) void {
+    @panic("Incorrect string");
+}
