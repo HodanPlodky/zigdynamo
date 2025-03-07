@@ -811,8 +811,8 @@ pub fn Interpreter(comptime use_jit: bool) type {
     };
 }
 
-pub const JitIntepreter = Interpreter(true);
-pub const BcIntepreter = Interpreter(false);
+pub const JitInterpreter = Interpreter(true);
+pub const BcInterpreter = Interpreter(false);
 
 // JIT helper functions
 
@@ -838,21 +838,21 @@ fn push_locals(env: *Environment, args_ptr: u64, args_len: usize, local_count: u
     env.local.push_locals(args, local_count, 0, bc.ConstantIndex.new(0));
 }
 
-fn gc_alloc_object(intepreter: *JitIntepreter, field_count: usize) callconv(.C) *bc.Object {
+fn gc_alloc_object(intepreter: *JitInterpreter, field_count: usize) callconv(.C) *bc.Object {
     return intepreter.gc.alloc_with_additional(bc.Object, field_count, intepreter.get_roots());
 }
 
-fn gc_alloc_closure(intepreter: *JitIntepreter, env_size: usize) callconv(.C) *bc.Closure {
+fn gc_alloc_closure(intepreter: *JitInterpreter, env_size: usize) callconv(.C) *bc.Closure {
     return intepreter.gc.alloc_with_additional(bc.Closure, env_size, intepreter.get_roots());
 }
 
-fn do_call(noalias interpret: *JitIntepreter, noalias jit_state: *const jit.JitState) callconv(.C) void {
+fn do_call(noalias interpret: *JitInterpreter, noalias jit_state: *const jit.JitState) callconv(.C) void {
     const target = interpret.stack.pop();
     interpret.do_value_call(null, jit_state, target);
 }
 
 fn do_method_call_jit(
-    noalias self: *JitIntepreter,
+    noalias self: *JitInterpreter,
     noalias jit_state: *const jit.JitState,
     method_idx: bc.ConstantIndex,
 ) callconv(.C) void {
@@ -870,23 +870,23 @@ fn do_method_call_jit(
     }
 }
 
-fn do_jit_print(noalias interpret: *JitIntepreter, arg_count: u64) callconv(.C) void {
+fn do_jit_print(noalias interpret: *JitInterpreter, arg_count: u64) callconv(.C) void {
     interpret.do_print(arg_count);
 }
 
-fn create_closure(noalias self: *JitIntepreter, constant_idx: u64, unbound_count: u64) callconv(.C) void {
+fn create_closure(noalias self: *JitInterpreter, constant_idx: u64, unbound_count: u64) callconv(.C) void {
     self.do_closure(constant_idx, unbound_count);
 }
 
-fn create_object(noalias self: *JitIntepreter, class_idx: bc.ConstantIndex) callconv(.C) void {
+fn create_object(noalias self: *JitInterpreter, class_idx: bc.ConstantIndex) callconv(.C) void {
     self.do_object(class_idx);
 }
 
-fn do_get_field_jit(noalias self: *JitIntepreter, string_idx: bc.ConstantIndex) callconv(.C) void {
+fn do_get_field_jit(noalias self: *JitInterpreter, string_idx: bc.ConstantIndex) callconv(.C) void {
     self.do_get_field(string_idx);
 }
 
-fn do_set_field_jit(noalias self: *JitIntepreter, string_idx: bc.ConstantIndex) callconv(.C) void {
+fn do_set_field_jit(noalias self: *JitInterpreter, string_idx: bc.ConstantIndex) callconv(.C) void {
     self.do_set_field(string_idx);
 }
 
