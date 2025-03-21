@@ -226,7 +226,7 @@ pub const LocalEnv = struct {
     // [locals] [old fp] [ret]
     buffer: std.ArrayList(Value),
     alloc: std.mem.Allocator,
-    current_ptr: u32,
+    current_ptr: u64,
 
     const FrameHelper = struct {
         frame: []Value,
@@ -365,9 +365,10 @@ pub fn Interpreter(comptime use_jit: bool) type {
         gc: GC,
         stack: Stack,
         env: Environment,
+        writer: std.io.AnyWriter,
         jit_compiler: jit.JitCompiler,
 
-        pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8) Self {
+        pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: std.io.AnyWriter) Self {
             return Self{
                 .bytecode = bytecode,
                 .pc = 5,
@@ -376,6 +377,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
                 .stack = Stack.init(alloc),
                 .env = Environment.init(bytecode.global_count, alloc),
                 .jit_compiler = jit.JitCompiler.init(4096 * 1024),
+                .writer = writer,
             };
         }
 
@@ -710,17 +712,17 @@ pub fn Interpreter(comptime use_jit: bool) type {
                         const idx = bc.ConstantIndex.new(val.get_idx());
                         const string_const = self.bytecode.get_constant(idx);
                         const tmp = string_const.get_slice()[5..];
-                        std.debug.print("{s} ", .{tmp});
+                        self.writer.print("{s} ", .{tmp}) catch unreachable;
                     },
                     ValueType.number => {
                         const data = val.get_number();
-                        std.debug.print("{} ", .{data});
+                        self.writer.print("{} ", .{data}) catch unreachable;
                     },
                     else => @panic("Cannot print"),
                 }
             }
             self.stack.pop_n(arg_count_tmp);
-            std.debug.print("\n", .{});
+            self.writer.print("\n", .{}) catch unreachable;
             self.stack.push(Value.new_nil());
         }
 
@@ -890,7 +892,7 @@ fn do_set_field_jit(noalias self: *JitInterpreter, string_idx: bc.ConstantIndex)
     self.do_set_field(string_idx);
 }
 
-const DBG_VALUE: bool = true;
+const DBG_VALUE: bool = false;
 const DBG_RAW: bool = false;
 const DBG_INST: bool = true;
 

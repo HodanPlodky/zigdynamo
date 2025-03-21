@@ -6,7 +6,7 @@ const JitInterpreter = @import("bc_interpreter.zig").JitInterpreter;
 const Bytecode = @import("bytecode.zig").Bytecode;
 const runtime = @import("runtime.zig");
 
-fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.Allocator) !runtime.Value {
+fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.Allocator, writer: std.io.AnyWriter) !runtime.Value {
     var runtime_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer runtime_arena.deinit();
     const alloc = runtime_arena.allocator();
@@ -14,6 +14,7 @@ fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.All
         alloc,
         bytecode,
         try allocator.allocWithOptions(u8, 1024 * 10, 16, null),
+        writer,
     );
     const val = interpret.run();
     return val;
@@ -28,9 +29,24 @@ fn test_helper(code: []const u8) !void {
     const prog = try p.parse();
     const bytecode = try compile(prog, allocator);
 
-    const bc_val = try run_with(BcInterpreter, bytecode, allocator);
-    const jit_val = try run_with(JitInterpreter, bytecode, allocator);
+    var bc_writer = std.ArrayList(u8).init(std.testing.allocator);
+    defer bc_writer.deinit();
+    const bc_val = try run_with(
+        BcInterpreter,
+        bytecode,
+        allocator,
+        bc_writer.writer().any(),
+    );
+    var jit_writer = std.ArrayList(u8).init(std.testing.allocator);
+    defer jit_writer.deinit();
+    const jit_val = try run_with(
+        JitInterpreter,
+        bytecode,
+        allocator,
+        jit_writer.writer().any(),
+    );
     try std.testing.expectEqual(bc_val.data, jit_val.data);
+    try std.testing.expectEqualStrings(bc_writer.items, jit_writer.items);
 }
 
 test "basic" {
