@@ -41,10 +41,12 @@ pub fn main() !void {
         var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         const alloc = runtime_arena.allocator();
         const bytecode = compiler.compile(program, allocator) catch @panic("error");
+        const writer = std.io.getStdOut().writer().any();
         var inter = bc.BcInterpreter.init(
             alloc,
             bytecode,
             try allocator.allocWithOptions(u8, HEAP_SIZE, 16, null),
+            writer,
         );
         const val = inter.run();
         std.debug.print("{}\n", .{val});
@@ -52,10 +54,12 @@ pub fn main() !void {
         var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         const alloc = runtime_arena.allocator();
         const bytecode = compiler.compile(program, allocator) catch @panic("error");
+        const writer = std.io.getStdOut().writer().any();
         var inter = bc.JitInterpreter.init(
             alloc,
             bytecode,
             try allocator.allocWithOptions(u8, HEAP_SIZE, 16, null),
+            writer,
         );
         const val = inter.run();
         std.debug.print("{}\n", .{val});
