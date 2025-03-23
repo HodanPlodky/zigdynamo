@@ -368,7 +368,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
         writer: std.io.AnyWriter,
         jit_compiler: jit.JitCompiler,
 
-        pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: std.io.AnyWriter) Self {
+        pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: std.io.AnyWriter, heuristic: jit.Heuristic) Self {
             return Self{
                 .bytecode = bytecode,
                 .pc = 5,
@@ -376,7 +376,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
                 .gc = GC.init(heap_data),
                 .stack = Stack.init(alloc),
                 .env = Environment.init(bytecode.global_count, alloc),
-                .jit_compiler = jit.JitCompiler.init(4096 * 1024),
+                .jit_compiler = jit.JitCompiler.init(4096 * 1024, heuristic),
                 .writer = writer,
             };
         }
@@ -717,6 +717,12 @@ pub fn Interpreter(comptime use_jit: bool) type {
                     ValueType.number => {
                         const data = val.get_number();
                         self.writer.print("{} ", .{data}) catch unreachable;
+                    },
+                    ValueType.true => {
+                        self.writer.print("true ", .{}) catch unreachable;
+                    },
+                    ValueType.false => {
+                        self.writer.print("false ", .{}) catch unreachable;
                     },
                     else => @panic("Cannot print"),
                 }

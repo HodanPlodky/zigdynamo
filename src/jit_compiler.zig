@@ -105,6 +105,10 @@ const PanicTable = struct {
     string_panic: usize = 0,
 };
 
+pub const Heuristic = struct {
+    call_count: u4 = 5,
+};
+
 pub const JitCompiler = struct {
     const stack_addr = GPR64.r15;
     const env_addr = GPR64.r14;
@@ -117,8 +121,9 @@ pub const JitCompiler = struct {
     bytecode: []const u8,
     panic_table: PanicTable,
     scratch_arena: std.heap.ArenaAllocator,
+    heuristic: Heuristic,
 
-    pub fn init(code_buffer_size: usize) JitCompiler {
+    pub fn init(code_buffer_size: usize, heuristic: Heuristic) JitCompiler {
         const addr = std.os.linux.mmap(
             null,
             code_buffer_size,
@@ -141,6 +146,7 @@ pub const JitCompiler = struct {
             .bytecode = undefined,
             .panic_table = .{},
             .scratch_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
+            .heuristic = heuristic,
         };
         res.init_panic_handlers() catch unreachable;
         return res;
@@ -219,7 +225,7 @@ pub const JitCompiler = struct {
         var counter: u8 = @intCast(jit_state & 0x0f);
 
         // this heuristic is purely chosen by vibe
-        if (counter < 5) {
+        if (counter < self.heuristic.call_count) {
             counter += 1;
             function.data[jit_offset + 3] = counter;
             return JitError.HeuristicNotMet;
@@ -338,7 +344,31 @@ pub const JitCompiler = struct {
                 }.f);
             },
             bytecode.Instruction.div => {
-                unreachable;
+                try self.handle_binop(struct {
+                    fn f(comp: *JitCompiler) !void {
+                        // shr r8, 0x20
+                        const shr_r8_slice: [4]u8 = .{ 0x49, 0xc1, 0xe8, 0x20 };
+                        try comp.emit_slice(shr_r8_slice[0..]);
+                        // shr r9, 0x20
+                        const shr_r9_slice: [4]u8 = .{ 0x49, 0xc1, 0xe9, 0x20 };
+                        try comp.emit_slice(shr_r9_slice[0..]);
+
+                        try comp.mov_reg_reg(GPR64.rax, GPR64.r8);
+
+                        // xor rdx, rdx
+                        try comp.emit_basic_reg(0x31, GPR64.rdx, GPR64.rdx);
+
+                        // div r9
+                        const div_slice: [3]u8 = .{ 0x49, 0xf7, 0xf1 };
+                        try comp.emit_slice(div_slice[0..]);
+
+                        // shl rax, 0x20
+                        const shl_slice: [4]u8 = .{ 0x48, 0xc1, 0xe0, 0x20 };
+                        try comp.emit_slice(shl_slice[0..]);
+
+                        try comp.mov_reg_reg(GPR64.r8, GPR64.rax);
+                    }
+                }.f);
             },
             bytecode.Instruction.gt => {
                 try self.handle_binop(struct {

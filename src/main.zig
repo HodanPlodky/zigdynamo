@@ -47,6 +47,7 @@ pub fn main() !void {
             bytecode,
             try allocator.allocWithOptions(u8, HEAP_SIZE, 16, null),
             writer,
+            .{},
         );
         const val = inter.run();
         std.debug.print("{}\n", .{val});
@@ -60,6 +61,7 @@ pub fn main() !void {
             bytecode,
             try allocator.allocWithOptions(u8, HEAP_SIZE, 16, null),
             writer,
+            .{},
         );
         const val = inter.run();
         std.debug.print("{}\n", .{val});

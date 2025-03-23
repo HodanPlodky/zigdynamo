@@ -15,6 +15,7 @@ fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.All
         bytecode,
         try allocator.allocWithOptions(u8, 1024 * 10, 16, null),
         writer,
+        .{ .call_count = 0 },
     );
     const val = interpret.run();
     return val;
@@ -480,6 +481,16 @@ test "while" {
         \\ };
         \\ 
         \\ fib(40);
+    ;
+    try test_helper(code[0..]);
+}
+
+test "division" {
+    const code =
+        \\ let f = fn(x) = x / 3;
+        \\ print(f(7) * 3 != 7);
+        \\ print(f(7) == 2);
+        \\ f(7);
     ;
     try test_helper(code[0..]);
 }
