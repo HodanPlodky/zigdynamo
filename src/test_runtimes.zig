@@ -803,3 +803,26 @@ test "division" {
     ).expectEqualFmt(res);
     res.deinit();
 }
+
+test "print multiple" {
+    const code =
+        \\ let f = fn(x, y) = {
+        \\     print(y, x, "hello");
+        \\     print("x is", x, "y is", y);
+        \\ };
+        \\ f("a", 1);
+        \\ f(1, "2");
+    ;
+    const oh = ohsnap{};
+    const res = try test_helper(code[0..]);
+    try oh.snap(@src(),
+        \\result: 1 (0)
+        \\1 a hello 
+        \\x is a y is 1 
+        \\2 1 hello 
+        \\x is 1 y is 2 
+        \\
+        \\
+    ).expectEqualFmt(res);
+    res.deinit();
+}
