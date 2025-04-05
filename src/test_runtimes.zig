@@ -494,3 +494,15 @@ test "division" {
     ;
     try test_helper(code[0..]);
 }
+
+test "print multiple" {
+    const code =
+        \\ let f = fn(x, y) = {
+        \\     print(y, x, "hello");
+        \\     print("x is", x, "y is", y);
+        \\ };
+        \\ f("a", 1);
+        \\ f(1, "2");
+    ;
+    try test_helper(code[0..]);
+}
