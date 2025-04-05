@@ -43,7 +43,7 @@ fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.All
     var interpret = Interpret.init(
         alloc,
         bytecode,
-        try allocator.allocWithOptions(u8, 1024 * 10, 16, null),
+        try allocator.allocWithOptions(u8, 1024 + 512, 16, null),
         writer,
         .{ .call_count = 0 },
     );
