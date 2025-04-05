@@ -1,5 +1,6 @@
 const std = @import("std");
 const runtime = @import("runtime.zig");
+const utils = @import("utils.zig");
 
 pub const Instruction = enum(u8) {
     // literals
@@ -152,6 +153,12 @@ pub const ConstantType = enum(u8) {
         };
         try writer.print("{s}", .{tmp});
     }
+};
+
+pub const Function = packed struct {
+    param_count: u32,
+    locals_count: u32,
+    code: utils.FlexibleArr(u8, u32),
 };
 
 pub const Constant = struct {
@@ -321,6 +328,7 @@ pub const Object = packed struct {
 };
 
 pub const Bytecode = struct {
+    functions: []Function,
     constants: []Constant,
     current: Constant,
     global_count: usize,

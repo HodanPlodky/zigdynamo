@@ -328,6 +328,7 @@ const Compiler = struct {
         }
 
         const res = bytecode.Bytecode{
+            .functions = try self.pernament_alloc.alloc(bytecode.Function, 0),
             .constants = constants,
             .current = constants[0],
             .global_count = self.env.get_global_count(),
