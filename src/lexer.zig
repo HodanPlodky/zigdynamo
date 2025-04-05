@@ -49,24 +49,44 @@ pub const Token = union(enum) {
     wrongtok,
 };
 
+pub const Loc = struct {
+    row: usize = 1,
+    col: usize = 0,
+
+    fn new_line(self: *Loc) void {
+        self.row += 1;
+        self.col = 0;
+    }
+
+    fn next(self: *Loc) void {
+        self.col += 1;
+    }
+};
+
 pub const Lexer = struct {
+    loc: Loc,
     position: usize,
     input: []const u8,
 
     pub fn new(input: []const u8) Lexer {
-        return Lexer{ .position = 0, .input = input };
+        return Lexer{ .loc = .{}, .position = 0, .input = input };
     }
 
-    fn peek(self: *Lexer) u8 {
+    pub fn position(self: *const Lexer) usize {
+        return self.position;
+    }
+
+    fn peek(self: *const Lexer) u8 {
         return self.input[self.position];
     }
 
-    fn eof(self: *Lexer) bool {
+    fn eof(self: *const Lexer) bool {
         return self.position >= self.input.len;
     }
 
     fn next(self: *Lexer) void {
         self.position += 1;
+        self.loc.next();
     }
 
     pub fn get_token(self: *Lexer) Token {
@@ -178,7 +198,11 @@ pub const Lexer = struct {
                 },
 
                 // white space
-                ' ', '\n', '\t', '\r' => self.next(),
+                '\n' => {
+                    self.next();
+                    self.loc.new_line();
+                },
+                ' ', '\t', '\r' => self.next(),
                 else => return Token{ .wrongtok = {} },
             }
         }

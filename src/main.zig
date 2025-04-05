@@ -25,7 +25,15 @@ pub fn main() !void {
 
     const input: []const u8 = try file.reader().readAllAlloc(allocator, std.math.maxInt(usize));
     var p = parser.Parser.new(input, allocator);
-    const program = try p.parse();
+    const program = p.parse() catch |e| {
+        switch (e) {
+            parser.ParserError.UnexpectedToken => {
+                std.debug.print("Unexpected token at row: {}, col: {}\n", .{ p.lexer.loc.row, p.lexer.loc.col });
+            },
+            else => unreachable,
+        }
+        return;
+    };
 
     if (std.mem.eql(u8, "--ast", kind)) {
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
