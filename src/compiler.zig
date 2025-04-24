@@ -184,19 +184,11 @@ const LabelData = struct {
 
 const ConstantBuffer = struct {
     buffer: std.ArrayList(u8),
-    labels: std.ArrayList(LabelData),
-    label_alloc: std.mem.Allocator,
 
-    pub fn init(buffer_alloc: std.mem.Allocator, label_alloc: std.mem.Allocator) ConstantBuffer {
+    pub fn init(buffer_alloc: std.mem.Allocator) ConstantBuffer {
         return ConstantBuffer{
             .buffer = std.ArrayList(u8).init(buffer_alloc),
-            .labels = std.ArrayList(LabelData).init(label_alloc),
-            .label_alloc = label_alloc,
         };
-    }
-
-    pub fn add_inst(self: *ConstantBuffer, inst: bytecode.Instruction) void {
-        self.buffer.append(@intFromEnum(inst)) catch unreachable;
     }
 
     pub fn add_u32(self: *ConstantBuffer, value: u32) void {
@@ -211,37 +203,72 @@ const ConstantBuffer = struct {
         self.buffer.append(value) catch unreachable;
     }
 
-    pub fn set_u32(self: *const ConstantBuffer, idx: u32, value: u32) void {
+    pub fn patch_len(self: *const ConstantBuffer) void {
+        const len: u32 = @intCast(self.buffer.items.len - 4);
+        self.set_u32(0, len);
+    }
+};
+
+const FunctionBuffer = struct {
+    buffer: std.ArrayList(u8),
+    labels: std.ArrayList(LabelData),
+    label_alloc: std.mem.Allocator,
+
+    pub fn init(buffer_alloc: std.mem.Allocator, label_alloc: std.mem.Allocator) FunctionBuffer {
+        return FunctionBuffer{
+            .buffer = std.ArrayList(u8).init(buffer_alloc),
+            .labels = std.ArrayList(LabelData).init(label_alloc),
+            .label_alloc = label_alloc,
+        };
+    }
+
+    pub fn add_inst(self: *FunctionBuffer, inst: bytecode.Instruction) void {
+        self.buffer.append(@intFromEnum(inst)) catch unreachable;
+    }
+
+    pub fn add_u32(self: *FunctionBuffer, value: u32) void {
+        self.buffer.ensureTotalCapacity(self.buffer.items.len + 4) catch unreachable;
+        self.buffer.appendAssumeCapacity(@intCast((value >> 24) & 0xff));
+        self.buffer.appendAssumeCapacity(@intCast((value >> 16) & 0xff));
+        self.buffer.appendAssumeCapacity(@intCast((value >> 8) & 0xff));
+        self.buffer.appendAssumeCapacity(@intCast(value & 0xff));
+    }
+
+    pub fn add_u8(self: *FunctionBuffer, value: u8) void {
+        self.buffer.append(value) catch unreachable;
+    }
+
+    pub fn set_u32(self: *const FunctionBuffer, idx: u32, value: u32) void {
         self.buffer.items[idx] = @intCast((value >> 24) & 0xff);
         self.buffer.items[idx + 1] = @intCast((value >> 16) & 0xff);
         self.buffer.items[idx + 2] = @intCast((value >> 8) & 0xff);
         self.buffer.items[idx + 3] = @intCast(value & 0xff);
     }
 
-    fn create_label(self: *ConstantBuffer) Label {
+    fn create_label(self: *FunctionBuffer) Label {
         const idx = self.labels.items.len;
         self.labels.append(LabelData.init(self.label_alloc)) catch unreachable;
         return Label{ .idx = idx };
     }
 
-    fn set_label_position(self: *ConstantBuffer, label: Label) void {
+    fn set_label_position(self: *FunctionBuffer, label: Label) void {
         const pos = self.buffer.items.len;
         self.labels.items[label.idx].position = @intCast(pos);
     }
 
-    fn add_label_use(self: *ConstantBuffer, label: Label) void {
+    fn add_label_use(self: *FunctionBuffer, label: Label) void {
         const pos = self.buffer.items.len;
         self.labels.items[label.idx].add_use(@intCast(pos));
         // dummy label value
         self.add_u32(0xfefefefe);
     }
 
-    pub fn patch_len(self: *const ConstantBuffer) void {
+    pub fn patch_len(self: *const FunctionBuffer) void {
         const len: u32 = @intCast(self.buffer.items.len - 4);
         self.set_u32(0, len);
     }
 
-    pub fn patch_labels(self: *const ConstantBuffer) void {
+    pub fn patch_labels(self: *const FunctionBuffer) void {
         for (self.labels.items) |label| {
             for (label.uses.items) |use| {
                 self.set_u32(use, label.position);
@@ -249,7 +276,7 @@ const ConstantBuffer = struct {
         }
     }
 
-    pub fn fix_locals(self: *ConstantBuffer, unbound_vars: *const std.ArrayList(UnboundIdent), offset: u32) void {
+    pub fn fix_locals(self: *FunctionBuffer, unbound_vars: *const std.ArrayList(UnboundIdent), offset: u32) void {
         for (unbound_vars.items, 0..) |unbound, order| {
             const tmp: u32 = @intCast(order);
             for (unbound.positions.items) |pos| {
@@ -275,6 +302,7 @@ const Compiler = struct {
     pernament_alloc: std.mem.Allocator,
     scratch_alloc: std.mem.Allocator,
     constant_buffers: std.ArrayList(ConstantBuffer),
+    function_buffers: std.ArrayList(FunctionBuffer),
     env: CompilerEnv,
 
     pub fn init(pernament_alloc: std.mem.Allocator, scratch_alloc: std.mem.Allocator) Compiler {
@@ -282,6 +310,7 @@ const Compiler = struct {
             .pernament_alloc = pernament_alloc,
             .scratch_alloc = scratch_alloc,
             .constant_buffers = std.ArrayList(ConstantBuffer).init(pernament_alloc),
+            .function_buffers = std.ArrayList(FunctionBuffer).init(pernament_alloc),
             .env = CompilerEnv.init(scratch_alloc),
         };
     }
@@ -291,9 +320,9 @@ const Compiler = struct {
         // run since the global env
         // behaves dynamically
         self.gather_globals(program);
-        // padding main
-        self.constant_buffers.append(ConstantBuffer.init(self.scratch_alloc, self.scratch_alloc)) catch unreachable;
-        var main_buffer = self.create_constant(bytecode.ConstantType.main_function);
+        // padding for main (it is replaced later)
+        self.function_buffers.append(FunctionBuffer.init(self.scratch_alloc, self.scratch_alloc)) catch unreachable;
+        var main_buffer = self.create_function_buffer();
         var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
         for (program.data, 0..) |expr, i| {
             switch (expr) {
@@ -314,7 +343,7 @@ const Compiler = struct {
         main_buffer.add_inst(I.ret_main);
         self.add_constant_main(main_buffer);
 
-        for (self.constant_buffers.items) |*buffer| {
+        for (self.function_buffers.items) |*buffer| {
             buffer.patch_len();
             buffer.patch_labels();
         }
@@ -336,8 +365,8 @@ const Compiler = struct {
         return res;
     }
 
-    pub fn compile_fn(self: *Compiler, buffer: *ConstantBuffer, method: bool, function: ast.Function) void {
-        var function_constant = self.create_constant(bytecode.ConstantType.function);
+    pub fn compile_fn(self: *Compiler, buffer: *FunctionBuffer, method: bool, function: ast.Function) void {
+        var function_constant = self.create_function_buffer();
         // local count padding
         function_constant.add_u32(0);
         function_constant.add_u32(@intCast(function.params.len));
@@ -368,14 +397,14 @@ const Compiler = struct {
 
         function_constant.fix_locals(&unbound_vars, max_size);
 
-        const function_constant_idx = self.add_constant(function_constant);
+        const function_constant_idx = self.add_function(function_constant);
 
         buffer.add_inst(I.closure);
         buffer.add_u32(function_constant_idx.index);
         buffer.add_u32(@intCast(unbound_vars.items.len));
     }
 
-    pub fn compile_expr(self: *Compiler, buffer: *ConstantBuffer, unbound_vars: *std.ArrayList(UnboundIdent), tailcall: bool, expr: *const ast.Ast) void {
+    pub fn compile_expr(self: *Compiler, buffer: *FunctionBuffer, unbound_vars: *std.ArrayList(UnboundIdent), tailcall: bool, expr: *const ast.Ast) void {
         switch (expr.*) {
             ast.Ast.number => |num| {
                 if (num >= 256) {
@@ -559,7 +588,7 @@ const Compiler = struct {
         }
     }
 
-    fn compile_ident(self: *Compiler, buffer: *ConstantBuffer, ident: []const u8) bool {
+    fn compile_ident(self: *Compiler, buffer: *FunctionBuffer, ident: []const u8) bool {
         if (self.env.get_place(ident)) |place| {
             const idx = place.get_index();
             switch (place) {
@@ -582,7 +611,7 @@ const Compiler = struct {
         return true;
     }
 
-    fn set_unbound(self: *const Compiler, buffer: *const ConstantBuffer, unbound_vars: *std.ArrayList(UnboundIdent), ident: []const u8) void {
+    fn set_unbound(self: *const Compiler, buffer: *const FunctionBuffer, unbound_vars: *std.ArrayList(UnboundIdent), ident: []const u8) void {
         const position: u32 = @intCast(buffer.buffer.items.len);
         for (unbound_vars.items) |*unbound| {
             if (std.mem.eql(u8, unbound.ident, ident)) {
@@ -595,8 +624,13 @@ const Compiler = struct {
         unbound_vars.append(new_unbound) catch unreachable;
     }
 
+    fn create_function_buffer(self: *Compiler) FunctionBuffer {
+        const buffer = FunctionBuffer.init(self.pernament_alloc, self.scratch_alloc);
+        return buffer;
+    }
+
     fn create_constant(self: *Compiler, const_type: bytecode.ConstantType) ConstantBuffer {
-        var constant_buffer = ConstantBuffer.init(self.pernament_alloc, self.scratch_alloc);
+        var constant_buffer = ConstantBuffer.init(self.pernament_alloc);
         // pad length
         constant_buffer.add_u32(0);
         constant_buffer.buffer.append(@intFromEnum(const_type)) catch unreachable;
@@ -617,8 +651,13 @@ const Compiler = struct {
         return bytecode.ConstantIndex.new(@intCast(self.constant_buffers.items.len - 1));
     }
 
-    fn add_constant_main(self: *Compiler, constant_buffer: ConstantBuffer) void {
-        self.constant_buffers.items[0] = constant_buffer;
+    fn add_function(self: *Compiler, function: FunctionBuffer) bytecode.FunctionIndex {
+        self.function_buffers.append(function) catch unreachable;
+        return bytecode.FunctionIndex.new(@intCast(self.constant_buffers.items.len - 1));
+    }
+
+    fn add_constant_main(self: *Compiler, constant_buffer: FunctionBuffer) void {
+        self.function_buffers.items[0] = constant_buffer;
     }
 
     fn dedupe_constant(self: *Compiler, checked_constant: ConstantBuffer) ?bytecode.ConstantIndex {
@@ -630,7 +669,7 @@ const Compiler = struct {
         return null;
     }
 
-    fn get_constant(self: *Compiler, idx: bytecode.ConstantIndex) *ConstantBuffer {
+    fn get_constant(self: *Compiler, idx: bytecode.ConstantIndex) *FunctionBuffer {
         return &self.constant_buffers.items[@intCast(idx.index)];
     }
 

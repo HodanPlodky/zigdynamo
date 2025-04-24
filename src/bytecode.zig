@@ -287,6 +287,14 @@ pub const ConstantIndex = packed struct {
     }
 };
 
+pub const FunctionIndex = packed struct {
+    index: u32,
+
+    pub fn new(index: u32) FunctionIndex {
+        return FunctionIndex{ .index = index };
+    }
+};
+
 pub const FORWARD_TAG = 0xffffffff;
 // must be smaller then all other heap objects
 pub const Forward = packed struct {
