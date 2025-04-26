@@ -14,7 +14,7 @@ const Roots = struct {
 /// Garbage collection
 /// implemeted via copying semispaces
 pub const GC = struct {
-    const DBG: bool = true;
+    const DBG: bool = false;
     const DBGData: type = if (DBG)
         struct {
             start: i128,

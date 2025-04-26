@@ -336,7 +336,7 @@ const Compiler = struct {
         return Compiler{
             .pernament_alloc = pernament_alloc,
             .scratch_alloc = scratch_alloc,
-            .constant_buffers = std.ArrayList(ConstantBuffer).init(pernament_alloc),
+            .constant_buffers = std.ArrayList(ConstantBuffer).init(scratch_alloc),
             .function_buffers = std.ArrayList(FunctionBuffer).init(scratch_alloc),
             .env = CompilerEnv.init(scratch_alloc),
         };
