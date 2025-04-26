@@ -14,21 +14,39 @@ const Roots = struct {
 /// Garbage collection
 /// implemeted via copying semispaces
 pub const GC = struct {
+    const DBG: bool = true;
+    const DBGData: type = if (DBG)
+        struct {
+            start: i128,
+        }
+    else
+        struct {};
+
     from: runtime.Heap,
     to: runtime.Heap,
+
+    dbg_data: DBGData,
 
     pub fn init(heap_data: []u8) GC {
         // this is to make sure that all the aligns are ok
         std.debug.assert(heap_data.len % 16 == 0);
-        return GC{
-            .from = runtime.Heap.init(heap_data[0 .. heap_data.len / 2]),
-            .to = runtime.Heap.init(heap_data[heap_data.len / 2 ..]),
-        };
+        const dbg_data: DBGData = if (comptime DBG)
+            .{ .start = std.time.nanoTimestamp() }
+        else
+            .{};
+        if (comptime DBG) {
+            std.debug.print("time, before, after\n", .{});
+        }
+        return GC{ .from = runtime.Heap.init(heap_data[0 .. heap_data.len / 2]), .to = runtime.Heap.init(heap_data[heap_data.len / 2 ..]), .dbg_data = dbg_data };
     }
 
     pub fn alloc_with_additional(self: *GC, comptime T: type, count: usize, roots: Roots) *T {
         if (!self.from.check_available(T, count)) {
+            const before = self.from.curr_ptr;
             self.collect(roots);
+            if (comptime DBG) {
+                std.debug.print("{}, {}, {}\n", .{ std.time.nanoTimestamp() - self.dbg_data.start, before, self.from.curr_ptr });
+            }
         }
         return self.from.alloc_with_additional(T, count);
     }
@@ -371,7 +389,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
 
         pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: std.io.AnyWriter, heuristic: jit.Heuristic) Self {
             const meta = alloc.alloc(runtime.FunctionMetadata, bytecode.functions.count()) catch unreachable;
-            @memset(meta, runtime.FunctionMetadata{.call_counter = 0, .jit_state = 0});
+            @memset(meta, runtime.FunctionMetadata{ .call_counter = 0, .jit_state = 0 });
             return Self{
                 .bytecode = bytecode,
                 .pc = 0,

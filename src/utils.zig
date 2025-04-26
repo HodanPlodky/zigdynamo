@@ -38,7 +38,6 @@ pub fn FlexibleArr(comptime T: type, comptime Index: type) type {
             return self.get_unchecked_slice_const()[0..@intCast(self.count)];
         }
 
-
         pub fn get_unchecked_slice(self: *Self) [*]T {
             return self.get_ptr(@intCast(0));
         }

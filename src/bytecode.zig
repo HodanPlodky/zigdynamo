@@ -178,7 +178,7 @@ pub const Function = packed struct {
             }
             try writer.print("\n", .{});
         }
-    }       
+    }
 };
 
 pub const Functions = struct {
