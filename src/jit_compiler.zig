@@ -233,9 +233,6 @@ pub const JitCompiler = struct {
         var offsets = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.code.count + 4) catch unreachable;
         var jumps = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.code.count + 4) catch unreachable;
 
-        // append dummy data for header
-        offsets.appendNTimesAssumeCapacity(0xfefefefe, bytecode.Constant.function_header_size);
-
         // align
         self.code_ptr = (self.code_ptr + 15) & 0xffffffff_fffffff0;
 
