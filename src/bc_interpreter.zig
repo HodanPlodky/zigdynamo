@@ -598,8 +598,8 @@ pub fn Interpreter(comptime use_jit: bool) type {
             }
         }
 
-        fn do_closure(self: *Self, constant_idx: u64, unbound_count: u64) void {
-            const constant_idx_tmp: u32 = @intCast(constant_idx);
+        fn do_closure(self: *Self, function_idx: u64, unbound_count: u64) void {
+            const function_idx_tmp: u32 = @intCast(function_idx);
             const unbound_count_tmp: u32 = @intCast(unbound_count);
             const env = self.stack.slice_top(unbound_count_tmp);
             const closure = self.gc.alloc_with_additional(bc.Closure, unbound_count_tmp, self.get_roots());
@@ -608,7 +608,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
                 closure.env.set(idx, val);
             }
             self.stack.pop_n(unbound_count_tmp);
-            closure.function_idx = bc.FunctionIndex.new(constant_idx_tmp);
+            closure.function_idx = bc.FunctionIndex.new(function_idx_tmp);
             const code = self.bytecode.get_function(closure.function_idx);
             closure.local_count = code.locals_count;
             closure.param_count = code.param_count;
