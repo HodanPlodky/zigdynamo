@@ -17,6 +17,11 @@ pub fn FlexibleArr(comptime T: type, comptime Index: type) type {
             return @ptrFromInt(place + @sizeOf(Index) + @sizeOf(T) * index);
         }
 
+        pub fn get_ptr_const(self: *const Self, index: Index) *const T {
+            const place = @intFromPtr(&self.count);
+            return @ptrFromInt(place + @sizeOf(Index) + @sizeOf(T) * index);
+        }
+
         pub fn get(self: *Self, index: Index) T {
             return self.get_ptr(index).*;
         }
@@ -29,8 +34,17 @@ pub fn FlexibleArr(comptime T: type, comptime Index: type) type {
             return self.get_unchecked_slice()[0..@intCast(self.count)];
         }
 
+        pub fn get_slice_const(self: *const Self) []const T {
+            return self.get_unchecked_slice_const()[0..@intCast(self.count)];
+        }
+
+
         pub fn get_unchecked_slice(self: *Self) [*]T {
             return self.get_ptr(@intCast(0));
+        }
+
+        pub fn get_unchecked_slice_const(self: *const Self) [*]const T {
+            return @ptrCast(self.get_ptr_const(@intCast(0)));
         }
     };
 }

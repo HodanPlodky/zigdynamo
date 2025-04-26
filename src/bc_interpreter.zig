@@ -162,7 +162,7 @@ pub const GC = struct {
                 dst.tag = closure.tag;
                 dst.local_count = closure.local_count;
                 dst.param_count = closure.param_count;
-                dst.constant_idx = closure.constant_idx;
+                dst.function_idx = closure.function_idx;
                 dst.env.count = closure.env.count;
                 for (0..closure.env.count) |idx| {
                     const val = closure.env.get(idx);
@@ -247,10 +247,10 @@ pub const LocalEnv = struct {
         self.alloc.free(self.buffer);
     }
 
-    pub fn push_locals(self: *LocalEnv, args: []Value, local_count: u32, ret_pc: u32, ret_const: bc.ConstantIndex) void {
+    pub fn push_locals(self: *LocalEnv, args: []Value, local_count: u32, ret_pc: u32, ret_fn: bc.FunctionIndex) void {
         const old_fp: Value = Value.new_raw(@intCast(self.current_ptr));
         const tmp_pc: usize = @intCast(ret_pc);
-        const ret = Value.new_raw(tmp_pc << 32 | ret_const.index);
+        const ret = Value.new_raw(tmp_pc << 32 | ret_fn.index);
         self.current_ptr = @intCast(self.buffer.items.len);
         self.buffer.ensureTotalCapacity(self.buffer.items.len + args.len + local_count + 2) catch unreachable;
         self.buffer.appendSliceAssumeCapacity(args);
@@ -259,10 +259,10 @@ pub const LocalEnv = struct {
         self.buffer.appendAssumeCapacity(ret);
     }
 
-    pub fn push_locals_this(self: *LocalEnv, this: Value, args: []Value, local_count: u32, ret_pc: u32, ret_const: bc.ConstantIndex) void {
+    pub fn push_locals_this(self: *LocalEnv, this: Value, args: []Value, local_count: u32, ret_pc: u32, ret_fn: bc.FunctionIndex) void {
         const old_fp: Value = Value.new_raw(@intCast(self.current_ptr));
         const tmp_pc: usize = @intCast(ret_pc);
-        const ret = Value.new_raw(tmp_pc << 32 | ret_const.index);
+        const ret = Value.new_raw(tmp_pc << 32 | ret_fn.index);
         self.current_ptr = @intCast(self.buffer.items.len);
         self.buffer.ensureTotalCapacity(self.buffer.items.len + args.len + local_count + 2 + 1) catch unreachable;
         self.buffer.appendAssumeCapacity(this);
@@ -305,13 +305,13 @@ pub const LocalEnv = struct {
         };
     }
 
-    pub fn get_ret(self: *const LocalEnv) struct { ret_pc: u32, ret_const: bc.ConstantIndex } {
+    pub fn get_ret(self: *const LocalEnv) struct { ret_pc: u32, ret_fn: bc.FunctionIndex } {
         const ret = self.buffer.items[self.buffer.items.len - 1];
         const ret_pc: u32 = @intCast((ret.data >> 32));
-        const ret_const: u32 = @intCast(ret.data & 0xffffffff);
+        const ret_fn: u32 = @intCast(ret.data & 0xffffffff);
         return .{
             .ret_pc = ret_pc,
-            .ret_const = bc.ConstantIndex.new(ret_const),
+            .ret_fn = bc.FunctionIndex.new(ret_fn),
         };
     }
 
@@ -361,21 +361,25 @@ pub fn Interpreter(comptime use_jit: bool) type {
         const Self = @This();
         bytecode: bc.Bytecode,
         pc: usize,
-        curr_const: bc.ConstantIndex,
+        curr_fn: bc.FunctionIndex,
         gc: GC,
         stack: Stack,
         env: Environment,
         writer: std.io.AnyWriter,
+        function_meta: []runtime.FunctionMetadata,
         jit_compiler: jit.JitCompiler,
 
         pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: std.io.AnyWriter, heuristic: jit.Heuristic) Self {
+            const meta = alloc.alloc(runtime.FunctionMetadata, bytecode.functions.count()) catch unreachable;
+            @memset(meta, runtime.FunctionMetadata{.call_counter = 0, .jit_state = 0});
             return Self{
                 .bytecode = bytecode,
-                .pc = 5,
-                .curr_const = bc.ConstantIndex.new(0),
+                .pc = 0,
+                .curr_fn = bc.FunctionIndex.new(0),
                 .gc = GC.init(heap_data),
                 .stack = Stack.init(alloc),
                 .env = Environment.init(bytecode.global_count, alloc),
+                .function_meta = meta,
                 .jit_compiler = jit.JitCompiler.init(4096 * 1024, heuristic),
                 .writer = writer,
             };
@@ -435,8 +439,8 @@ pub fn Interpreter(comptime use_jit: bool) type {
                     bc.Instruction.ret => {
                         const restore_data = self.env.local.get_ret();
                         self.pc = restore_data.ret_pc;
-                        self.curr_const = restore_data.ret_const;
-                        self.bytecode.set_curr_const(restore_data.ret_const);
+                        self.curr_fn = restore_data.ret_fn;
+                        self.bytecode.set_curr_function(restore_data.ret_fn);
                         self.env.local.pop_locals();
                     },
                     bc.Instruction.ret_main => {
@@ -604,10 +608,10 @@ pub fn Interpreter(comptime use_jit: bool) type {
                 closure.env.set(idx, val);
             }
             self.stack.pop_n(unbound_count_tmp);
-            closure.constant_idx = bc.ConstantIndex.new(constant_idx_tmp);
-            const code = self.bytecode.get_constant(closure.constant_idx);
-            closure.local_count = code.get_u32(5);
-            closure.param_count = code.get_u32(9);
+            closure.function_idx = bc.FunctionIndex.new(constant_idx_tmp);
+            const code = self.bytecode.get_function(closure.function_idx);
+            closure.local_count = code.locals_count;
+            closure.param_count = code.param_count;
             const val = Value.new_ptr(bc.Closure, closure, ValueType.closure);
             self.stack.push(val);
         }
@@ -646,9 +650,20 @@ pub fn Interpreter(comptime use_jit: bool) type {
             const param_count = closure.param_count;
             const arg_slice = self.stack.slice_top(param_count);
             if (this) |this_val| {
-                self.env.local.push_locals_this(this_val, arg_slice, local_count, @intCast(self.pc), self.curr_const);
+                self.env.local.push_locals_this(
+                    this_val,
+                    arg_slice,
+                    local_count,
+                    @intCast(self.pc),
+                    self.curr_fn,
+                );
             } else {
-                self.env.local.push_locals(arg_slice, local_count, @intCast(self.pc), self.curr_const);
+                self.env.local.push_locals(
+                    arg_slice,
+                    local_count,
+                    @intCast(self.pc),
+                    self.curr_fn,
+                );
             }
             for (0..closure.env.count) |idx| {
                 const index: u32 = @intCast(idx);
@@ -658,8 +673,9 @@ pub fn Interpreter(comptime use_jit: bool) type {
             self.stack.pop_n(param_count);
 
             if (use_jit) {
-                const function_constant = self.bytecode.get_constant(closure.constant_idx);
-                const compiled = self.jit_compiler.compile_fn(function_constant);
+                const function = self.bytecode.get_function(closure.function_idx);
+                const meta = &self.function_meta[closure.function_idx.index];
+                const compiled = self.jit_compiler.compile_fn(function, meta);
                 if (compiled) |jitted| {
                     jitted.run(jit_state);
                 } else |err| {
@@ -669,18 +685,18 @@ pub fn Interpreter(comptime use_jit: bool) type {
                         else => @panic("cannot compile"),
                     }
 
-                    self.bytecode.set_curr_const(closure.constant_idx);
-                    self.curr_const = closure.constant_idx;
+                    self.bytecode.set_curr_function(closure.function_idx);
+                    self.curr_fn = closure.function_idx;
 
                     // header size of the closure
-                    self.pc = bc.Constant.function_header_size;
+                    self.pc = 0;
                 }
             } else {
-                self.bytecode.set_curr_const(closure.constant_idx);
-                self.curr_const = closure.constant_idx;
+                self.bytecode.set_curr_function(closure.function_idx);
+                self.curr_fn = closure.function_idx;
 
                 // header size of the closure
-                self.pc = bc.Constant.function_header_size;
+                self.pc = 0;
             }
         }
 

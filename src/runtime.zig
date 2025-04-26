@@ -243,3 +243,8 @@ pub fn print(values: []Value) void {
     }
     std.debug.print("\n", .{});
 }
+
+pub const FunctionMetadata = struct {
+    jit_state: u32,
+    call_counter: u32,
+};

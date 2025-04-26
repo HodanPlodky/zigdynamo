@@ -677,7 +677,7 @@ test "retstring" {
     const oh = ohsnap{};
     const res = try test_helper(code[0..]);
     try oh.snap(@src(),
-        \\result: 100000007 (1)
+        \\result: 7 (0)
         \\
         \\
     ).expectEqualFmt(res);

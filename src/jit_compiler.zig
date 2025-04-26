@@ -211,30 +211,27 @@ pub const JitCompiler = struct {
         @panic("cannot do panic jump");
     }
 
-    pub fn compile_fn(self: *JitCompiler, function: bytecode.Constant) JitError!JitFunction {
-        switch (function.get_type()) {
-            bytecode.ConstantType.function => self.pc = 0,
-            else => return JitError.CanOnlyCompileFn,
-        }
+    pub fn compile_fn(
+        self: *JitCompiler,
+        function: *const bytecode.Function,
+        metadata: *runtime.FunctionMetadata,
+    ) JitError!JitFunction {
+        self.pc = 0;
 
-        const jit_offset = bytecode.Constant.function_header_size - 4;
-        const jit_state: u32 = function.get_u32(@intCast(jit_offset));
-        if ((jit_state & 0xfffffff0) != 0) {
-            return JitFunction{ .code = @ptrCast(&self.code_slice[jit_state]) };
+        if (metadata.jit_state != 0) {
+            return JitFunction{ .code = @ptrCast(&self.code_slice[metadata.jit_state]) };
         }
-        var counter: u8 = @intCast(jit_state & 0x0f);
 
         // this heuristic is purely chosen by vibe
-        if (counter < self.heuristic.call_count) {
-            counter += 1;
-            function.data[jit_offset + 3] = counter;
+        if (metadata.call_counter < self.heuristic.call_count) {
+            metadata.call_counter += 1;
             return JitError.HeuristicNotMet;
         }
 
         _ = std.os.linux.mprotect(self.code_slice.ptr, self.code_slice.len, std.os.linux.PROT.WRITE | std.os.linux.PROT.READ);
 
-        var offsets = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4) catch unreachable;
-        var jumps = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4) catch unreachable;
+        var offsets = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.code.count + 4) catch unreachable;
+        var jumps = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.code.count + 4) catch unreachable;
 
         // append dummy data for header
         offsets.appendNTimesAssumeCapacity(0xfefefefe, bytecode.Constant.function_header_size);
@@ -245,7 +242,7 @@ pub const JitCompiler = struct {
         const start = self.code_ptr;
 
         // ignore the header of function
-        self.bytecode = function.get_slice()[(bytecode.Constant.function_header_size)..];
+        self.bytecode = function.code.get_slice_const();
 
         if (BREAKPOINT) {
             try self.emit_break();
@@ -261,11 +258,7 @@ pub const JitCompiler = struct {
         const ok = self.scratch_arena.reset(std.heap.ArenaAllocator.ResetMode.retain_capacity);
         std.debug.assert(ok);
 
-        // set jit offset
-        function.data[jit_offset] = @intCast((start >> 24) & 0xff);
-        function.data[jit_offset + 1] = @intCast((start >> 16) & 0xff);
-        function.data[jit_offset + 2] = @intCast((start >> 8) & 0xff);
-        function.data[jit_offset + 3] = @intCast(start & 0xff);
+        metadata.jit_state = @intCast(start);
 
         _ = std.os.linux.mprotect(self.code_slice.ptr, self.code_slice.len, std.os.linux.PROT.EXEC | std.os.linux.PROT.READ);
         return JitFunction{ .code = @ptrCast(&self.code_slice[start]) };

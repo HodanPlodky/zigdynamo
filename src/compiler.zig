@@ -203,6 +203,13 @@ const ConstantBuffer = struct {
         self.buffer.append(value) catch unreachable;
     }
 
+    pub fn set_u32(self: *const ConstantBuffer, idx: u32, value: u32) void {
+        self.buffer.items[idx] = @intCast((value >> 24) & 0xff);
+        self.buffer.items[idx + 1] = @intCast((value >> 16) & 0xff);
+        self.buffer.items[idx + 2] = @intCast((value >> 8) & 0xff);
+        self.buffer.items[idx + 3] = @intCast(value & 0xff);
+    }
+
     pub fn patch_len(self: *const ConstantBuffer) void {
         const len: u32 = @intCast(self.buffer.items.len - 4);
         self.set_u32(0, len);
@@ -210,16 +217,35 @@ const ConstantBuffer = struct {
 };
 
 const FunctionBuffer = struct {
-    buffer: std.ArrayList(u8),
+    const BufferType = std.ArrayListAligned(u8, @alignOf(bytecode.Function));
+    const functionHeader: usize = 12;
+
+    buffer: BufferType,
     labels: std.ArrayList(LabelData),
     label_alloc: std.mem.Allocator,
 
     pub fn init(buffer_alloc: std.mem.Allocator, label_alloc: std.mem.Allocator) FunctionBuffer {
-        return FunctionBuffer{
-            .buffer = std.ArrayList(u8).init(buffer_alloc),
+        var res = FunctionBuffer{
+            .buffer = BufferType.init(buffer_alloc),
             .labels = std.ArrayList(LabelData).init(label_alloc),
             .label_alloc = label_alloc,
         };
+
+        // param count
+        res.buffer.appendNTimes(0, 4) catch unreachable;
+        // local count
+        res.buffer.appendNTimes(0, 4) catch unreachable;
+        // size padding
+        res.buffer.appendNTimes(0, 4) catch unreachable;
+        return res;
+    }
+
+    pub fn get_fn_ptr(self: *const FunctionBuffer) *const bytecode.Function {
+        return @ptrCast(@alignCast(self.buffer.items.ptr));
+    }
+
+    pub fn get_fn_ptr_mut(self: *FunctionBuffer) *bytecode.Function {
+        return @ptrCast(@alignCast(self.buffer.items.ptr));
     }
 
     pub fn add_inst(self: *FunctionBuffer, inst: bytecode.Instruction) void {
@@ -253,7 +279,7 @@ const FunctionBuffer = struct {
 
     fn set_label_position(self: *FunctionBuffer, label: Label) void {
         const pos = self.buffer.items.len;
-        self.labels.items[label.idx].position = @intCast(pos);
+        self.labels.items[label.idx].position = @intCast(pos - functionHeader);
     }
 
     fn add_label_use(self: *FunctionBuffer, label: Label) void {
@@ -263,9 +289,10 @@ const FunctionBuffer = struct {
         self.add_u32(0xfefefefe);
     }
 
-    pub fn patch_len(self: *const FunctionBuffer) void {
-        const len: u32 = @intCast(self.buffer.items.len - 4);
-        self.set_u32(0, len);
+    pub fn patch_len(self: *FunctionBuffer) void {
+        const len: u32 = @intCast(self.buffer.items.len - functionHeader);
+        var tmp = self.get_fn_ptr_mut();
+        tmp.code.count = len;
     }
 
     pub fn patch_labels(self: *const FunctionBuffer) void {
@@ -310,7 +337,7 @@ const Compiler = struct {
             .pernament_alloc = pernament_alloc,
             .scratch_alloc = scratch_alloc,
             .constant_buffers = std.ArrayList(ConstantBuffer).init(pernament_alloc),
-            .function_buffers = std.ArrayList(FunctionBuffer).init(pernament_alloc),
+            .function_buffers = std.ArrayList(FunctionBuffer).init(scratch_alloc),
             .env = CompilerEnv.init(scratch_alloc),
         };
     }
@@ -348,18 +375,27 @@ const Compiler = struct {
             buffer.patch_labels();
         }
 
+        for (self.constant_buffers.items) |*buffer| {
+            buffer.patch_len();
+        }
+
         std.debug.assert(unbound_vars.items.len == 0);
 
         var constants = try self.pernament_alloc.alloc(bytecode.Constant, self.constant_buffers.items.len);
+        var functions = try self.pernament_alloc.alloc(*const bytecode.Function, self.function_buffers.items.len);
 
         for (self.constant_buffers.items, 0..) |item, index| {
             constants[index] = bytecode.Constant.new(@ptrCast(item.buffer.items));
         }
 
+        for (self.function_buffers.items, 0..) |*item, index| {
+            functions[index] = item.get_fn_ptr();
+        }
+
         const res = bytecode.Bytecode{
-            .functions = try self.pernament_alloc.alloc(bytecode.Function, 0),
+            .functions = bytecode.Functions.new(functions),
             .constants = constants,
-            .current = constants[0],
+            .current = functions[0].code.get_unchecked_slice_const(),
             .global_count = self.env.get_global_count(),
         };
         return res;
@@ -368,10 +404,7 @@ const Compiler = struct {
     pub fn compile_fn(self: *Compiler, buffer: *FunctionBuffer, method: bool, function: ast.Function) void {
         var function_constant = self.create_function_buffer();
         // local count padding
-        function_constant.add_u32(0);
-        function_constant.add_u32(@intCast(function.params.len));
-        // jit offset set to 0 which is always panic handler
-        function_constant.add_u32(0);
+        function_constant.get_fn_ptr_mut().param_count = @intCast(function.params.len);
         var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
         self.env.push();
         if (method) {
@@ -385,7 +418,7 @@ const Compiler = struct {
         self.env.pop();
 
         const unbound_count: u32 = @intCast(unbound_vars.items.len);
-        function_constant.set_u32(5, max_size + unbound_count);
+        function_constant.get_fn_ptr_mut().locals_count = max_size + unbound_count;
         function_constant.add_inst(I.ret);
 
         for (unbound_vars.items) |unbound| {
@@ -653,7 +686,7 @@ const Compiler = struct {
 
     fn add_function(self: *Compiler, function: FunctionBuffer) bytecode.FunctionIndex {
         self.function_buffers.append(function) catch unreachable;
-        return bytecode.FunctionIndex.new(@intCast(self.constant_buffers.items.len - 1));
+        return bytecode.FunctionIndex.new(@intCast(self.function_buffers.items.len - 1));
     }
 
     fn add_constant_main(self: *Compiler, constant_buffer: FunctionBuffer) void {
@@ -695,15 +728,15 @@ test "basic compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (17 bytes)
-        \\	5: push_byte 1
-        \\	7: push_byte 2
-        \\	9: push_byte 2
-        \\	11: mul
-        \\	12: add
-        \\	13: push_byte 3
-        \\	15: sub
-        \\	16: ret_main
+        \\function (12 bytes)
+        \\	0: push_byte 1
+        \\	2: push_byte 2
+        \\	4: push_byte 2
+        \\	6: mul
+        \\	7: add
+        \\	8: push_byte 3
+        \\	10: sub
+        \\	11: ret_main
         \\
         \\
     ).expectEqualFmt(res);
@@ -723,14 +756,14 @@ test "let compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (19 bytes)
-        \\	5: push_byte 1
-        \\	7: set_global 0 0 0 0
-        \\	12: pop
-        \\	13: get_global_small 0
-        \\	15: push_byte 1
-        \\	17: add
-        \\	18: ret_main
+        \\function (14 bytes)
+        \\	0: push_byte 1
+        \\	2: set_global 0 0 0 0
+        \\	7: pop
+        \\	8: get_global_small 0
+        \\	10: push_byte 1
+        \\	12: add
+        \\	13: ret_main
         \\
         \\
     ).expectEqualFmt(res);
@@ -750,16 +783,16 @@ test "condition compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (32 bytes)
-        \\	5: true
-        \\	6: set_global 0 0 0 0
-        \\	11: pop
-        \\	12: get_global_small 0
-        \\	14: branch 0 0 0 26
-        \\	19: push_byte 2
-        \\	21: jump 0 0 0 31
-        \\	26: push 0 0 3 232
-        \\	31: ret_main
+        \\function (27 bytes)
+        \\	0: true
+        \\	1: set_global 0 0 0 0
+        \\	6: pop
+        \\	7: get_global_small 0
+        \\	9: branch 0 0 0 21
+        \\	14: push_byte 2
+        \\	16: jump 0 0 0 26
+        \\	21: push 0 0 3 232
+        \\	26: ret_main
         \\
         \\
     ).expectEqualFmt(res);
@@ -783,23 +816,23 @@ test "object compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (53 bytes)
-        \\	5: nil
-        \\	6: push_byte 1
-        \\	8: string 0 0 0 3
-        \\	13: object 0 0 0 4
-        \\	18: set_global 0 0 0 0
-        \\	23: pop
-        \\	24: get_global_small 0
-        \\	26: get_field 0 0 0 1
-        \\	31: push_byte 1
-        \\	33: add
-        \\	34: print 0 0 0 1
-        \\	39: pop
-        \\	40: get_global_small 0
-        \\	42: get_field 0 0 0 2
-        \\	47: print 0 0 0 1
-        \\	52: ret_main
+        \\function (48 bytes)
+        \\	0: nil
+        \\	1: push_byte 1
+        \\	3: string 0 0 0 2
+        \\	8: object 0 0 0 3
+        \\	13: set_global 0 0 0 0
+        \\	18: pop
+        \\	19: get_global_small 0
+        \\	21: get_field 0 0 0 0
+        \\	26: push_byte 1
+        \\	28: add
+        \\	29: print 0 0 0 1
+        \\	34: pop
+        \\	35: get_global_small 0
+        \\	37: get_field 0 0 0 1
+        \\	42: print 0 0 0 1
+        \\	47: ret_main
         \\
         \\string (6 bytes)
         \\string: a
@@ -811,7 +844,7 @@ test "object compiler" {
         \\string: x
         \\
         \\class (13 bytes)
-        \\class: 1 2
+        \\class: 0 1
         \\
     ).expectEqualFmt(res);
 }
@@ -836,33 +869,33 @@ test "object 2 compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (79 bytes)
-        \\	5: nil
-        \\	6: push_byte 1
-        \\	8: string 0 0 0 3
-        \\	13: object 0 0 0 4
-        \\	18: set_global 0 0 0 0
-        \\	23: pop
-        \\	24: get_global_small 0
-        \\	26: get_field 0 0 0 1
-        \\	31: push_byte 1
-        \\	33: add
-        \\	34: print 0 0 0 1
-        \\	39: pop
-        \\	40: get_global_small 0
-        \\	42: get_field 0 0 0 2
-        \\	47: print 0 0 0 1
-        \\	52: pop
-        \\	53: push_byte 2
-        \\	55: get_global_small 0
-        \\	57: set_field 0 0 0 1
-        \\	62: pop
-        \\	63: get_global_small 0
-        \\	65: get_field 0 0 0 1
-        \\	70: push_byte 1
-        \\	72: add
-        \\	73: print 0 0 0 1
-        \\	78: ret_main
+        \\function (74 bytes)
+        \\	0: nil
+        \\	1: push_byte 1
+        \\	3: string 0 0 0 2
+        \\	8: object 0 0 0 3
+        \\	13: set_global 0 0 0 0
+        \\	18: pop
+        \\	19: get_global_small 0
+        \\	21: get_field 0 0 0 0
+        \\	26: push_byte 1
+        \\	28: add
+        \\	29: print 0 0 0 1
+        \\	34: pop
+        \\	35: get_global_small 0
+        \\	37: get_field 0 0 0 1
+        \\	42: print 0 0 0 1
+        \\	47: pop
+        \\	48: push_byte 2
+        \\	50: get_global_small 0
+        \\	52: set_field 0 0 0 0
+        \\	57: pop
+        \\	58: get_global_small 0
+        \\	60: get_field 0 0 0 0
+        \\	65: push_byte 1
+        \\	67: add
+        \\	68: print 0 0 0 1
+        \\	73: ret_main
         \\
         \\string (6 bytes)
         \\string: a
@@ -874,7 +907,7 @@ test "object 2 compiler" {
         \\string: x
         \\
         \\class (13 bytes)
-        \\class: 1 2
+        \\class: 0 1
         \\
     ).expectEqualFmt(res);
 }
@@ -902,30 +935,38 @@ test "object 3 compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (76 bytes)
-        \\	5: nil
-        \\	6: push_byte 1
-        \\	8: string 0 0 0 3
-        \\	13: closure 0 0 0 5 0 0 0 0
-        \\	22: object 0 0 0 6
-        \\	27: set_global 0 0 0 0
-        \\	32: pop
-        \\	33: push_byte 1
-        \\	35: get_global_small 0
-        \\	37: methodcall 0 0 0 4
-        \\	42: pop
-        \\	43: get_global_small 0
-        \\	45: get_field 0 0 0 2
-        \\	50: print 0 0 0 1
-        \\	55: pop
-        \\	56: push_byte 2
-        \\	58: get_global_small 0
-        \\	60: set_field 0 0 0 1
-        \\	65: pop
-        \\	66: push_byte 2
-        \\	68: get_global_small 0
-        \\	70: methodcall 0 0 0 4
-        \\	75: ret_main
+        \\function (71 bytes)
+        \\	0: nil
+        \\	1: push_byte 1
+        \\	3: string 0 0 0 2
+        \\	8: closure 0 0 0 1 0 0 0 0
+        \\	17: object 0 0 0 4
+        \\	22: set_global 0 0 0 0
+        \\	27: pop
+        \\	28: push_byte 1
+        \\	30: get_global_small 0
+        \\	32: methodcall 0 0 0 3
+        \\	37: pop
+        \\	38: get_global_small 0
+        \\	40: get_field 0 0 0 1
+        \\	45: print 0 0 0 1
+        \\	50: pop
+        \\	51: push_byte 2
+        \\	53: get_global_small 0
+        \\	55: set_field 0 0 0 0
+        \\	60: pop
+        \\	61: push_byte 2
+        \\	63: get_global_small 0
+        \\	65: methodcall 0 0 0 3
+        \\	70: ret_main
+        \\
+        \\function (16 bytes)
+        \\	0: get_small 0
+        \\	2: get_field 0 0 0 0
+        \\	7: get_small 1
+        \\	9: add
+        \\	10: print 0 0 0 1
+        \\	15: ret
         \\
         \\string (6 bytes)
         \\string: a
@@ -939,16 +980,8 @@ test "object 3 compiler" {
         \\string (6 bytes)
         \\string: f
         \\
-        \\function (33 bytes)
-        \\	17: get_small 0
-        \\	19: get_field 0 0 0 1
-        \\	24: get_small 1
-        \\	26: add
-        \\	27: print 0 0 0 1
-        \\	32: ret
-        \\
         \\class (17 bytes)
-        \\class: 1 2 4
+        \\class: 0 1 3
         \\
     ).expectEqualFmt(res);
 }
@@ -1033,64 +1066,211 @@ test "linked list" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
-        \\main_function (172 bytes)
-        \\	5: closure 0 0 0 4 0 0 0 0
-        \\	14: set_global 0 0 0 0
-        \\	19: pop
-        \\	20: closure 0 0 0 15 0 0 0 0
-        \\	29: set_global 0 0 0 1
-        \\	34: pop
-        \\	35: get_global_small 1
-        \\	37: call
-        \\	38: set_global 0 0 0 2
-        \\	43: pop
-        \\	44: push_byte 0
-        \\	46: set_global 0 0 0 3
-        \\	51: pop
-        \\	52: nil
-        \\	53: get_global_small 3
-        \\	55: push_byte 100
-        \\	57: lt
-        \\	58: branch 0 0 0 68
-        \\	63: jump 0 0 0 163
-        \\	68: pop
-        \\	69: push_byte 1
-        \\	71: get_global_small 2
-        \\	73: methodcall 0 0 0 6
-        \\	78: pop
-        \\	79: push_byte 2
-        \\	81: get_global_small 2
-        \\	83: methodcall 0 0 0 6
-        \\	88: pop
-        \\	89: push_byte 3
-        \\	91: get_global_small 2
-        \\	93: methodcall 0 0 0 6
-        \\	98: pop
-        \\	99: push_byte 42
-        \\	101: get_global_small 2
-        \\	103: methodcall 0 0 0 8
-        \\	108: pop
-        \\	109: get_global_small 2
-        \\	111: methodcall 0 0 0 10
-        \\	116: print 0 0 0 1
-        \\	121: pop
-        \\	122: get_global_small 2
-        \\	124: methodcall 0 0 0 10
-        \\	129: print 0 0 0 1
-        \\	134: pop
-        \\	135: get_global_small 2
-        \\	137: methodcall 0 0 0 10
-        \\	142: print 0 0 0 1
-        \\	147: pop
-        \\	148: get_global_small 3
-        \\	150: push_byte 1
-        \\	152: add
-        \\	153: set_global 0 0 0 3
-        \\	158: jump 0 0 0 53
-        \\	163: pop
-        \\	164: get_global_small 2
-        \\	166: methodcall 0 0 0 12
-        \\	171: ret_main
+        \\function (167 bytes)
+        \\	0: closure 0 0 0 1 0 0 0 0
+        \\	9: set_global 0 0 0 0
+        \\	14: pop
+        \\	15: closure 0 0 0 6 0 0 0 0
+        \\	24: set_global 0 0 0 1
+        \\	29: pop
+        \\	30: get_global_small 1
+        \\	32: call
+        \\	33: set_global 0 0 0 2
+        \\	38: pop
+        \\	39: push_byte 0
+        \\	41: set_global 0 0 0 3
+        \\	46: pop
+        \\	47: nil
+        \\	48: get_global_small 3
+        \\	50: push_byte 100
+        \\	52: lt
+        \\	53: branch 0 0 0 63
+        \\	58: jump 0 0 0 158
+        \\	63: pop
+        \\	64: push_byte 1
+        \\	66: get_global_small 2
+        \\	68: methodcall 0 0 0 4
+        \\	73: pop
+        \\	74: push_byte 2
+        \\	76: get_global_small 2
+        \\	78: methodcall 0 0 0 4
+        \\	83: pop
+        \\	84: push_byte 3
+        \\	86: get_global_small 2
+        \\	88: methodcall 0 0 0 4
+        \\	93: pop
+        \\	94: push_byte 42
+        \\	96: get_global_small 2
+        \\	98: methodcall 0 0 0 5
+        \\	103: pop
+        \\	104: get_global_small 2
+        \\	106: methodcall 0 0 0 6
+        \\	111: print 0 0 0 1
+        \\	116: pop
+        \\	117: get_global_small 2
+        \\	119: methodcall 0 0 0 6
+        \\	124: print 0 0 0 1
+        \\	129: pop
+        \\	130: get_global_small 2
+        \\	132: methodcall 0 0 0 6
+        \\	137: print 0 0 0 1
+        \\	142: pop
+        \\	143: get_global_small 3
+        \\	145: push_byte 1
+        \\	147: add
+        \\	148: set_global 0 0 0 3
+        \\	153: jump 0 0 0 48
+        \\	158: pop
+        \\	159: get_global_small 2
+        \\	161: methodcall 0 0 0 7
+        \\	166: ret_main
+        \\
+        \\function (10 bytes)
+        \\	0: nil
+        \\	1: get_small 0
+        \\	3: nil
+        \\	4: object 0 0 0 2
+        \\	9: ret
+        \\
+        \\function (96 bytes)
+        \\	0: get_small 0
+        \\	2: get_field 0 0 0 3
+        \\	7: nil
+        \\	8: eq
+        \\	9: branch 0 0 0 83
+        \\	14: get_small 0
+        \\	16: get_field 0 0 0 3
+        \\	21: set 0 0 0 2
+        \\	26: pop
+        \\	27: nil
+        \\	28: get_small 2
+        \\	30: get_field 0 0 0 1
+        \\	35: nil
+        \\	36: ne
+        \\	37: branch 0 0 0 47
+        \\	42: jump 0 0 0 65
+        \\	47: pop
+        \\	48: get_small 2
+        \\	50: get_field 0 0 0 1
+        \\	55: set 0 0 0 2
+        \\	60: jump 0 0 0 28
+        \\	65: pop
+        \\	66: get_small 1
+        \\	68: get_global_small 0
+        \\	70: call
+        \\	71: get_small 2
+        \\	73: set_field 0 0 0 1
+        \\	78: jump 0 0 0 95
+        \\	83: get_small 1
+        \\	85: get_global_small 0
+        \\	87: call
+        \\	88: get_small 0
+        \\	90: set_field 0 0 0 3
+        \\	95: ret
+        \\
+        \\function (41 bytes)
+        \\	0: get_small 0
+        \\	2: get_field 0 0 0 3
+        \\	7: set 0 0 0 2
+        \\	12: pop
+        \\	13: get_small 1
+        \\	15: get_global_small 0
+        \\	17: call
+        \\	18: get_small 0
+        \\	20: set_field 0 0 0 3
+        \\	25: pop
+        \\	26: get_small 2
+        \\	28: get_small 0
+        \\	30: get_field 0 0 0 3
+        \\	35: set_field 0 0 0 1
+        \\	40: ret
+        \\
+        \\function (156 bytes)
+        \\	0: get_small 0
+        \\	2: get_field 0 0 0 3
+        \\	7: nil
+        \\	8: eq
+        \\	9: branch 0 0 0 154
+        \\	14: get_small 0
+        \\	16: get_field 0 0 0 3
+        \\	21: get_field 0 0 0 1
+        \\	26: nil
+        \\	27: eq
+        \\	28: branch 0 0 0 119
+        \\	33: get_small 0
+        \\	35: get_field 0 0 0 3
+        \\	40: set 0 0 0 1
+        \\	45: pop
+        \\	46: nil
+        \\	47: get_small 1
+        \\	49: get_field 0 0 0 1
+        \\	54: get_field 0 0 0 1
+        \\	59: nil
+        \\	60: ne
+        \\	61: branch 0 0 0 71
+        \\	66: jump 0 0 0 89
+        \\	71: pop
+        \\	72: get_small 1
+        \\	74: get_field 0 0 0 1
+        \\	79: set 0 0 0 1
+        \\	84: jump 0 0 0 47
+        \\	89: pop
+        \\	90: get_small 1
+        \\	92: get_field 0 0 0 0
+        \\	97: set 0 0 0 2
+        \\	102: pop
+        \\	103: nil
+        \\	104: get_small 1
+        \\	106: set_field 0 0 0 1
+        \\	111: pop
+        \\	112: get_small 2
+        \\	114: jump 0 0 0 149
+        \\	119: get_small 0
+        \\	121: get_field 0 0 0 3
+        \\	126: set 0 0 0 3
+        \\	131: pop
+        \\	132: get_small 0
+        \\	134: get_field 0 0 0 3
+        \\	139: nil
+        \\	140: eq
+        \\	141: pop
+        \\	142: get_small 1
+        \\	144: get_field 0 0 0 0
+        \\	149: jump 0 0 0 155
+        \\	154: nil
+        \\	155: ret
+        \\
+        \\function (60 bytes)
+        \\	0: get_small 0
+        \\	2: get_field 0 0 0 3
+        \\	7: set 0 0 0 1
+        \\	12: pop
+        \\	13: nil
+        \\	14: get_small 1
+        \\	16: nil
+        \\	17: ne
+        \\	18: branch 0 0 0 28
+        \\	23: jump 0 0 0 59
+        \\	28: pop
+        \\	29: get_small 1
+        \\	31: get_field 0 0 0 0
+        \\	36: print 0 0 0 1
+        \\	41: pop
+        \\	42: get_small 1
+        \\	44: get_field 0 0 0 1
+        \\	49: set 0 0 0 1
+        \\	54: jump 0 0 0 14
+        \\	59: ret
+        \\
+        \\function (44 bytes)
+        \\	0: nil
+        \\	1: nil
+        \\	2: closure 0 0 0 2 0 0 0 0
+        \\	11: closure 0 0 0 3 0 0 0 0
+        \\	20: closure 0 0 0 4 0 0 0 0
+        \\	29: closure 0 0 0 5 0 0 0 0
+        \\	38: object 0 0 0 8
+        \\	43: ret
         \\
         \\string (8 bytes)
         \\string: val
@@ -1099,171 +1279,24 @@ test "linked list" {
         \\string: next
         \\
         \\class (13 bytes)
-        \\class: 1 2
-        \\function (27 bytes)
-        \\	17: nil
-        \\	18: get_small 0
-        \\	20: nil
-        \\	21: object 0 0 0 3
-        \\	26: ret
-        \\
+        \\class: 0 1
         \\string (9 bytes)
         \\string: head
         \\
         \\string (11 bytes)
         \\string: append
         \\
-        \\function (113 bytes)
-        \\	17: get_small 0
-        \\	19: get_field 0 0 0 5
-        \\	24: nil
-        \\	25: eq
-        \\	26: branch 0 0 0 100
-        \\	31: get_small 0
-        \\	33: get_field 0 0 0 5
-        \\	38: set 0 0 0 2
-        \\	43: pop
-        \\	44: nil
-        \\	45: get_small 2
-        \\	47: get_field 0 0 0 2
-        \\	52: nil
-        \\	53: ne
-        \\	54: branch 0 0 0 64
-        \\	59: jump 0 0 0 82
-        \\	64: pop
-        \\	65: get_small 2
-        \\	67: get_field 0 0 0 2
-        \\	72: set 0 0 0 2
-        \\	77: jump 0 0 0 45
-        \\	82: pop
-        \\	83: get_small 1
-        \\	85: get_global_small 0
-        \\	87: call
-        \\	88: get_small 2
-        \\	90: set_field 0 0 0 2
-        \\	95: jump 0 0 0 112
-        \\	100: get_small 1
-        \\	102: get_global_small 0
-        \\	104: call
-        \\	105: get_small 0
-        \\	107: set_field 0 0 0 5
-        \\	112: ret
-        \\
         \\string (12 bytes)
         \\string: prepend
-        \\
-        \\function (58 bytes)
-        \\	17: get_small 0
-        \\	19: get_field 0 0 0 5
-        \\	24: set 0 0 0 2
-        \\	29: pop
-        \\	30: get_small 1
-        \\	32: get_global_small 0
-        \\	34: call
-        \\	35: get_small 0
-        \\	37: set_field 0 0 0 5
-        \\	42: pop
-        \\	43: get_small 2
-        \\	45: get_small 0
-        \\	47: get_field 0 0 0 5
-        \\	52: set_field 0 0 0 2
-        \\	57: ret
         \\
         \\string (8 bytes)
         \\string: pop
         \\
-        \\function (173 bytes)
-        \\	17: get_small 0
-        \\	19: get_field 0 0 0 5
-        \\	24: nil
-        \\	25: eq
-        \\	26: branch 0 0 0 171
-        \\	31: get_small 0
-        \\	33: get_field 0 0 0 5
-        \\	38: get_field 0 0 0 2
-        \\	43: nil
-        \\	44: eq
-        \\	45: branch 0 0 0 136
-        \\	50: get_small 0
-        \\	52: get_field 0 0 0 5
-        \\	57: set 0 0 0 1
-        \\	62: pop
-        \\	63: nil
-        \\	64: get_small 1
-        \\	66: get_field 0 0 0 2
-        \\	71: get_field 0 0 0 2
-        \\	76: nil
-        \\	77: ne
-        \\	78: branch 0 0 0 88
-        \\	83: jump 0 0 0 106
-        \\	88: pop
-        \\	89: get_small 1
-        \\	91: get_field 0 0 0 2
-        \\	96: set 0 0 0 1
-        \\	101: jump 0 0 0 64
-        \\	106: pop
-        \\	107: get_small 1
-        \\	109: get_field 0 0 0 1
-        \\	114: set 0 0 0 2
-        \\	119: pop
-        \\	120: nil
-        \\	121: get_small 1
-        \\	123: set_field 0 0 0 2
-        \\	128: pop
-        \\	129: get_small 2
-        \\	131: jump 0 0 0 166
-        \\	136: get_small 0
-        \\	138: get_field 0 0 0 5
-        \\	143: set 0 0 0 3
-        \\	148: pop
-        \\	149: get_small 0
-        \\	151: get_field 0 0 0 5
-        \\	156: nil
-        \\	157: eq
-        \\	158: pop
-        \\	159: get_small 1
-        \\	161: get_field 0 0 0 1
-        \\	166: jump 0 0 0 172
-        \\	171: nil
-        \\	172: ret
-        \\
         \\string (10 bytes)
         \\string: debug
         \\
-        \\function (77 bytes)
-        \\	17: get_small 0
-        \\	19: get_field 0 0 0 5
-        \\	24: set 0 0 0 1
-        \\	29: pop
-        \\	30: nil
-        \\	31: get_small 1
-        \\	33: nil
-        \\	34: ne
-        \\	35: branch 0 0 0 45
-        \\	40: jump 0 0 0 76
-        \\	45: pop
-        \\	46: get_small 1
-        \\	48: get_field 0 0 0 1
-        \\	53: print 0 0 0 1
-        \\	58: pop
-        \\	59: get_small 1
-        \\	61: get_field 0 0 0 2
-        \\	66: set 0 0 0 1
-        \\	71: jump 0 0 0 31
-        \\	76: ret
-        \\
         \\class (25 bytes)
-        \\class: 5 6 8 10 12
-        \\function (61 bytes)
-        \\	17: nil
-        \\	18: nil
-        \\	19: closure 0 0 0 7 0 0 0 0
-        \\	28: closure 0 0 0 9 0 0 0 0
-        \\	37: closure 0 0 0 11 0 0 0 0
-        \\	46: closure 0 0 0 13 0 0 0 0
-        \\	55: object 0 0 0 14
-        \\	60: ret
-        \\
+        \\class: 3 4 5 6 7
         \\
     ).expectEqualFmt(res);
 }
