@@ -35,17 +35,19 @@ pub const GC = struct {
         else
             .{};
         if (comptime DBG) {
-            std.debug.print("time, before, after\n", .{});
+            std.debug.print("time, heap_size\n", .{});
         }
         return GC{ .from = runtime.Heap.init(heap_data[0 .. heap_data.len / 2]), .to = runtime.Heap.init(heap_data[heap_data.len / 2 ..]), .dbg_data = dbg_data };
     }
 
     pub fn alloc_with_additional(self: *GC, comptime T: type, count: usize, roots: Roots) *T {
         if (!self.from.check_available(T, count)) {
-            const before = self.from.curr_ptr;
+            if (comptime DBG) {
+                std.debug.print("{}, {}\n", .{ std.time.nanoTimestamp() - self.dbg_data.start, self.from.curr_ptr });
+            }
             self.collect(roots);
             if (comptime DBG) {
-                std.debug.print("{}, {}, {}\n", .{ std.time.nanoTimestamp() - self.dbg_data.start, before, self.from.curr_ptr });
+                std.debug.print("{}, {}\n", .{ std.time.nanoTimestamp() - self.dbg_data.start, self.from.curr_ptr });
             }
         }
         return self.from.alloc_with_additional(T, count);

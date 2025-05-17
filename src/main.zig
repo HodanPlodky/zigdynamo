@@ -6,7 +6,7 @@ const bc = @import("bc_interpreter.zig");
 const ast = @import("ast.zig");
 
 const STACK_SIZE = 4096;
-const HEAP_SIZE = 1024 * 40;
+const HEAP_SIZE = 1024 * 256;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -34,6 +34,7 @@ pub fn main() !void {
             try allocator.allocWithOptions(u8, HEAP_SIZE, 16, null),
             gpa.allocator(),
         );
+
         defer ast_inter.deinit();
         const val = ast_inter.run(program);
         std.debug.print("{}\n", .{val});
@@ -49,8 +50,7 @@ pub fn main() !void {
             writer,
             .{},
         );
-        const val = inter.run();
-        std.debug.print("{}\n", .{val});
+        _ = inter.run();
     } else if (std.mem.eql(u8, "--jit", kind)) {
         var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         const alloc = runtime_arena.allocator();
@@ -63,8 +63,7 @@ pub fn main() !void {
             writer,
             .{},
         );
-        const val = inter.run();
-        std.debug.print("{}\n", .{val});
+        _ = inter.run();
     } else if (std.mem.eql(u8, "--cmp", kind)) {
         const bytecode = compiler.compile(program, allocator) catch @panic("error");
         std.debug.print("{}\n", .{bytecode});
