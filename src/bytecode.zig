@@ -299,28 +299,6 @@ pub const Constant = struct {
             },
         }
     }
-
-    fn function_format(
-        self: *const Constant,
-        writer: anytype,
-    ) !void {
-        var i: usize = switch (self.get_type()) {
-            ConstantType.function => Constant.function_header_size,
-            ConstantType.main_function => 5,
-            else => 0,
-        };
-        const size = self.get_size() + 4;
-        while (i < size) {
-            const inst: Instruction = @enumFromInt(self.data[i]);
-            try writer.print("\t{}: {}", .{ i, inst });
-            i += 1;
-            for (0..inst.get_extrabytes()) |_| {
-                try writer.print(" {}", .{self.data[i]});
-                i += 1;
-            }
-            try writer.print("\n", .{});
-        }
-    }
 };
 
 pub const ConstantIndex = packed struct {
