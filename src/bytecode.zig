@@ -1,5 +1,6 @@
 const std = @import("std");
 const runtime = @import("runtime.zig");
+const ast = @import("ast.zig");
 const utils = @import("utils.zig");
 
 pub const Instruction = enum(u8) {
@@ -183,9 +184,10 @@ pub const Function = packed struct {
 
 pub const Functions = struct {
     functions: []*const Function,
+    sources: []*const ast.Function,
 
-    pub fn new(functions: []*const Function) Functions {
-        return Functions{ .functions = functions };
+    pub fn new(functions: []*const Function, sources: []*const ast.Function) Functions {
+        return Functions{ .functions = functions, .sources = sources };
     }
 
     pub fn count(self: *const Functions) usize {

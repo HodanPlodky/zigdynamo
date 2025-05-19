@@ -108,7 +108,7 @@ pub fn DistinctData(comptime Index: type, comptime T: type) struct { Index: type
     const DistIndex = DistinctIndex(Index);
     const DistArrayList = DistinctArrayList(DistIndex, T);
 
-    return struct {
+    return .{
         .Index = DistIndex,
         .ArrayList = DistArrayList,
     };

@@ -223,12 +223,18 @@ const FunctionBuffer = struct {
     buffer: BufferType,
     labels: std.ArrayList(LabelData),
     label_alloc: std.mem.Allocator,
+    source: ?*const ast.Function,
 
-    pub fn init(buffer_alloc: std.mem.Allocator, label_alloc: std.mem.Allocator) FunctionBuffer {
+    pub fn init(
+        buffer_alloc: std.mem.Allocator,
+        label_alloc: std.mem.Allocator,
+        source: ?*const ast.Function,
+    ) FunctionBuffer {
         var res = FunctionBuffer{
             .buffer = BufferType.init(buffer_alloc),
             .labels = std.ArrayList(LabelData).init(label_alloc),
             .label_alloc = label_alloc,
+            .source = source,
         };
 
         // param count
@@ -347,9 +353,7 @@ const Compiler = struct {
         // run since the global env
         // behaves dynamically
         self.gather_globals(program);
-        // padding for main (it is replaced later)
-        self.function_buffers.append(FunctionBuffer.init(self.scratch_alloc, self.scratch_alloc)) catch unreachable;
-        var main_buffer = self.create_function_buffer();
+        var main_buffer = self.create_main_buffer();
         var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
         for (program.data, 0..) |expr, i| {
             switch (expr) {
@@ -383,6 +387,7 @@ const Compiler = struct {
 
         var constants = try self.pernament_alloc.alloc(bytecode.Constant, self.constant_buffers.items.len);
         var functions = try self.pernament_alloc.alloc(*const bytecode.Function, self.function_buffers.items.len);
+        var sources = try self.pernament_alloc.alloc(*const ast.Function, self.function_buffers.items.len - 1);
 
         for (self.constant_buffers.items, 0..) |item, index| {
             constants[index] = bytecode.Constant.new(@ptrCast(item.buffer.items));
@@ -390,10 +395,15 @@ const Compiler = struct {
 
         for (self.function_buffers.items, 0..) |*item, index| {
             functions[index] = item.get_fn_ptr();
+            if (item.source) |source| {
+                // only main should not have source
+                std.debug.assert(index > 0);
+                sources[index - 1] = source;
+            }
         }
 
         const res = bytecode.Bytecode{
-            .functions = bytecode.Functions.new(functions),
+            .functions = bytecode.Functions.new(functions, sources),
             .constants = constants,
             .current = functions[0].code.get_unchecked_slice_const(),
             .global_count = self.env.get_global_count(),
@@ -401,8 +411,8 @@ const Compiler = struct {
         return res;
     }
 
-    pub fn compile_fn(self: *Compiler, buffer: *FunctionBuffer, method: bool, function: ast.Function) void {
-        var function_constant = self.create_function_buffer();
+    pub fn compile_fn(self: *Compiler, buffer: *FunctionBuffer, method: bool, function: *const ast.Function) void {
+        var function_constant = self.create_function_buffer(function);
         // local count padding
         function_constant.get_fn_ptr_mut().param_count = @intCast(function.params.len);
         var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
@@ -502,7 +512,7 @@ const Compiler = struct {
                 self.compile_expr(buffer, unbound_vars, false, condition.then_block);
                 buffer.set_label_position(after_label);
             },
-            ast.Ast.function => |function| self.compile_fn(buffer, false, function),
+            ast.Ast.function => |*function| self.compile_fn(buffer, false, function),
             ast.Ast.call => |call| {
                 for (call.args) |*arg| {
                     self.compile_expr(buffer, unbound_vars, false, arg);
@@ -584,7 +594,7 @@ const Compiler = struct {
                     const string_idx = self.create_string_constant(field.name);
                     class_const.add_u32(string_idx.index);
                     switch (field.value.*) {
-                        ast.Ast.function => |function| self.compile_fn(buffer, true, function),
+                        ast.Ast.function => |*function| self.compile_fn(buffer, true, function),
                         else => self.compile_expr(buffer, unbound_vars, false, field.value),
                     }
                 }
@@ -657,8 +667,16 @@ const Compiler = struct {
         unbound_vars.append(new_unbound) catch unreachable;
     }
 
-    fn create_function_buffer(self: *Compiler) FunctionBuffer {
-        const buffer = FunctionBuffer.init(self.pernament_alloc, self.scratch_alloc);
+    fn create_function_buffer(self: *Compiler, function: *const ast.Function) FunctionBuffer {
+        const buffer = FunctionBuffer.init(self.pernament_alloc, self.scratch_alloc, function);
+        return buffer;
+    }
+
+    fn create_main_buffer(self: *Compiler) FunctionBuffer {
+        std.debug.assert(self.function_buffers.items.len == 0);
+        const buffer = FunctionBuffer.init(self.pernament_alloc, self.scratch_alloc, null);
+        // add padding for later addition
+        _ = self.add_function(buffer);
         return buffer;
     }
 
