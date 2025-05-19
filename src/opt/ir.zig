@@ -9,7 +9,6 @@ const NONE_NODE: NodeIdx = NodeIdx.new(0);
 
 pub const DataIdx = utils.DistinctIndex(u32);
 
-
 pub const Node = struct {
     cfg_parent: NodeIdx,
     inputs: std.ArrayList(NodeIdx),

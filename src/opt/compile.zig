@@ -9,12 +9,9 @@ pub fn ir_compile(input: *const ast.Function, metadata: runtime.FunctionMetadata
     _ = input; // autofix
     const nodes = ir.NodeArray.init(alloc);
 
-    const res = ir.CompiledResult {
+    const res = ir.CompiledResult{
         .nodes = nodes,
         .functions = try alloc.alloc(ir.Function, 0),
     };
     return res;
 }
-
-
-
