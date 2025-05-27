@@ -26,7 +26,7 @@ pub const Function = struct {
 };
 
 pub const CompiledResult = struct {
-    nodes: NodeArray,
+    nodes: []Node,
     functions: []Function,
 };
 
