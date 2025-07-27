@@ -220,7 +220,7 @@ pub const Stack = struct {
     }
 
     pub fn pop(self: *Stack) runtime.Value {
-        return self.stack.pop();
+        return self.stack.pop().?;
     }
 
     pub fn top(self: *const Stack) runtime.Value {

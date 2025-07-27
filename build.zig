@@ -82,13 +82,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    if (b.lazyDependency("ohsnap", .{
-        .target = target,
-        .optimize = optimize,
-    })) |ohsnap| {
-        lib_unit_tests.root_module.addImport("ohsnap", ohsnap.module("ohsnap"));
-        exe_unit_tests.root_module.addImport("ohsnap", ohsnap.module("ohsnap"));
-    }
+    //if (b.lazyDependency("ohsnap", .{
+        //.target = target,
+        //.optimize = optimize,
+    //})) |ohsnap| {
+        //lib_unit_tests.root_module.addImport("ohsnap", ohsnap.module("ohsnap"));
+        //exe_unit_tests.root_module.addImport("ohsnap", ohsnap.module("ohsnap"));
+    //}
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
