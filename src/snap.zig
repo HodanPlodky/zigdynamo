@@ -6,7 +6,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const config = @import("config");
 
 comptime {
     std.debug.assert(builtin.is_test);
@@ -49,7 +48,7 @@ pub const Snap = struct {
         var out_writer = out_data.fixedWriter();
 
         // the value must have write method
-        out_writer.print("{}", .{value});
+        try out_writer.print("{}", .{value});
 
         try std.testing.expectEqualStrings(self.expected, out_data.items);
     }
@@ -61,7 +60,7 @@ pub const Snap = struct {
         const alloc = arena.allocator();
 
         var out_data = try std.ArrayList(u8).initCapacity(alloc, self.expected.len);
-        var out_writer = out_data.fixedWriter();
+        var out_writer = out_data.writer();
 
         // the value must have write method
         try out_writer.print("{}", .{value});
@@ -69,19 +68,7 @@ pub const Snap = struct {
         // check if it does not need to be created
         try std.testing.expect(!std.mem.eql(u8, self.expected, out_data.items));
 
-        // #stolen from ohsnap
-        var maybe_dir_str: ?[]const u8 = null;
-        {
-            var i: usize = 0;
-            while (i < config.module_name.len) : (i += 1) {
-                if (std.mem.eql(u8, config.module_name[i], self.location.module)) {
-                    maybe_dir_str = config.root_directory[i];
-                    break;
-                }
-            }
-        }
-
-        const dir_str = maybe_dir_str orelse "src";
+        const dir_str = "src";
         var mod_dir = try std.fs.cwd().openDir(dir_str, .{});
         defer mod_dir.close();
 
@@ -91,23 +78,25 @@ pub const Snap = struct {
         var new_text = try std.ArrayList(u8).initCapacity(alloc, file_text.len);
 
         const src_line = self.location.line;
-        const lines = std.mem.splitScalar(u8, file_text, '\n');
+        var lines = std.mem.splitScalar(u8, file_text, '\n');
 
         var line_index: usize = 0;
         var offset: usize = 0;
-        while (line_index < src_line) {
-            const line = lines[line_index];
+        while (line_index < src_line - 1) {
+            const line = lines.next().?;
             offset += line.len + 1; // +1 => '\n'
             line_index += 1;
         }
 
         // check for @src
         {
-            const line = lines[line_index];
+            const line = lines.peek().?;
+            std.debug.print("{s}\n", .{line});
             if (std.mem.indexOf(u8, line, "@src") == null) {
-                std.debug.print("Could not find @src");
-                std.testing.expect(false);
+                std.debug.print("Could not find @src", .{});
+                try std.testing.expect(false);
             }
+            _ = lines.next().?;
             line_index += 1;
             offset += line.len + 1; // +1 => '\n'
         }
@@ -118,30 +107,44 @@ pub const Snap = struct {
 
         // check for multiline string
         {
-            const line = lines[line_index];
+            const line = lines.peek().?;
             if (!is_multiline_string(line)) {
-                std.debug.print("Could not find multiline string");
-                std.testing.expect(false);
+                std.debug.print("Could not find multiline string", .{});
+                try std.testing.expect(false);
+            }
+        }
+
+        var indent: []const u8 = undefined;
+        {
+            const line = lines.peek().?;
+            for (line, 0..) |c, i| {
+                switch (c) {
+                    ' ' => {},
+                    '\\' => {
+                        indent = line[0..(i-1)];
+                        break;
+                    },
+                    else => unreachable,
+                }
             }
         }
 
         {
-            var line = lines[line_index];
+            var line = lines.next().?;
             while (is_multiline_string(line)) {
-                offset += line.len + 1; 
+                offset += line.len + 1;
                 line_index += 1;
-                line = lines[line_index];
+                line = lines.next().?;
             }
         }
 
         const end = offset;
 
-
         var new_writer = new_text.writer();
-        for (std.mem.splitScalar(u8, out_data.items, "\n")) |line| {
-            new_writer.print("\\\\{s}\n", .{line});
+        var out_data_lines = std.mem.splitScalar(u8, out_data.items, '\n');
+        while (out_data_lines.next()) |line| {
+            try new_writer.print("{s}\\\\{s}\n", .{indent, line});
         }
-
 
         try new_text.appendSlice(file_text[end..]);
 
@@ -152,8 +155,6 @@ pub const Snap = struct {
 
         std.debug.print("Updated", .{});
 
-
         return SnapError.Update;
     }
 };
-
