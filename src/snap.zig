@@ -44,13 +44,44 @@ pub const Snap = struct {
 
         const alloc = arena.allocator();
 
+        const output = try self.create_value_str(@TypeOf(value), value, alloc);
+
+        try std.testing.expectEqualStrings(self.expected, output);
+    }
+
+    pub fn equal_slice(self: *const Snap, comptime T: type, value: []T) !void {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+
+        const alloc = arena.allocator();
+
+        const output = try self.create_value_str([]T, value, alloc);
+
+        try std.testing.expectEqualStrings(self.expected, output);
+    }
+
+    fn create_value_str(self: *const Snap, comptime T: type, value: anytype, alloc: std.mem.Allocator) ![]const u8 {
         var out_data = try std.ArrayList(u8).initCapacity(alloc, self.expected.len);
         var out_writer = out_data.fixedWriter();
 
-        // the value must have write method
-        try out_writer.print("{}", .{value});
+        const info = @typeInfo(T);
+        switch (info) {
+            .pointer => {
+                if (info.pointer.size == .slice) {
+                    try out_writer.print("[\n", .{});
+                    for (value) |item| {
+                        try out_writer.print("    {}\n", .{item});
+                    }
+                    try out_writer.print("]", .{});
+                }
+                else {
+                    try out_writer.print("{}", .{value});
+                }
+            },
+            else => try out_writer.print("{}", .{value}),
+        }
 
-        try std.testing.expectEqualStrings(self.expected, out_data.items);
+        return out_data.items;
     }
 
     pub fn create(self: *const Snap, value: anytype) !void {
@@ -59,14 +90,7 @@ pub const Snap = struct {
 
         const alloc = arena.allocator();
 
-        var out_data = try std.ArrayList(u8).initCapacity(alloc, self.expected.len);
-        var out_writer = out_data.writer();
-
-        // the value must have write method
-        try out_writer.print("{}", .{value});
-
-        // check if it does not need to be created
-        try std.testing.expect(!std.mem.eql(u8, self.expected, out_data.items));
+        const output = try self.create_value_str(@TypeOf(value), value, alloc);
 
         const dir_str = "src";
         var mod_dir = try std.fs.cwd().openDir(dir_str, .{});
@@ -121,7 +145,7 @@ pub const Snap = struct {
                 switch (c) {
                     ' ' => {},
                     '\\' => {
-                        indent = line[0..(i-1)];
+                        indent = line[0..(i - 1)];
                         break;
                     },
                     else => unreachable,
@@ -141,9 +165,9 @@ pub const Snap = struct {
         const end = offset;
 
         var new_writer = new_text.writer();
-        var out_data_lines = std.mem.splitScalar(u8, out_data.items, '\n');
+        var out_data_lines = std.mem.splitScalar(u8, output, '\n');
         while (out_data_lines.next()) |line| {
-            try new_writer.print("{s}\\\\{s}\n", .{indent, line});
+            try new_writer.print("{s}\\\\{s}\n", .{ indent, line });
         }
 
         try new_text.appendSlice(file_text[end..]);

@@ -248,8 +248,7 @@ pub const Lexer = struct {
 };
 
 test "lexer" {
-    const ohsnap = @import("ohsnap");
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
 
     var lexer = Lexer.new("1+2");
     var res = std.ArrayList(Token).init(std.testing.allocator);
@@ -264,17 +263,14 @@ test "lexer" {
         }
     }
 
-    try oh.snap(
+    try snap.Snap.init(
         @src(),
-        \\[]lexer.Token
-        \\  [0]: lexer.Token
-        \\    .number: u32 = 1
-        \\  [1]: lexer.Token
-        \\    .add: void = void
-        \\  [2]: lexer.Token
-        \\    .number: u32 = 2
-        \\  [3]: lexer.Token
-        \\    .eof: void = void
+       \\[
+       \\    lexer.Token{ .number = 1 }
+       \\    lexer.Token{ .add = void }
+       \\    lexer.Token{ .number = 2 }
+       \\    lexer.Token{ .eof = void }
+       \\]
         ,
-    ).expectEqual(res.items);
+    ).equal_slice(Token, res.items);
 }
