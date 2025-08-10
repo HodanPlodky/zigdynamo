@@ -6,6 +6,6 @@ test "basic" {
     ).equal(1);
 
     try snap.Snap.init(@src(),
-       \\3
+      \\3
     ).equal(1 + 2);
 }

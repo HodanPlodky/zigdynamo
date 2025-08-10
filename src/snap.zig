@@ -62,7 +62,7 @@ pub const Snap = struct {
 
     fn create_value_str(self: *const Snap, comptime T: type, value: anytype, alloc: std.mem.Allocator) ![]const u8 {
         var out_data = try std.ArrayList(u8).initCapacity(alloc, self.expected.len);
-        var out_writer = out_data.fixedWriter();
+        var out_writer = out_data.writer();
 
         const info = @typeInfo(T);
         switch (info) {

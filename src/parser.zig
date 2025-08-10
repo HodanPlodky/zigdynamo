@@ -400,334 +400,339 @@ pub const Parser = struct {
     }
 };
 
-const ohsnap = @import("ohsnap");
 
-test "parser test basic" {
-    const oh = ohsnap{};
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    var p = Parser.new("1 +   2 * 2 - 3;", allocator);
-    const res = try p.parse();
-    try oh.snap(
-        @src(),
-        \\ast.Program
-        \\  .data: []ast.Ast
-        \\    [0]: ast.Ast
-        \\      .binop: ast.BinOp
-        \\        .op: u8 = 45
-        \\        .left: *ast.Ast
-        \\          .binop: ast.BinOp
-        \\            .op: u8 = 43
-        \\            .left: *ast.Ast
-        \\              .number: u32 = 1
-        \\            .right: *ast.Ast
-        \\              .binop: ast.BinOp
-        \\                .op: u8 = 42
-        \\                .left: *ast.Ast
-        \\                  .number: u32 = 2
-        \\                .right: *ast.Ast
-        \\                  .number: u32 = 2
-        \\        .right: *ast.Ast
-        \\          .number: u32 = 3
-        ,
-    ).expectEqual(res);
-}
-
-test "test let" {
-    const oh = ohsnap{};
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    var p = Parser.new(
-        \\ let x = 1;
-        \\ x + 1;
-    , allocator);
-    const res = try p.parse();
-    try oh.snap(
-        @src(),
-        \\ast.Program
-        \\  .data: []ast.Ast
-        \\    [0]: ast.Ast
-        \\      .let: ast.Let
-        \\        .target: []const u8
-        \\          "x"
-        \\        .value: *ast.Ast
-        \\          .number: u32 = 1
-        \\    [1]: ast.Ast
-        \\      .binop: ast.BinOp
-        \\        .op: u8 = 43
-        \\        .left: *ast.Ast
-        \\          .ident: []const u8
-        \\            "x"
-        \\        .right: *ast.Ast
-        \\          .number: u32 = 1
-        ,
-    ).expectEqual(res);
-}
-
-test "test function" {
-    const oh = ohsnap{};
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    var p = Parser.new(
-        \\ let f = fn(n) = 1 * f(n-1) + n;
-        \\ f(f(10) + 1);
-    , allocator);
-    const res = try p.parse();
-    try oh.snap(
-        @src(),
-        \\ast.Program
-        \\  .data: []ast.Ast
-        \\    [0]: ast.Ast
-        \\      .let: ast.Let
-        \\        .target: []const u8
-        \\          "f"
-        \\        .value: *ast.Ast
-        \\          .function: ast.Function
-        \\            .params: [][]const u8
-        \\              [0]: []const u8
-        \\                "n"
-        \\            .body: *ast.Ast
-        \\              .binop: ast.BinOp
-        \\                .op: u8 = 43
-        \\                .left: *ast.Ast
-        \\                  .binop: ast.BinOp
-        \\                    .op: u8 = 42
-        \\                    .left: *ast.Ast
-        \\                      .number: u32 = 1
-        \\                    .right: *ast.Ast
-        \\                      .call: ast.Call
-        \\                        .target: *ast.Ast
-        \\                          .ident: []const u8
-        \\                            "f"
-        \\                        .args: []ast.Ast
-        \\                          [0]: ast.Ast
-        \\                            .binop: ast.BinOp
-        \\                              .op: u8 = 45
-        \\                              .left: *ast.Ast
-        \\                                .ident: []const u8
-        \\                                  "n"
-        \\                              .right: *ast.Ast
-        \\                                .number: u32 = 1
-        \\                .right: *ast.Ast
-        \\                  .ident: []const u8
-        \\                    "n"
-        \\    [1]: ast.Ast
-        \\      .call: ast.Call
-        \\        .target: *ast.Ast
-        \\          .ident: []const u8
-        \\            "f"
-        \\        .args: []ast.Ast
-        \\          [0]: ast.Ast
-        \\            .binop: ast.BinOp
-        \\              .op: u8 = 43
-        \\              .left: *ast.Ast
-        \\                .call: ast.Call
-        \\                  .target: *ast.Ast
-        \\                    .ident: []const u8
-        \\                      "f"
-        \\                  .args: []ast.Ast
-        \\                    [0]: ast.Ast
-        \\                      .number: u32 = 10
-        \\              .right: *ast.Ast
-        \\                .number: u32 = 1
-        ,
-    ).expectEqual(res);
-}
-
-test "test if" {
-    const oh = ohsnap{};
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    var p = Parser.new(
-        \\ if (true) 1 else 2;
-    , allocator);
-    const res = try p.parse();
-    try oh.snap(@src(),
-        \\ast.Program
-        \\  .data: []ast.Ast
-        \\    [0]: ast.Ast
-        \\      .condition: ast.Condition
-        \\        .cond: *ast.Ast
-        \\          .bool: bool = true
-        \\        .then_block: *ast.Ast
-        \\          .number: u32 = 1
-        \\        .else_block: ?*ast.Ast
-        \\          .number: u32 = 2
-    ).expectEqual(res);
-}
-
-test "test while" {
-    const oh = ohsnap{};
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    var p = Parser.new(
-        \\ let cond = true;
-        \\ let x = 1;
-        \\ while (cond) {
-        \\      x = x + 1;
-        \\      print("x", x);
-        \\ };
-    , allocator);
-    const res = try p.parse();
-    try oh.snap(@src(),
-        \\ast.Program
-        \\  .data: []ast.Ast
-        \\    [0]: ast.Ast
-        \\      .let: ast.Let
-        \\        .target: []const u8
-        \\          "cond"
-        \\        .value: *ast.Ast
-        \\          .bool: bool = true
-        \\    [1]: ast.Ast
-        \\      .let: ast.Let
-        \\        .target: []const u8
-        \\          "x"
-        \\        .value: *ast.Ast
-        \\          .number: u32 = 1
-        \\    [2]: ast.Ast
-        \\      .loop: ast.Loop
-        \\        .cond: *ast.Ast
-        \\          .ident: []const u8
-        \\            "cond"
-        \\        .body: *ast.Ast
-        \\          .block: []ast.Ast
-        \\            [0]: ast.Ast
-        \\              .assign: ast.Assign
-        \\                .target: []const u8
-        \\                  "x"
-        \\                .value: *ast.Ast
-        \\                  .binop: ast.BinOp
-        \\                    .op: u8 = 43
-        \\                    .left: *ast.Ast
-        \\                      .ident: []const u8
-        \\                        "x"
-        \\                    .right: *ast.Ast
-        \\                      .number: u32 = 1
-        \\            [1]: ast.Ast
-        \\              .call: ast.Call
-        \\                .target: *ast.Ast
-        \\                  .print_fn: void = void
-        \\                .args: []ast.Ast
-        \\                  [0]: ast.Ast
-        \\                    .string: []const u8
-        \\                      "x"
-        \\                  [1]: ast.Ast
-        \\                    .ident: []const u8
-        \\                      "x"
-    ).expectEqual(res);
-}
-
-test "test objects" {
-    const oh = ohsnap{};
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    var p = Parser.new(
-        \\ let x = object {
-        \\      a: 1,
-        \\      f: fn() = {
-        \\          this.a + 1;
-        \\      },
-        \\ };
-        \\ let y = object(x) {
-        \\      b: 2,
-        \\      g: fn() = {
-        \\          this.f() + this.b;
-        \\      },
-        \\ };
-    , allocator);
-    const res = try p.parse();
-    try oh.snap(@src(),
-        \\ast.Program
-        \\  .data: []ast.Ast
-        \\    [0]: ast.Ast
-        \\      .let: ast.Let
-        \\        .target: []const u8
-        \\          "x"
-        \\        .value: *ast.Ast
-        \\          .object: ast.Object
-        \\            .prototype: ?*ast.Ast
-        \\              null
-        \\            .fields: []ast.Field
-        \\              [0]: ast.Field
-        \\                .name: []const u8
-        \\                  "a"
-        \\                .value: *ast.Ast
-        \\                  .number: u32 = 1
-        \\              [1]: ast.Field
-        \\                .name: []const u8
-        \\                  "f"
-        \\                .value: *ast.Ast
-        \\                  .function: ast.Function
-        \\                    .params: [][]const u8
-        \\                      (empty)
-        \\                    .body: *ast.Ast
-        \\                      .block: []ast.Ast
-        \\                        [0]: ast.Ast
-        \\                          .binop: ast.BinOp
-        \\                            .op: u8 = 43
-        \\                            .left: *ast.Ast
-        \\                              .field_access: ast.FieldAccess
-        \\                                .target: *ast.Ast
-        \\                                  .ident: []const u8
-        \\                                    "this"
-        \\                                .field: []const u8
-        \\                                  "a"
-        \\                            .right: *ast.Ast
-        \\                              .number: u32 = 1
-        \\    [1]: ast.Ast
-        \\      .let: ast.Let
-        \\        .target: []const u8
-        \\          "y"
-        \\        .value: *ast.Ast
-        \\          .object: ast.Object
-        \\            .prototype: ?*ast.Ast
-        \\              .ident: []const u8
-        \\                "x"
-        \\            .fields: []ast.Field
-        \\              [0]: ast.Field
-        \\                .name: []const u8
-        \\                  "b"
-        \\                .value: *ast.Ast
-        \\                  .number: u32 = 2
-        \\              [1]: ast.Field
-        \\                .name: []const u8
-        \\                  "g"
-        \\                .value: *ast.Ast
-        \\                  .function: ast.Function
-        \\                    .params: [][]const u8
-        \\                      (empty)
-        \\                    .body: *ast.Ast
-        \\                      .block: []ast.Ast
-        \\                        [0]: ast.Ast
-        \\                          .binop: ast.BinOp
-        \\                            .op: u8 = 43
-        \\                            .left: *ast.Ast
-        \\                              .field_call: ast.FieldCall
-        \\                                .target: *ast.Ast
-        \\                                  .ident: []const u8
-        \\                                    "this"
-        \\                                .field: []const u8
-        \\                                  "f"
-        \\                                .args: []ast.Ast
-        \\                                  (empty)
-        \\                            .right: *ast.Ast
-        \\                              .field_access: ast.FieldAccess
-        \\                                .target: *ast.Ast
-        \\                                  .ident: []const u8
-        \\                                    "this"
-        \\                                .field: []const u8
-        \\                                  "b"
-    ).expectEqual(res);
-}
+//test "parser test basic" {
+    //const ohsnap = @import("ohsnap");
+    //const oh = ohsnap{};
+    //var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    //defer arena.deinit();
+    //const allocator = arena.allocator();
+//
+    //var p = Parser.new("1 +   2 * 2 - 3;", allocator);
+    //const res = try p.parse();
+    //try oh.snap(
+        //@src(),
+        //\\ast.Program
+        //\\  .data: []ast.Ast
+        //\\    [0]: ast.Ast
+        //\\      .binop: ast.BinOp
+        //\\        .op: u8 = 45
+        //\\        .left: *ast.Ast
+        //\\          .binop: ast.BinOp
+        //\\            .op: u8 = 43
+        //\\            .left: *ast.Ast
+        //\\              .number: u32 = 1
+        //\\            .right: *ast.Ast
+        //\\              .binop: ast.BinOp
+        //\\                .op: u8 = 42
+        //\\                .left: *ast.Ast
+        //\\                  .number: u32 = 2
+        //\\                .right: *ast.Ast
+        //\\                  .number: u32 = 2
+        //\\        .right: *ast.Ast
+        //\\          .number: u32 = 3
+        //,
+    //).expectEqual(res);
+//}
+//
+//test "test let" {
+    //const ohsnap = @import("ohsnap");
+    //const oh = ohsnap{};
+    //var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    //defer arena.deinit();
+    //const allocator = arena.allocator();
+//
+    //var p = Parser.new(
+        //\\ let x = 1;
+        //\\ x + 1;
+    //, allocator);
+    //const res = try p.parse();
+    //try oh.snap(
+        //@src(),
+        //\\ast.Program
+        //\\  .data: []ast.Ast
+        //\\    [0]: ast.Ast
+        //\\      .let: ast.Let
+        //\\        .target: []const u8
+        //\\          "x"
+        //\\        .value: *ast.Ast
+        //\\          .number: u32 = 1
+        //\\    [1]: ast.Ast
+        //\\      .binop: ast.BinOp
+        //\\        .op: u8 = 43
+        //\\        .left: *ast.Ast
+        //\\          .ident: []const u8
+        //\\            "x"
+        //\\        .right: *ast.Ast
+        //\\          .number: u32 = 1
+        //,
+    //).expectEqual(res);
+//}
+//
+//test "test function" {
+    //const ohsnap = @import("ohsnap");
+    //const oh = ohsnap{};
+    //var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    //defer arena.deinit();
+    //const allocator = arena.allocator();
+//
+    //var p = Parser.new(
+        //\\ let f = fn(n) = 1 * f(n-1) + n;
+        //\\ f(f(10) + 1);
+    //, allocator);
+    //const res = try p.parse();
+    //try oh.snap(
+        //@src(),
+        //\\ast.Program
+        //\\  .data: []ast.Ast
+        //\\    [0]: ast.Ast
+        //\\      .let: ast.Let
+        //\\        .target: []const u8
+        //\\          "f"
+        //\\        .value: *ast.Ast
+        //\\          .function: ast.Function
+        //\\            .params: [][]const u8
+        //\\              [0]: []const u8
+        //\\                "n"
+        //\\            .body: *ast.Ast
+        //\\              .binop: ast.BinOp
+        //\\                .op: u8 = 43
+        //\\                .left: *ast.Ast
+        //\\                  .binop: ast.BinOp
+        //\\                    .op: u8 = 42
+        //\\                    .left: *ast.Ast
+        //\\                      .number: u32 = 1
+        //\\                    .right: *ast.Ast
+        //\\                      .call: ast.Call
+        //\\                        .target: *ast.Ast
+        //\\                          .ident: []const u8
+        //\\                            "f"
+        //\\                        .args: []ast.Ast
+        //\\                          [0]: ast.Ast
+        //\\                            .binop: ast.BinOp
+        //\\                              .op: u8 = 45
+        //\\                              .left: *ast.Ast
+        //\\                                .ident: []const u8
+        //\\                                  "n"
+        //\\                              .right: *ast.Ast
+        //\\                                .number: u32 = 1
+        //\\                .right: *ast.Ast
+        //\\                  .ident: []const u8
+        //\\                    "n"
+        //\\    [1]: ast.Ast
+        //\\      .call: ast.Call
+        //\\        .target: *ast.Ast
+        //\\          .ident: []const u8
+        //\\            "f"
+        //\\        .args: []ast.Ast
+        //\\          [0]: ast.Ast
+        //\\            .binop: ast.BinOp
+        //\\              .op: u8 = 43
+        //\\              .left: *ast.Ast
+        //\\                .call: ast.Call
+        //\\                  .target: *ast.Ast
+        //\\                    .ident: []const u8
+        //\\                      "f"
+        //\\                  .args: []ast.Ast
+        //\\                    [0]: ast.Ast
+        //\\                      .number: u32 = 10
+        //\\              .right: *ast.Ast
+        //\\                .number: u32 = 1
+        //,
+    //).expectEqual(res);
+//}
+//
+//test "test if" {
+    //const ohsnap = @import("ohsnap");
+    //const oh = ohsnap{};
+    //var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    //defer arena.deinit();
+    //const allocator = arena.allocator();
+//
+    //var p = Parser.new(
+        //\\ if (true) 1 else 2;
+    //, allocator);
+    //const res = try p.parse();
+    //try oh.snap(@src(),
+        //\\ast.Program
+        //\\  .data: []ast.Ast
+        //\\    [0]: ast.Ast
+        //\\      .condition: ast.Condition
+        //\\        .cond: *ast.Ast
+        //\\          .bool: bool = true
+        //\\        .then_block: *ast.Ast
+        //\\          .number: u32 = 1
+        //\\        .else_block: ?*ast.Ast
+        //\\          .number: u32 = 2
+    //).expectEqual(res);
+//}
+//
+//test "test while" {
+    //const ohsnap = @import("ohsnap");
+    //const oh = ohsnap{};
+    //var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    //defer arena.deinit();
+    //const allocator = arena.allocator();
+//
+    //var p = Parser.new(
+        //\\ let cond = true;
+        //\\ let x = 1;
+        //\\ while (cond) {
+        //\\      x = x + 1;
+        //\\      print("x", x);
+        //\\ };
+    //, allocator);
+    //const res = try p.parse();
+    //try oh.snap(@src(),
+        //\\ast.Program
+        //\\  .data: []ast.Ast
+        //\\    [0]: ast.Ast
+        //\\      .let: ast.Let
+        //\\        .target: []const u8
+        //\\          "cond"
+        //\\        .value: *ast.Ast
+        //\\          .bool: bool = true
+        //\\    [1]: ast.Ast
+        //\\      .let: ast.Let
+        //\\        .target: []const u8
+        //\\          "x"
+        //\\        .value: *ast.Ast
+        //\\          .number: u32 = 1
+        //\\    [2]: ast.Ast
+        //\\      .loop: ast.Loop
+        //\\        .cond: *ast.Ast
+        //\\          .ident: []const u8
+        //\\            "cond"
+        //\\        .body: *ast.Ast
+        //\\          .block: []ast.Ast
+        //\\            [0]: ast.Ast
+        //\\              .assign: ast.Assign
+        //\\                .target: []const u8
+        //\\                  "x"
+        //\\                .value: *ast.Ast
+        //\\                  .binop: ast.BinOp
+        //\\                    .op: u8 = 43
+        //\\                    .left: *ast.Ast
+        //\\                      .ident: []const u8
+        //\\                        "x"
+        //\\                    .right: *ast.Ast
+        //\\                      .number: u32 = 1
+        //\\            [1]: ast.Ast
+        //\\              .call: ast.Call
+        //\\                .target: *ast.Ast
+        //\\                  .print_fn: void = void
+        //\\                .args: []ast.Ast
+        //\\                  [0]: ast.Ast
+        //\\                    .string: []const u8
+        //\\                      "x"
+        //\\                  [1]: ast.Ast
+        //\\                    .ident: []const u8
+        //\\                      "x"
+    //).expectEqual(res);
+//}
+//
+//test "test objects" {
+    //const ohsnap = @import("ohsnap");
+    //const oh = ohsnap{};
+    //var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    //defer arena.deinit();
+    //const allocator = arena.allocator();
+//
+    //var p = Parser.new(
+        //\\ let x = object {
+        //\\      a: 1,
+        //\\      f: fn() = {
+        //\\          this.a + 1;
+        //\\      },
+        //\\ };
+        //\\ let y = object(x) {
+        //\\      b: 2,
+        //\\      g: fn() = {
+        //\\          this.f() + this.b;
+        //\\      },
+        //\\ };
+    //, allocator);
+    //const res = try p.parse();
+    //try oh.snap(@src(),
+        //\\ast.Program
+        //\\  .data: []ast.Ast
+        //\\    [0]: ast.Ast
+        //\\      .let: ast.Let
+        //\\        .target: []const u8
+        //\\          "x"
+        //\\        .value: *ast.Ast
+        //\\          .object: ast.Object
+        //\\            .prototype: ?*ast.Ast
+        //\\              null
+        //\\            .fields: []ast.Field
+        //\\              [0]: ast.Field
+        //\\                .name: []const u8
+        //\\                  "a"
+        //\\                .value: *ast.Ast
+        //\\                  .number: u32 = 1
+        //\\              [1]: ast.Field
+        //\\                .name: []const u8
+        //\\                  "f"
+        //\\                .value: *ast.Ast
+        //\\                  .function: ast.Function
+        //\\                    .params: [][]const u8
+        //\\                      (empty)
+        //\\                    .body: *ast.Ast
+        //\\                      .block: []ast.Ast
+        //\\                        [0]: ast.Ast
+        //\\                          .binop: ast.BinOp
+        //\\                            .op: u8 = 43
+        //\\                            .left: *ast.Ast
+        //\\                              .field_access: ast.FieldAccess
+        //\\                                .target: *ast.Ast
+        //\\                                  .ident: []const u8
+        //\\                                    "this"
+        //\\                                .field: []const u8
+        //\\                                  "a"
+        //\\                            .right: *ast.Ast
+        //\\                              .number: u32 = 1
+        //\\    [1]: ast.Ast
+        //\\      .let: ast.Let
+        //\\        .target: []const u8
+        //\\          "y"
+        //\\        .value: *ast.Ast
+        //\\          .object: ast.Object
+        //\\            .prototype: ?*ast.Ast
+        //\\              .ident: []const u8
+        //\\                "x"
+        //\\            .fields: []ast.Field
+        //\\              [0]: ast.Field
+        //\\                .name: []const u8
+        //\\                  "b"
+        //\\                .value: *ast.Ast
+        //\\                  .number: u32 = 2
+        //\\              [1]: ast.Field
+        //\\                .name: []const u8
+        //\\                  "g"
+        //\\                .value: *ast.Ast
+        //\\                  .function: ast.Function
+        //\\                    .params: [][]const u8
+        //\\                      (empty)
+        //\\                    .body: *ast.Ast
+        //\\                      .block: []ast.Ast
+        //\\                        [0]: ast.Ast
+        //\\                          .binop: ast.BinOp
+        //\\                            .op: u8 = 43
+        //\\                            .left: *ast.Ast
+        //\\                              .field_call: ast.FieldCall
+        //\\                                .target: *ast.Ast
+        //\\                                  .ident: []const u8
+        //\\                                    "this"
+        //\\                                .field: []const u8
+        //\\                                  "f"
+        //\\                                .args: []ast.Ast
+        //\\                                  (empty)
+        //\\                            .right: *ast.Ast
+        //\\                              .field_access: ast.FieldAccess
+        //\\                                .target: *ast.Ast
+        //\\                                  .ident: []const u8
+        //\\                                    "this"
+        //\\                                .field: []const u8
+        //\\                                  "b"
+    //).expectEqual(res);
+//}

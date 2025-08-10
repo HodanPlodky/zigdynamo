@@ -171,7 +171,7 @@ pub const Function = packed struct {
         var i: usize = 0;
         while (i < size) {
             const inst: Instruction = @enumFromInt(slice[i]);
-            try writer.print("\t{}: {}", .{ i, inst });
+            try writer.print("    {}: {}", .{ i, inst });
             i += 1;
             for (0..inst.get_extrabytes()) |_| {
                 try writer.print(" {}", .{slice[i]});
