@@ -5,7 +5,7 @@ const BcInterpreter = @import("bc_interpreter.zig").BcInterpreter;
 const JitInterpreter = @import("bc_interpreter.zig").JitInterpreter;
 const Bytecode = @import("bytecode.zig").Bytecode;
 const runtime = @import("runtime.zig");
-const ohsnap = @import("ohsnap");
+const snap = @import("snap.zig");
 
 const TestResult = struct {
     result: u64,
@@ -87,13 +87,12 @@ test "basic" {
         \\ let f = fn() = 1;
         \\ f();
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -107,13 +106,12 @@ test "fib" {
         \\ 
         \\ fib(10);
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 3700000000 (55)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -126,15 +124,14 @@ test "assign" {
         \\ a = 11;
         \\ a;
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: b00000000 (11)
         \\5 
         \\10 
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -143,13 +140,12 @@ test "basic arith" {
         \\  1 + 2;
         \\ 1 +   2 * 2 - 3;
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 200000000 (2)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -159,13 +155,12 @@ test "basic_closure" {
         \\ let inc1 = inc(1);
         \\ inc1(2);
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 300000000 (3)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -174,13 +169,12 @@ test "basic_function" {
         \\ let f = fn(n) = n + 1;
         \\ f(1);
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 200000000 (2)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -198,16 +192,15 @@ test "basic_method_call" {
         \\ o.a = 2;
         \\ o.f(2);
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\2 
         \\lalal 
         \\4 
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -223,16 +216,15 @@ test "basic_object" {
         \\ o.a = 2;
         \\ print(o.a + 1);
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\2 
         \\ahoj 
         \\3 
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -247,14 +239,13 @@ test "closure_test" {
         \\ 
         \\ f2();
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\1 
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -273,15 +264,14 @@ test "function" {
         \\ 
         \\ inc(2)(inc1(1) + inc(1)(2));
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 700000000 (7)
         \\11 
         \\hello 
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -290,13 +280,12 @@ test "if" {
         \\ let x = true;
         \\ if (x) 1 else 2;
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -313,13 +302,12 @@ test "let" {
         \\ let x = 1 + 2;
         \\ x + 2;
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 500000000 (5)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -398,9 +386,8 @@ test "linkedlist" {
         \\ list.debug();
     ;
 
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\append 
         \\append 
@@ -437,7 +424,7 @@ test "linkedlist" {
         \\42 
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -445,13 +432,12 @@ test "number" {
     const code =
         \\ 1;
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -509,9 +495,8 @@ test "object" {
         \\ 
         \\ pos.x + pos.y;
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 300000000 (3)
         \\Adam age 25 
         \\can drink 
@@ -520,7 +505,7 @@ test "object" {
         \\Yo Adam ! 
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -529,13 +514,12 @@ test "ret1" {
         \\ let f = fn() = 1;
         \\ f();
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -544,13 +528,12 @@ test "retadd" {
         \\ let f = fn() = 1 + 2 + 3;
         \\ f();
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 600000000 (6)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -559,13 +542,12 @@ test "retbignum" {
         \\ let f = fn() = 12345;
         \\ f();
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 303900000000 (12345)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -575,13 +557,12 @@ test "retident" {
         \\ let f = fn(x, y) = x + 2 * y;
         \\ f(ident(2), ident(3));
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 800000000 (8)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -590,13 +571,12 @@ test "retif" {
         \\ let f = fn() = if (1 < 2) 1 else 2;
         \\ f();
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -606,13 +586,12 @@ test "retinnercall" {
         \\ let double_inc = fn(x) = inc(inc(x));
         \\ double_inc(1);
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 300000000 (3)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -621,13 +600,12 @@ test "retmul" {
         \\ let f = fn() = 2 * 3 * 4;
         \\ f();
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 1800000000 (24)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -639,13 +617,12 @@ test "retobject" {
         \\ 
         \\ f(1).n;
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 200000000 (2)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -659,13 +636,12 @@ test "retset" {
         \\ 
         \\ f(1);
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 400000000 (4)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -674,13 +650,12 @@ test "retstring" {
         \\ let f = fn() = "hello";
         \\ f();
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 7 (0)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -689,13 +664,12 @@ test "retsub" {
         \\ let f = fn() = 10 - 1;
         \\ f();
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 900000000 (9)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -713,9 +687,8 @@ test "sayhello" {
         \\ 
         \\ do_it_more();
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\hello 
         \\hello 
@@ -729,7 +702,7 @@ test "sayhello" {
         \\hello 
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -746,16 +719,15 @@ test "setglobal" {
         \\ f();
         \\ print(n);
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\1 
         \\2 
         \\3 
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -775,13 +747,12 @@ test "while" {
         \\ 
         \\ fib(40);
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 6197ecb00000000 (102334155)
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -792,15 +763,14 @@ test "division" {
         \\ print(f(7) == 2);
         \\ f(7);
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 200000000 (2)
         \\true 
         \\true 
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
 
@@ -813,9 +783,8 @@ test "print multiple" {
         \\ f("a", 1);
         \\ f(1, "2");
     ;
-    const oh = ohsnap{};
     const res = try test_helper(code[0..]);
-    try oh.snap(@src(),
+    try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\1 a hello 
         \\x is a y is 1 
@@ -823,6 +792,6 @@ test "print multiple" {
         \\x is 1 y is 2 
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal(res);
     res.deinit();
 }
