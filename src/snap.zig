@@ -170,7 +170,7 @@ pub const Snap = struct {
         comptime {
             std.debug.assert(info == .optional);
         }
-        
+
         if (value) |inner| {
             try pretty_print(info.optional.child, inner, writer, depth);
         } else {
