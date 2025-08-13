@@ -265,12 +265,12 @@ test "lexer" {
 
     try snap.Snap.init(
         @src(),
-       \\[
-       \\    lexer.Token{ .number = 1 }
-       \\    lexer.Token{ .add = void }
-       \\    lexer.Token{ .number = 2 }
-       \\    lexer.Token{ .eof = void }
-       \\]
+        \\[
+        \\    tag(number): 1
+        \\    tag(add): void
+        \\    tag(number): 2
+        \\    tag(eof): void
+        \\]
         ,
-    ).equal_slice(Token, res.items);
+    ).equal(res.items);
 }

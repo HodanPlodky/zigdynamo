@@ -756,7 +756,7 @@ test "basic compiler" {
         \\    11: ret_main
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
 }
 
 test "let compiler" {
@@ -783,7 +783,7 @@ test "let compiler" {
         \\    13: ret_main
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
 }
 
 test "condition compiler" {
@@ -812,7 +812,7 @@ test "condition compiler" {
         \\    26: ret_main
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
 }
 
 test "object compiler" {
@@ -863,7 +863,7 @@ test "object compiler" {
         \\class (13 bytes)
         \\class: 0 1
         \\
-    ).equal(res);
+    ).equal_fmt(res);
 }
 
 test "object 2 compiler" {
@@ -926,7 +926,7 @@ test "object 2 compiler" {
         \\class (13 bytes)
         \\class: 0 1
         \\
-    ).equal(res);
+    ).equal_fmt(res);
 }
 
 test "object 3 compiler" {
@@ -1000,7 +1000,7 @@ test "object 3 compiler" {
         \\class (17 bytes)
         \\class: 0 1 3
         \\
-    ).equal(res);
+    ).equal_fmt(res);
 }
 
 test "linked list" {
@@ -1315,5 +1315,5 @@ test "linked list" {
         \\class (25 bytes)
         \\class: 3 4 5 6 7
         \\
-    ).equal(res);
+    ).equal_fmt(res);
 }

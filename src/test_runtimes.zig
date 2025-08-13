@@ -92,7 +92,7 @@ test "basic" {
         \\result: 100000000 (1)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -111,7 +111,7 @@ test "fib" {
         \\result: 3700000000 (55)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -131,7 +131,7 @@ test "assign" {
         \\10 
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -145,7 +145,7 @@ test "basic arith" {
         \\result: 200000000 (2)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -160,7 +160,7 @@ test "basic_closure" {
         \\result: 300000000 (3)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -174,7 +174,7 @@ test "basic_function" {
         \\result: 200000000 (2)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -200,7 +200,7 @@ test "basic_method_call" {
         \\4 
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -224,7 +224,7 @@ test "basic_object" {
         \\3 
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -245,7 +245,7 @@ test "closure_test" {
         \\1 
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -271,7 +271,7 @@ test "function" {
         \\hello 
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -285,7 +285,7 @@ test "if" {
         \\result: 100000000 (1)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -307,7 +307,7 @@ test "let" {
         \\result: 500000000 (5)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -424,7 +424,7 @@ test "linkedlist" {
         \\42 
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -437,7 +437,7 @@ test "number" {
         \\result: 100000000 (1)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -505,7 +505,7 @@ test "object" {
         \\Yo Adam ! 
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -519,7 +519,7 @@ test "ret1" {
         \\result: 100000000 (1)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -533,7 +533,7 @@ test "retadd" {
         \\result: 600000000 (6)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -547,7 +547,7 @@ test "retbignum" {
         \\result: 303900000000 (12345)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -562,7 +562,7 @@ test "retident" {
         \\result: 800000000 (8)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -576,7 +576,7 @@ test "retif" {
         \\result: 100000000 (1)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -591,7 +591,7 @@ test "retinnercall" {
         \\result: 300000000 (3)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -605,7 +605,7 @@ test "retmul" {
         \\result: 1800000000 (24)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -622,7 +622,7 @@ test "retobject" {
         \\result: 200000000 (2)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -641,7 +641,7 @@ test "retset" {
         \\result: 400000000 (4)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -655,7 +655,7 @@ test "retstring" {
         \\result: 7 (0)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -669,7 +669,7 @@ test "retsub" {
         \\result: 900000000 (9)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -702,7 +702,7 @@ test "sayhello" {
         \\hello 
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -727,7 +727,7 @@ test "setglobal" {
         \\3 
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -752,7 +752,7 @@ test "while" {
         \\result: 6197ecb00000000 (102334155)
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -770,7 +770,7 @@ test "division" {
         \\true 
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }
 
@@ -792,6 +792,6 @@ test "print multiple" {
         \\x is 1 y is 2 
         \\
         \\
-    ).equal(res);
+    ).equal_fmt(res);
     res.deinit();
 }

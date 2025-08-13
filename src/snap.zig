@@ -49,6 +49,13 @@ pub const Snap = struct {
         try std.testing.expectEqualStrings(self.expected, output);
     }
 
+    pub fn equal_fmt(self: *const Snap, value: anytype) !void {
+        const output = try std.fmt.allocPrint(std.testing.allocator, "{}", .{value});
+        defer std.testing.allocator.free(output);
+
+        try std.testing.expectEqualStrings(self.expected, output);
+    }
+
     pub fn equal_slice(self: *const Snap, comptime T: type, value: []T) !void {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
@@ -63,25 +70,135 @@ pub const Snap = struct {
     fn create_value_str(self: *const Snap, comptime T: type, value: anytype, alloc: std.mem.Allocator) ![]const u8 {
         var out_data = try std.ArrayList(u8).initCapacity(alloc, self.expected.len);
         var out_writer = out_data.writer();
+        try pretty_print(T, value, &out_writer, 0);
 
-        const info = @typeInfo(T);
-        switch (info) {
-            .pointer => {
-                if (info.pointer.size == .slice) {
-                    try out_writer.print("[\n", .{});
-                    for (value) |item| {
-                        try out_writer.print("    {}\n", .{item});
-                    }
-                    try out_writer.print("]", .{});
-                }
-                else {
-                    try out_writer.print("{}", .{value});
-                }
-            },
-            else => try out_writer.print("{}", .{value}),
-        }
+        //const info = @typeInfo(T);
+        //switch (info) {
+        //.pointer => {
+        //if (info.pointer.size == .slice) {
+        //try out_writer.print("[\n", .{});
+        //for (value) |item| {
+        //try out_writer.print("    {}\n", .{item});
+        //}
+        //try out_writer.print("]", .{});
+        //} else {
+        //try out_writer.print("{any}", .{value});
+        //}
+        //},
+        //else => try out_writer.print("{any}", .{value}),
+        //}
 
         return out_data.items;
+    }
+
+    const Writer = std.ArrayList(u8).Writer;
+    const writer_indent: usize = 4;
+
+    fn pretty_print(comptime T: type, value: T, writer: *Writer, depth: usize) Writer.Error!void {
+        const info = @typeInfo(T);
+        switch (info) {
+            .@"struct" => try pretty_print_struct(T, value, writer, depth),
+            .pointer => {
+                if (info.pointer.size == .slice) {
+                    try pretty_print_slice(T, value, writer, depth);
+                } else {
+                    try writer.print("&", .{});
+                    try pretty_print(info.pointer.child, value.*, writer, depth);
+                }
+            },
+            .@"union" => try pretty_print_union(T, value, writer, depth),
+            .array => {
+                if (info.array.child == u8) {
+                    try writer.print("\"{s}\"", .{value});
+                } else {
+                    try pretty_print_slice(T, value, writer, depth);
+                }
+            },
+            .optional => try pretty_print_optinal(T, value, writer, depth),
+            else => {
+                try writer.print("{}", .{value});
+            },
+        }
+    }
+
+    fn pretty_print_depth(writer: *Writer, depth: usize) !void {
+        for (0..depth) |_| {
+            try writer.print(" ", .{});
+        }
+    }
+
+    fn pretty_print_struct(comptime T: type, value: T, writer: *Writer, depth: usize) !void {
+        comptime {
+            std.debug.assert(@typeInfo(T) == .@"struct");
+        }
+
+        try writer.print("{{\n", .{});
+
+        const info = @typeInfo(T);
+
+        const val_struct = info.@"struct";
+
+        inline for (val_struct.fields) |field| {
+            try pretty_print_depth(writer, depth + writer_indent);
+            try writer.print("{s}: ", .{field.name});
+            try pretty_print(field.type, @field(value, field.name), writer, depth + writer_indent);
+            try writer.print("\n", .{});
+        }
+        try pretty_print_depth(writer, depth);
+        try writer.print("}}", .{});
+    }
+
+    fn pretty_print_union(comptime T: type, value: T, writer: *Writer, depth: usize) !void {
+        const info = @typeInfo(T);
+        comptime {
+            std.debug.assert(info == .@"union");
+            std.debug.assert(info.@"union".tag_type != null);
+        }
+
+        const tag_name = @tagName(value);
+
+        inline for (info.@"union".fields) |field| {
+            if (std.mem.eql(u8, field.name, tag_name)) {
+                try writer.print("tag({s}): ", .{field.name});
+                try pretty_print(field.type, @field(value, field.name), writer, depth);
+            }
+        }
+    }
+
+    fn pretty_print_optinal(comptime T: type, value: T, writer: *Writer, depth: usize) !void {
+        const info = @typeInfo(T);
+        comptime {
+            std.debug.assert(info == .optional);
+        }
+        
+        if (value) |inner| {
+            try pretty_print(info.optional.child, inner, writer, depth);
+        } else {
+            try writer.print("(null)", .{});
+        }
+    }
+
+    fn pretty_print_slice(comptime T: type, value: T, writer: *Writer, depth: usize) !void {
+        const info = @typeInfo(T);
+        comptime {
+            std.debug.assert((info == .pointer and info.pointer.size == .slice) or info == .array);
+        }
+
+        const child = if (info == .pointer) info.pointer.child else info.array.child;
+
+        if (child == u8) {
+            try writer.print("\"{s}\"", .{value});
+            return;
+        }
+
+        try writer.print("[\n", .{});
+        for (value) |item| {
+            try pretty_print_depth(writer, depth + writer_indent);
+            try pretty_print(child, item, writer, depth + writer_indent);
+            try writer.print("\n", .{});
+        }
+        try pretty_print_depth(writer, depth);
+        try writer.print("]", .{});
     }
 
     pub fn create(self: *const Snap, value: anytype) !void {
