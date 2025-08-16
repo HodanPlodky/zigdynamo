@@ -104,13 +104,110 @@ pub fn DistinctArrayList(comptime Index: type, comptime T: type) type {
     };
 }
 
-pub fn DistinctData(comptime Index: type, comptime T: type) struct { Index: type, ArrayList: type } {
+pub fn DistinctMultiArrayList(comptime Index: type, comptime T: type) type {
+    return struct {
+        const Self = @This();
+        pub const Inner = T;
+        pub const DistIndex = Index;
+
+        data: std.MultiArrayList(T) = .{},
+
+        pub fn init() Self {
+            return Self{
+                .data = std.MultiArrayList(T){},
+            };
+        }
+
+        pub fn len(self: *const Self) usize {
+            return self.data.len;
+        }
+
+        pub fn deinit(self: *const Self) void {
+            self.data.deinit();
+        }
+
+        pub fn get(self: *const Self, index: Index) T {
+            const raw_index = index.get_usize();
+            return self.data.items[raw_index];
+        }
+
+        pub fn get_ptr(self: *const Self, index: Index) *T {
+            const raw_index = index.get_usize();
+            return &self.data.items[raw_index];
+        }
+
+        pub fn get_ptr_const(self: *const Self, index: Index) *const T {
+            const raw_index = index.get_usize();
+            return &self.data.items[raw_index];
+        }
+
+        pub fn set(self: *const Self, index: Index, val: T) void {
+            const raw_index = index.get_usize();
+            self.data.items[raw_index] = val;
+        }
+    };
+}
+
+pub fn DistinctArrayListUnmanaged(comptime Index: type, comptime T: type) type {
+    return struct {
+        const Self = @This();
+        pub const Inner = T;
+        pub const DistIndex = Index;
+
+        data: std.ArrayListUnmanaged(T) = .{},
+
+        pub fn init(alloc: std.mem.Allocator) Self {
+            return Self{
+                .data = std.ArrayList(T).init(alloc),
+            };
+        }
+
+        pub fn len(self: *const Self) usize {
+            return self.data.items.len;
+        }
+
+        pub fn deinit(self: *const Self) void {
+            self.data.deinit();
+        }
+
+        pub fn get(self: *const Self, index: Index) T {
+            const raw_index = index.get_usize();
+            return self.data.items[raw_index];
+        }
+
+        pub fn get_ptr(self: *const Self, index: Index) *T {
+            const raw_index = index.get_usize();
+            return &self.data.items[raw_index];
+        }
+
+        pub fn get_ptr_const(self: *const Self, index: Index) *const T {
+            const raw_index = index.get_usize();
+            return &self.data.items[raw_index];
+        }
+
+        pub fn set(self: *const Self, index: Index, val: T) void {
+            const raw_index = index.get_usize();
+            self.data.items[raw_index] = val;
+        }
+    };
+}
+
+pub fn DistinctData(comptime Index: type, comptime T: type) struct {
+    Index: type,
+    ArrayList: type,
+    Multi: type,
+    ArrayListUn: type,
+} {
     const DistIndex = DistinctIndex(Index);
     const DistArrayList = DistinctArrayList(DistIndex, T);
+    const DistMulti = DistinctMultiArrayList(DistIndex, T);
+    const DistArray = DistinctArrayListUnmanaged(DistIndex, T);
 
     return .{
         .Index = DistIndex,
         .ArrayList = DistArrayList,
+        .Multi = DistMulti,
+        .ArrayListUn = DistArray,
     };
 }
 
