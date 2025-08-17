@@ -90,7 +90,7 @@ pub const CompiledResult = struct {
             //  binop ops
             .add, .sub, .mul, .div => |binop_idx| {
                 const binop: ir.BinOpData = self.stores.binop.get(binop_idx);
-                try writer.print("%{}, %{}", .{ binop.left, binop.right });
+                try writer.print("%{}, %{}", .{ binop.left.index, binop.right.index });
             },
             .branch => |branch_idx| {
                 const branch: ir.BranchData = self.stores.branch.get(branch_idx);
@@ -110,29 +110,66 @@ const Compiler = struct {
     permanent_alloc: std.mem.Allocator,
     scratch_alloc: std.mem.Allocator,
     result: CompiledResult,
+    current: ir.BasicBlockIdx,
 
     fn init(permanent_alloc: std.mem.Allocator, scratch_alloc: std.mem.Allocator) Compiler {
         return Compiler{
             .permanent_alloc = permanent_alloc,
             .scratch_alloc = scratch_alloc,
+            .current = undefined,
             .result = .{},
         };
     }
 
     fn compile(self: *Compiler, input: *const ast.Function, metadata: runtime.FunctionMetadata) !void {
-        _ = input;
+        self.result.entry_fn = try self.compile_fn(input, metadata);
+    }
+
+    fn compile_fn(self: *Compiler, function: *const ast.Function, metadata: runtime.FunctionMetadata) !ir.FunctionDistinct.Index {
         _ = metadata;
-
         const bb_idx = try self.create(ir.BasicBlock);
+        self.current = bb_idx;
         const fn_idx = try self.create_with(ir.Function, try ir.Function.create(bb_idx, self.permanent_alloc));
-        var bb = self.get(ir.BasicBlock, bb_idx);
 
-        const ldi = try self.create_inst(ir.Instruction{ .ldi = 1 });
-        try bb.instructions.append(self.permanent_alloc, ldi);
-        const ret = try self.create_inst(ir.Instruction{ .ret = ldi });
-        try bb.instructions.append(self.permanent_alloc, ret);
+        for (function.params, 0..) |_, i| {
+            _ = try self.append_inst(ir.Instruction{ .arg = @intCast(i) });
+        }
 
-        self.result.entry_fn = fn_idx;
+        const ret_reg = try self.compile_expr(function.body);
+        _ = try self.append_inst(ir.Instruction{.ret = ret_reg});
+
+        return fn_idx;
+    }
+
+    fn compile_expr(self: *Compiler, expr: *const ast.Ast) !ir.Reg {
+        switch (expr.*) {
+            .binop => |binop| {
+                const left_reg = try self.compile_expr(binop.left);
+                const right_reg = try self.compile_expr(binop.right);
+                const binop_data = try self.create_with(ir.BinOpData, ir.BinOpData{
+                    .left = left_reg,
+                    .right = right_reg,
+                });
+                return switch (binop.op) {
+                    '+' => try self.append_inst(ir.Instruction{.add = binop_data}),
+                    '-' => try self.append_inst(ir.Instruction{.sub = binop_data}),
+                    '*' => try self.append_inst(ir.Instruction{.mul = binop_data}),
+                    '/' => try self.append_inst(ir.Instruction{.div = binop_data}),
+                    else => unreachable
+                };
+            },
+            .number => |num| {
+                return try self.append_inst(ir.Instruction{.ldi = num});
+            },
+            else => {
+                std.debug.print("{}", .{expr});
+                unreachable;
+            },
+        }
+    }
+
+    pub fn get_curr(self: *Compiler) *ir.BasicBlock {
+        return self.get(ir.BasicBlock, self.current);
     }
 
     pub fn create(self: *Compiler, comptime T: type) !Stores.get_index_type(T) {
@@ -172,6 +209,13 @@ const Compiler = struct {
 
     pub fn create_inst(self: *Compiler, inst: ir.Instruction) !ir.InstructionIdx {
         return self.create_with(ir.Instruction, inst);
+    }
+
+    pub fn append_inst(self: *Compiler, inst: ir.Instruction) !ir.Reg {
+        const inst_idx = try self.create_inst(inst);
+        var bb = self.get_curr();
+        try bb.instructions.append(self.permanent_alloc, inst_idx);
+        return inst_idx;
     }
 
     fn create_result(self: *const Compiler) CompiledResult {
