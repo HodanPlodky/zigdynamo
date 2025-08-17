@@ -61,6 +61,24 @@ pub const Instruction = union(enum) {
 
     arg: u32,
     phony: PhonyIdx,
+
+    pub fn opcode(self: Instruction) []const u8 {
+        return switch (self) {
+            .ldi => "ldi",
+            .mov => "mov",
+            .load_global => "load_global",
+            .store_global => "store_global",
+            .add => "add",
+            .sub => "sub",
+            .mul => "mul",
+            .div => "div",
+            .ret => "ret",
+            .branch => "branch",
+            .jmp => "jmp",
+            .arg => "arg",
+            .phony => "phony",
+        };
+    }
 };
 
 comptime {
@@ -73,7 +91,7 @@ comptime {
 }
 
 pub const BasicBlock = struct {
-    instruction: std.ArrayListUnmanaged(InstructionIdx) = .{},
+    instructions: std.ArrayListUnmanaged(InstructionIdx) = .{},
 };
 
 pub const Function = struct {

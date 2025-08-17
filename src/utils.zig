@@ -128,17 +128,7 @@ pub fn DistinctMultiArrayList(comptime Index: type, comptime T: type) type {
 
         pub fn get(self: *const Self, index: Index) T {
             const raw_index = index.get_usize();
-            return self.data.items[raw_index];
-        }
-
-        pub fn get_ptr(self: *const Self, index: Index) *T {
-            const raw_index = index.get_usize();
-            return &self.data.items[raw_index];
-        }
-
-        pub fn get_ptr_const(self: *const Self, index: Index) *const T {
-            const raw_index = index.get_usize();
-            return &self.data.items[raw_index];
+            return self.data.get(raw_index);
         }
 
         pub fn set(self: *const Self, index: Index, val: T) void {

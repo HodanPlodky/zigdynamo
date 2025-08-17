@@ -42,19 +42,79 @@ const Stores = struct {
 pub const CompiledResult = struct {
     entry_fn: ir.FunctionDistinct.Index = undefined,
     stores: Stores = .{},
+
+    pub fn format(
+        self: *const CompiledResult,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = options; // autofix
+        _ = fmt;
+
+        try writer.print("Result\n", .{});
+
+        try self.write_fn(self.entry_fn, writer);
+    }
+
+    pub fn write_fn(self: *const CompiledResult, idx: ir.FunctionDistinct.Index, writer: anytype) !void {
+        const function = self.stores.function.get(idx);
+        try writer.print("function {{\n", .{});
+        try self.write_bb(function.entry, writer);
+        try writer.print("}}\n", .{});
+    }
+
+    pub fn write_bb(self: *const CompiledResult, idx: ir.BasicBlockIdx, writer: anytype) !void {
+        const basicblock = self.stores.basicblock.get(idx);
+        try writer.print("basicblock{}:\n", .{idx.index});
+        for (basicblock.instructions.items) |inst_idx| {
+            try self.write_inst(inst_idx, writer);
+        }
+    }
+
+    pub fn write_inst(self: *const CompiledResult, idx: ir.InstructionIdx, writer: anytype) !void {
+        const inst = self.stores.instructions.get(idx);
+        try writer.print("\t%{} = {s} ", .{ idx.index, inst.opcode() });
+        try self.write_payload(inst, writer);
+        try writer.print("\n", .{});
+    }
+
+    pub fn write_payload(self: *const CompiledResult, inst: ir.Instruction, writer: anytype) !void {
+        switch (inst) {
+            // immediate ops
+            .ldi, .load_global, .arg, .store_global => |num| try writer.print("{}", .{num}),
+
+            // one reg ops
+            .ret, .mov => |reg| try writer.print("%{}", .{reg.index}),
+
+            //  binop ops
+            .add, .sub, .mul, .div => |binop_idx| {
+                const binop: ir.BinOpData = self.stores.binop.get(binop_idx);
+                try writer.print("%{}, %{}", .{ binop.left, binop.right });
+            },
+            .branch => |branch_idx| {
+                const branch: ir.BranchData = self.stores.branch.get(branch_idx);
+                try writer.print("%{}, basicblock{}, basicblock{}", .{
+                    branch.cond,
+                    branch.true_branch,
+                    branch.false_branch,
+                });
+            },
+            .jmp => |bb_idx| try writer.print("{}", .{bb_idx.index}),
+            .phony => unreachable,
+        }
+    }
 };
 
 const Compiler = struct {
     permanent_alloc: std.mem.Allocator,
     scratch_alloc: std.mem.Allocator,
-    instruction_store: std.MultiArrayList(ir.Instruction),
     result: CompiledResult,
 
     fn init(permanent_alloc: std.mem.Allocator, scratch_alloc: std.mem.Allocator) Compiler {
         return Compiler{
             .permanent_alloc = permanent_alloc,
             .scratch_alloc = scratch_alloc,
-            .instruction_store = std.MultiArrayList(ir.Instruction){},
             .result = .{},
         };
     }
@@ -68,9 +128,9 @@ const Compiler = struct {
         var bb = self.get(ir.BasicBlock, bb_idx);
 
         const ldi = try self.create_inst(ir.Instruction{ .ldi = 1 });
-        try bb.instruction.append(self.permanent_alloc, ldi);
+        try bb.instructions.append(self.permanent_alloc, ldi);
         const ret = try self.create_inst(ir.Instruction{ .ret = ldi });
-        try bb.instruction.append(self.permanent_alloc, ret);
+        try bb.instructions.append(self.permanent_alloc, ret);
 
         self.result.entry_fn = fn_idx;
     }
