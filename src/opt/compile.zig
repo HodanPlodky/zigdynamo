@@ -136,7 +136,7 @@ const Compiler = struct {
         }
 
         const ret_reg = try self.compile_expr(function.body);
-        _ = try self.append_inst(ir.Instruction{.ret = ret_reg});
+        _ = try self.append_inst(ir.Instruction{ .ret = ret_reg });
 
         return fn_idx;
     }
@@ -151,15 +151,15 @@ const Compiler = struct {
                     .right = right_reg,
                 });
                 return switch (binop.op) {
-                    '+' => try self.append_inst(ir.Instruction{.add = binop_data}),
-                    '-' => try self.append_inst(ir.Instruction{.sub = binop_data}),
-                    '*' => try self.append_inst(ir.Instruction{.mul = binop_data}),
-                    '/' => try self.append_inst(ir.Instruction{.div = binop_data}),
-                    else => unreachable
+                    '+' => try self.append_inst(ir.Instruction{ .add = binop_data }),
+                    '-' => try self.append_inst(ir.Instruction{ .sub = binop_data }),
+                    '*' => try self.append_inst(ir.Instruction{ .mul = binop_data }),
+                    '/' => try self.append_inst(ir.Instruction{ .div = binop_data }),
+                    else => unreachable,
                 };
             },
             .number => |num| {
-                return try self.append_inst(ir.Instruction{.ldi = num});
+                return try self.append_inst(ir.Instruction{ .ldi = num });
             },
             else => {
                 std.debug.print("{}", .{expr});
