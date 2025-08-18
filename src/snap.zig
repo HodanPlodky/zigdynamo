@@ -44,7 +44,7 @@ pub const Snap = struct {
 
         const alloc = arena.allocator();
 
-        const output = try self.create_value_str(@TypeOf(value), value, alloc);
+        const output = try self.create_value_str(@TypeOf(value), value, alloc, false);
 
         try std.testing.expectEqualStrings(self.expected, output);
     }
@@ -67,26 +67,14 @@ pub const Snap = struct {
         try std.testing.expectEqualStrings(self.expected, output);
     }
 
-    fn create_value_str(self: *const Snap, comptime T: type, value: anytype, alloc: std.mem.Allocator) ![]const u8 {
+    fn create_value_str(self: *const Snap, comptime T: type, value: anytype, alloc: std.mem.Allocator, comptime fmt: bool) ![]const u8 {
         var out_data = try std.ArrayList(u8).initCapacity(alloc, self.expected.len);
         var out_writer = out_data.writer();
-        try pretty_print(T, value, &out_writer, 0);
-
-        //const info = @typeInfo(T);
-        //switch (info) {
-        //.pointer => {
-        //if (info.pointer.size == .slice) {
-        //try out_writer.print("[\n", .{});
-        //for (value) |item| {
-        //try out_writer.print("    {}\n", .{item});
-        //}
-        //try out_writer.print("]", .{});
-        //} else {
-        //try out_writer.print("{any}", .{value});
-        //}
-        //},
-        //else => try out_writer.print("{any}", .{value}),
-        //}
+        if (fmt) {
+            try out_writer.print("{}", .{value});
+        } else {
+            try pretty_print(T, value, &out_writer, 0);
+        }
 
         return out_data.items;
     }
@@ -201,13 +189,21 @@ pub const Snap = struct {
         try writer.print("]", .{});
     }
 
+    pub fn create_fmt(self: *const Snap, value: anytype) !void {
+        try self.create_inner(value, true);
+    }
+
     pub fn create(self: *const Snap, value: anytype) !void {
+        try self.create_inner(value, false);
+    }
+
+    fn create_inner(self: *const Snap, value: anytype, comptime fmt: bool) !void {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
 
         const alloc = arena.allocator();
 
-        const output = try self.create_value_str(@TypeOf(value), value, alloc);
+        const output = try self.create_value_str(@TypeOf(value), value, alloc, fmt);
 
         const dir_str = "src";
         var mod_dir = try std.fs.cwd().openDir(dir_str, .{});

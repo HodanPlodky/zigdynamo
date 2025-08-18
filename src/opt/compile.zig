@@ -22,6 +22,7 @@ const Stores = struct {
     function: ir.FunctionDistinct.ArrayListUn = .{},
     binop: ir.BinOpDistinct.Multi = .{},
     branch: ir.BranchDistinct.Multi = .{},
+    set_local: ir.SetLocalDistinct.Multi = .{},
     phony: ir.PhonyDistinct.Multi = .{},
 
     const Self = @This();
@@ -52,8 +53,6 @@ pub const CompiledResult = struct {
         _ = options; // autofix
         _ = fmt;
 
-        try writer.print("Result\n", .{});
-
         try self.write_fn(self.entry_fn, writer);
     }
 
@@ -74,9 +73,32 @@ pub const CompiledResult = struct {
 
     pub fn write_inst(self: *const CompiledResult, idx: ir.InstructionIdx, writer: anytype) !void {
         const inst = self.stores.instructions.get(idx);
-        try writer.print("\t%{} = {s} ", .{ idx.index, inst.opcode() });
+        const inst_type = self.get_type(inst);
+        if (inst_type == ir.Type.Void) {
+            try writer.print("    {s} ", .{ inst.opcode() });
+        } else {
+            try writer.print("    %{} = {s} ", .{ idx.index, inst.opcode() });
+        }
         try self.write_payload(inst, writer);
         try writer.print("\n", .{});
+    }
+
+    pub fn get_type(self: *const CompiledResult, inst: ir.Instruction) ir.Type {
+        return switch (inst) {
+            .ldi => ir.Type.Int,
+            .mov => |reg| {
+                const src_inst = self.stores.instructions.get(reg);
+                return self.get_type(src_inst);
+            },
+            .load_global => ir.Type.Top,
+            .store_global => ir.Type.Void,
+            .add, .sub, .mul, .div => ir.Type.Top,
+            .ret, .branch, .jmp => ir.Type.Void,
+            .arg => ir.Type.Top,
+            .phony => unreachable,
+            .get_local => unreachable,
+            .set_local => unreachable,
+        };
     }
 
     pub fn write_payload(self: *const CompiledResult, inst: ir.Instruction, writer: anytype) !void {
@@ -102,6 +124,11 @@ pub const CompiledResult = struct {
             },
             .jmp => |bb_idx| try writer.print("{}", .{bb_idx.index}),
             .phony => unreachable,
+            .get_local => |reg| try writer.print("%{}", .{reg.index}),
+            .set_local => |set_local_idx| {
+                const set_local: ir.SetLocalData = self.stores.set_local.get(set_local_idx);
+                try writer.print("{}, %{}", .{set_local.local_idx, set_local.value.index});
+            },       
         }
     }
 };
@@ -222,3 +249,45 @@ const Compiler = struct {
         return self.result;
     }
 };
+
+test "basic" {
+    const Parser = @import("../parser.zig").Parser;
+    const snap = @import("../snap.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ fn() = 1 + 2 - 3 * 4 + 4 / 2;
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+
+    // get first function
+    const node = parse_res.data[0];
+
+    // first should be function
+    const function = &node.function;
+    const metadata = runtime.FunctionMetadata{};
+
+    const res = try ir_compile(function, metadata, allocator);
+    try snap.Snap.init(@src(),
+      \\function {
+      \\basicblock0:
+      \\    %0 = ldi 1
+      \\    %1 = ldi 2
+      \\    %2 = add %0, %1
+      \\    %3 = ldi 3
+      \\    %4 = ldi 4
+      \\    %5 = mul %3, %4
+      \\    %6 = sub %2, %5
+      \\    %7 = ldi 4
+      \\    %8 = ldi 2
+      \\    %9 = div %7, %8
+      \\    %10 = add %6, %9
+      \\    ret %10
+      \\}
+      \\
+    ).equal_fmt(res);
+}

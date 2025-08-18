@@ -39,6 +39,14 @@ pub const PhonyData = struct {
 pub const PhonyDistinct = utils.DistinctData(u32, BranchData);
 pub const PhonyIdx = PhonyDistinct.Index;
 
+pub const SetLocalData = struct {
+    local_idx: u32,
+    value: Reg,
+};
+
+pub const SetLocalDistinct = utils.DistinctData(u32, SetLocalData);
+pub const SetLocalIdx = SetLocalDistinct.Index;
+
 // taged union with max payload
 // of size 4 bytes (u32)
 pub const Instruction = union(enum) {
@@ -62,6 +70,12 @@ pub const Instruction = union(enum) {
     arg: u32,
     phony: PhonyIdx,
 
+    // this instruction should be removed
+    // before jit
+    get_local: Reg,
+    set_local: SetLocalIdx,
+
+
     pub fn opcode(self: Instruction) []const u8 {
         return switch (self) {
             .ldi => "ldi",
@@ -77,8 +91,12 @@ pub const Instruction = union(enum) {
             .jmp => "jmp",
             .arg => "arg",
             .phony => "phony",
+            .get_local => "get_local",
+            .set_local => "set_local",
         };
     }
+
+
 };
 
 comptime {
@@ -106,4 +124,11 @@ pub const Function = struct {
             .basicblocks = array,
         };
     }
+};
+
+pub const Type = enum {
+    Top,
+    Bottom,
+    Int,
+    Void,
 };

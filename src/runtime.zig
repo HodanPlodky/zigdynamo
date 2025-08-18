@@ -245,6 +245,6 @@ pub fn print(values: []Value) void {
 }
 
 pub const FunctionMetadata = struct {
-    jit_state: u32,
-    call_counter: u32,
+    jit_state: u32 = 0,
+    call_counter: u32 = 0,
 };
