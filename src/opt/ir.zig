@@ -30,13 +30,13 @@ pub const BranchDistinct = utils.DistinctData(u32, BranchData);
 pub const BranchIdx = BranchDistinct.Index;
 
 pub const PhonyData = struct {
-    const Pair = struct {
+    pub const Pair = struct {
         label: BasicBlockIdx,
         reg: Reg,
     };
     data: []Pair,
 };
-pub const PhonyDistinct = utils.DistinctData(u32, BranchData);
+pub const PhonyDistinct = utils.DistinctData(u32, PhonyData);
 pub const PhonyIdx = PhonyDistinct.Index;
 
 pub const SetLocalData = struct {
