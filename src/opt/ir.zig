@@ -80,7 +80,6 @@ pub const Instruction = union(enum) {
     get_local: u32,
     set_local: SetLocalIdx,
 
-
     pub fn opcode(self: Instruction) []const u8 {
         return switch (self) {
             .ldi => "ldi",
@@ -105,8 +104,6 @@ pub const Instruction = union(enum) {
             .set_local => "set_local",
         };
     }
-
-
 };
 
 comptime {

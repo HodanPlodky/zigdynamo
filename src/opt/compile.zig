@@ -143,11 +143,11 @@ pub const CompiledResult = struct {
             .phony => |phony_idx| {
                 const data = self.stores.phony.get(phony_idx);
                 if (data.data.len > 0) {
-                    try writer.print("{}, %{}", .{data.data[0].label.index, data.data[0].reg.index});
+                    try writer.print("{}, %{}", .{ data.data[0].label.index, data.data[0].reg.index });
                     for (data.data[1..]) |pair| {
-                        try writer.print(", {}, %{}", .{pair.label.index, pair.reg.index});
+                        try writer.print(", {}, %{}", .{ pair.label.index, pair.reg.index });
                     }
-                }       
+                }
             },
             .get_local => |reg| try writer.print("{}", .{reg}),
             .set_local => |set_local_idx| {
@@ -353,9 +353,9 @@ const Compiler = struct {
                     .label = false_bb,
                     .reg = false_reg,
                 };
-                
-                const phony_data = try self.create_with(ir.PhonyData, ir.PhonyData { .data = phony_ops });
-                return try self.append_inst(ir.Instruction { .phony = phony_data });
+
+                const phony_data = try self.create_with(ir.PhonyData, ir.PhonyData{ .data = phony_ops });
+                return try self.append_inst(ir.Instruction{ .phony = phony_data });
             },
             .bool => |value| if (value) {
                 return try self.append_inst(ir.Instruction.true);
