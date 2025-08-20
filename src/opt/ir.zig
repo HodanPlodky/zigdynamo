@@ -52,9 +52,14 @@ pub const SetLocalIdx = SetLocalDistinct.Index;
 pub const Instruction = union(enum) {
     ldi: u32,
     mov: Reg,
+    nil,
+    true,
+    false,
 
     load_global: u32,
     store_global: u32,
+    load_env: u32,
+    store_env,
 
     // ops
     add: BinOpIdx,
@@ -72,7 +77,7 @@ pub const Instruction = union(enum) {
 
     // this instruction should be removed
     // before jit
-    get_local: Reg,
+    get_local: u32,
     set_local: SetLocalIdx,
 
 
@@ -80,8 +85,13 @@ pub const Instruction = union(enum) {
         return switch (self) {
             .ldi => "ldi",
             .mov => "mov",
+            .nil => "nil",
+            .true => "true",
+            .false => "false",
             .load_global => "load_global",
             .store_global => "store_global",
+            .load_env => "load_env",
+            .store_env => "store_env",
             .add => "add",
             .sub => "sub",
             .mul => "mul",
@@ -130,5 +140,8 @@ pub const Type = enum {
     Top,
     Bottom,
     Int,
+    Nil,
+    True,
+    False,
     Void,
 };
