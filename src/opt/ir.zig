@@ -104,6 +104,30 @@ pub const Instruction = union(enum) {
             .set_local => "set_local",
         };
     }
+
+    pub fn is_terminator(self: Instruction) bool {
+        return switch (self) {
+            .ret, .branch, .jmp => true,
+            else => false,
+        };
+    }
+
+    const LabelIterator = struct {
+        // max number of labels in terminator
+        data: [2]BasicBlockIdx,
+        len: u8,
+        curr: u8 = 0,
+
+        pub fn next(self: *LabelIterator) ?BasicBlockIdx {
+            std.debug.assert(self.len <= 2);
+            if (self.curr >= self.len) {
+                return null;
+            }
+            const res = self.data[self.curr];
+            self.curr += 1;
+            return res;
+        }
+    };
 };
 
 comptime {

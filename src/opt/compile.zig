@@ -2,7 +2,9 @@ const std = @import("std");
 
 const ast = @import("../ast.zig");
 const ir = @import("ir.zig");
+const Stores = @import("stores.zig").Stores;
 const runtime = @import("../runtime.zig");
+const MakeSSA = @import("make_ssa.zig").MakeSSA;
 
 pub fn ir_compile(input: *const ast.Function, metadata: runtime.FunctionMetadata, globals: [][]const u8, alloc: std.mem.Allocator) !CompiledResult {
     // it would be probably better to have this survive across the calls
@@ -13,36 +15,24 @@ pub fn ir_compile(input: *const ast.Function, metadata: runtime.FunctionMetadata
 
     var compiler = try Compiler.init(globals, alloc, scratch);
     try compiler.compile(input, metadata);
+    try run_passes(&compiler, scratch);
     return compiler.create_result();
 }
 
-const Stores = struct {
-    instructions: ir.InstructionDistinct.Multi = .{},
-    basicblock: ir.BasicBlockDistinct.ArrayListUn = .{},
-    function: ir.FunctionDistinct.ArrayListUn = .{},
-    binop: ir.BinOpDistinct.Multi = .{},
-    branch: ir.BranchDistinct.Multi = .{},
-    set_local: ir.SetLocalDistinct.Multi = .{},
-    phony: ir.PhonyDistinct.Multi = .{},
+pub fn run_passes(compiler: *Compiler, alloc: std.mem.Allocator) !void {
+    const passes: [1]type = .{
+        MakeSSA,
+    };
 
-    const Self = @This();
-
-    fn get_index_type(comptime T: type) type {
-        const info = @typeInfo(Self).@"struct";
-
-        inline for (info.fields) |field| {
-            if (field.type.Inner == T) {
-                return field.type.DistIndex;
-            }
-        }
-
-        @compileError("could not find proper index");
+    inline for (passes) |pass_type| {
+        var pass = pass_type.init(compiler, alloc);
+        try pass.run();
     }
-};
+}
 
 pub const CompiledResult = struct {
-    entry_fn: ir.FunctionDistinct.Index = undefined,
-    stores: Stores = .{},
+    entry_fn: ir.FunctionDistinct.Index,
+    stores: Stores,
 
     pub fn format(
         self: *const CompiledResult,
@@ -143,9 +133,9 @@ pub const CompiledResult = struct {
             .phony => |phony_idx| {
                 const data = self.stores.phony.get(phony_idx);
                 if (data.data.len > 0) {
-                    try writer.print("{}, %{}", .{ data.data[0].label.index, data.data[0].reg.index });
+                    try writer.print("{} -> %{}", .{ data.data[0].label.index, data.data[0].reg.index });
                     for (data.data[1..]) |pair| {
-                        try writer.print(", {}, %{}", .{ pair.label.index, pair.reg.index });
+                        try writer.print(", {} -> %{}", .{ pair.label.index, pair.reg.index });
                     }
                 }
             },
@@ -222,10 +212,11 @@ const Locals = struct {
     }
 };
 
-const Compiler = struct {
+pub const Compiler = struct {
     permanent_alloc: std.mem.Allocator,
     scratch_alloc: std.mem.Allocator,
-    result: CompiledResult,
+    entry_fn: ir.FunctionDistinct.Index = undefined,
+    stores: Stores,
     current: ir.BasicBlockIdx,
     locals: Locals,
     globals: [][]const u8,
@@ -236,14 +227,14 @@ const Compiler = struct {
             .permanent_alloc = permanent_alloc,
             .scratch_alloc = scratch_alloc,
             .current = undefined,
-            .result = .{},
+            .stores = .{ .alloc = permanent_alloc },
             .locals = try Locals.init(scratch_alloc),
             .globals = globals,
         };
     }
 
     fn compile(self: *Compiler, input: *const ast.Function, metadata: runtime.FunctionMetadata) !void {
-        self.result.entry_fn = try self.compile_fn(input, metadata);
+        self.entry_fn = try self.compile_fn(input, metadata);
     }
 
     fn compile_fn(self: *Compiler, function: *const ast.Function, metadata: runtime.FunctionMetadata) !ir.FunctionDistinct.Index {
@@ -382,39 +373,20 @@ const Compiler = struct {
         return self.get(ir.BasicBlock, self.current);
     }
 
-    pub fn create(self: *Compiler, comptime T: type) !Stores.get_index_type(T) {
-        return self.create_with(T, T{});
+    pub fn create_with(self: *Compiler, comptime T: type, value: T) !Stores.get_index_type(T) {
+        return self.stores.create_with(T, value);
     }
 
-    pub fn create_with(self: *Compiler, comptime T: type, value: T) !Stores.get_index_type(T) {
-        const info = @typeInfo(Stores).@"struct";
-        const Index = Stores.get_index_type(T);
-
-        inline for (info.fields) |field| {
-            if (field.type.Inner == T) {
-                const index = @field(self.result.stores, field.name).len();
-                try @field(self.result.stores, field.name).data.append(self.permanent_alloc, value);
-                return Index.new(@intCast(index));
-            }
-        }
-
-        @compileError("could not find proper index");
+    pub fn create(self: *Compiler, comptime T: type) !Stores.get_index_type(T) {
+        return self.stores.create_with(T, T{});
     }
 
     pub fn get(self: *Compiler, comptime T: type, index: Stores.get_index_type(T)) *T {
-        const info = @typeInfo(Stores).@"struct";
-
-        inline for (info.fields) |field| {
-            if (field.type.Inner == T) {
-                return @field(self.result.stores, field.name).get_ptr(index);
-            }
-        }
-
-        @compileError("could not find proper index");
+        return self.stores.get(T, index);
     }
 
     pub fn create_inst(self: *Compiler, inst: ir.Instruction) !ir.InstructionIdx {
-        return self.create_with(ir.Instruction, inst);
+        return self.stores.create_with(ir.Instruction, inst);
     }
 
     pub fn append_inst(self: *Compiler, inst: ir.Instruction) !ir.Reg {
@@ -432,7 +404,10 @@ const Compiler = struct {
     }
 
     fn create_result(self: *const Compiler) CompiledResult {
-        return self.result;
+        return CompiledResult{
+            .entry_fn = self.entry_fn,
+            .stores = self.stores,
+        };
     }
 };
 
@@ -553,18 +528,19 @@ test "condition" {
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0:
-        \\    %0 = ldi 1
-        \\    set_local 0, %0
-        \\    %2 = get_local 0
-        \\    %3 = ldi 2
-        \\    set_local 1, %3
-        \\    %5 = get_local 1
-        \\    %6 = get_local 0
-        \\    %7 = get_local 1
-        \\    %8 = add %6, %7
-        \\    %9 = load_env 0
-        \\    %10 = add %8, %9
-        \\    ret %10
+        \\    %0 = true 
+        \\    branch %0, basicblock1, basicblock2
+        \\basicblock1:
+        \\    %2 = ldi 1
+        \\    jmp 3
+        \\basicblock2:
+        \\    %4 = ldi 1
+        \\    %5 = ldi 2
+        \\    %6 = add %4, %5
+        \\    jmp 3
+        \\basicblock3:
+        \\    %8 = phony 1 -> %2, 2 -> %6
+        \\    ret %8
         \\}
         \\
     ).equal_fmt(res);
