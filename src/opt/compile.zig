@@ -229,7 +229,7 @@ pub const Compiler = struct {
     globals: [][]const u8,
     fn_idx: ir.FunctionDistinct.Index = undefined,
 
-    fn init(globals: [][]const u8, permanent_alloc: std.mem.Allocator, scratch_alloc: std.mem.Allocator) !Compiler {
+    pub fn init(globals: [][]const u8, permanent_alloc: std.mem.Allocator, scratch_alloc: std.mem.Allocator) !Compiler {
         return Compiler{
             .permanent_alloc = permanent_alloc,
             .scratch_alloc = scratch_alloc,
@@ -244,7 +244,19 @@ pub const Compiler = struct {
         self.entry_fn = try self.compile_fn(input, metadata);
     }
 
-    fn compile_fn(self: *Compiler, function: *const ast.Function, metadata: runtime.FunctionMetadata) !ir.FunctionDistinct.Index {
+    pub fn create_empty(self: *Compiler) !ir.FunctionIdx {
+        const builtin = @import("builtin");
+        std.debug.assert(builtin.is_test);
+
+        const bb_idx = try self.create(ir.BasicBlock);
+        self.current = bb_idx;
+        const fn_idx = try self.create_with(ir.Function, try ir.Function.create(bb_idx, self.permanent_alloc));
+        self.fn_idx = fn_idx;
+
+        return fn_idx;
+    }
+
+    fn compile_fn(self: *Compiler, function: *const ast.Function, metadata: runtime.FunctionMetadata) !ir.FunctionIdx {
         _ = metadata;
         const bb_idx = try self.create(ir.BasicBlock);
         self.current = bb_idx;
@@ -392,7 +404,7 @@ pub const Compiler = struct {
         return self.stores.get_ptr(T, index);
     }
 
-    pub fn get_const_ptr(self: *Compiler, comptime T: type, index: Stores.get_index_type(T)) *T {
+    pub fn get_const_ptr(self: *const Compiler, comptime T: type, index: Stores.get_index_type(T)) *const T {
         return self.stores.get_const_ptr(T, index);
     }
 
@@ -431,6 +443,11 @@ pub const Compiler = struct {
         const curr_fn = self.get_ptr(ir.Function, self.fn_idx);
         try curr_fn.basicblocks.append(self.permanent_alloc, bb_idx);
         return bb_idx;
+    }
+
+    // TODO fix places where this is not used
+    pub fn set_basicblock(self: *Compiler, bb_idx: ir.BasicBlockIdx) void {
+        self.current = bb_idx;
     }
 
     fn create_result(self: *const Compiler) CompiledResult {

@@ -6,4 +6,5 @@ comptime {
     _ = @import("utils.zig");
     _ = @import("test_snap.zig");
     _ = @import("opt/compile.zig");
+    _ = @import("opt/analysis/dominator.zig");
 }

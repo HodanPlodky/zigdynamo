@@ -89,7 +89,7 @@ pub const Stores = struct {
         inline for (info.fields) |field| {
             if (field.type.Inner == T) {
                 const index = @field(self, field.name).len();
-                return Index.new(index);
+                return Index.new(@intCast(index));
             }
         }
 
