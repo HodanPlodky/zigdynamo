@@ -112,11 +112,32 @@ pub const Instruction = union(enum) {
         };
     }
 
-    const LabelIterator = struct {
+    pub const LabelIterator = struct {
         // max number of labels in terminator
         data: [2]BasicBlockIdx,
         len: u8,
         curr: u8 = 0,
+
+        pub fn create_zero() LabelIterator {
+            return LabelIterator {
+                .data = undefined,
+                .len = 0,
+            };
+        }
+
+        pub fn create_one(bb_idx: BasicBlockIdx) LabelIterator {
+            return LabelIterator {
+                .data = .{bb_idx, undefined},
+                .len = 1,
+            };
+        }
+
+        pub fn create_two(a_idx: BasicBlockIdx, b_idx: BasicBlockIdx) LabelIterator {
+            return LabelIterator {
+                .data = .{a_idx, b_idx},
+                .len = 2,
+            };
+        }
 
         pub fn next(self: *LabelIterator) ?BasicBlockIdx {
             std.debug.assert(self.len <= 2);
@@ -140,6 +161,7 @@ comptime {
 }
 
 pub const BasicBlock = struct {
+    predecessors: std.ArrayListUnmanaged(BasicBlockIdx) = .{},
     instructions: std.ArrayListUnmanaged(InstructionIdx) = .{},
 };
 

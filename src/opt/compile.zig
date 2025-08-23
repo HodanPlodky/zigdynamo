@@ -47,7 +47,7 @@ pub const CompiledResult = struct {
     }
 
     pub fn write_fn(self: *const CompiledResult, idx: ir.FunctionDistinct.Index, writer: anytype) !void {
-        const function: ir.Function = self.stores.function.get(idx);
+        const function: ir.Function = self.stores.get(ir.Function, idx);
         try writer.print("function {{\n", .{});
         try self.write_bb(function.entry, writer);
         for (function.basicblocks.items) |bb| {
@@ -59,15 +59,22 @@ pub const CompiledResult = struct {
     }
 
     pub fn write_bb(self: *const CompiledResult, idx: ir.BasicBlockIdx, writer: anytype) !void {
-        const basicblock = self.stores.basicblock.get(idx);
-        try writer.print("basicblock{}:\n", .{idx.index});
+        const basicblock = self.stores.get(ir.BasicBlock, idx);
+        try writer.print("basicblock{}: [", .{idx.index});
+        if (basicblock.predecessors.items.len > 0) {
+            try writer.print("{}", .{basicblock.predecessors.items[0].index});
+            for (basicblock.predecessors.items[1..]) |pred| {
+                try writer.print(", {}", .{pred.index});
+            }
+        }
+        try writer.print("]\n", .{});
         for (basicblock.instructions.items) |inst_idx| {
             try self.write_inst(inst_idx, writer);
         }
     }
 
     pub fn write_inst(self: *const CompiledResult, idx: ir.InstructionIdx, writer: anytype) !void {
-        const inst = self.stores.instructions.get(idx);
+        const inst = self.stores.get(ir.Instruction, idx);
         const inst_type = self.get_type(inst);
         if (inst_type == ir.Type.Void) {
             try writer.print("    {s} ", .{inst.opcode()});
@@ -82,7 +89,7 @@ pub const CompiledResult = struct {
         return switch (inst) {
             .ldi => ir.Type.Int,
             .mov => |reg| {
-                const src_inst = self.stores.instructions.get(reg);
+                const src_inst = self.stores.get(ir.Instruction, reg);
                 return self.get_type(src_inst);
             },
             .nil => ir.Type.Nil,
@@ -118,11 +125,11 @@ pub const CompiledResult = struct {
 
             //  binop ops
             .add, .sub, .mul, .div => |binop_idx| {
-                const binop: ir.BinOpData = self.stores.binop.get(binop_idx);
+                const binop = self.stores.get(ir.BinOpData, binop_idx);
                 try writer.print("%{}, %{}", .{ binop.left.index, binop.right.index });
             },
             .branch => |branch_idx| {
-                const branch: ir.BranchData = self.stores.branch.get(branch_idx);
+                const branch = self.stores.get(ir.BranchData, branch_idx);
                 try writer.print("%{}, basicblock{}, basicblock{}", .{
                     branch.cond.index,
                     branch.true_branch.index,
@@ -131,7 +138,7 @@ pub const CompiledResult = struct {
             },
             .jmp => |bb_idx| try writer.print("{}", .{bb_idx.index}),
             .phony => |phony_idx| {
-                const data = self.stores.phony.get(phony_idx);
+                const data = self.stores.get(ir.PhonyData, phony_idx);
                 if (data.data.len > 0) {
                     try writer.print("{} -> %{}", .{ data.data[0].label.index, data.data[0].reg.index });
                     for (data.data[1..]) |pair| {
@@ -141,7 +148,7 @@ pub const CompiledResult = struct {
             },
             .get_local => |reg| try writer.print("{}", .{reg}),
             .set_local => |set_local_idx| {
-                const set_local: ir.SetLocalData = self.stores.set_local.get(set_local_idx);
+                const set_local = self.stores.get(ir.SetLocalData, set_local_idx);
                 try writer.print("{}, %{}", .{ set_local.local_idx, set_local.value.index });
             },
         }
@@ -249,7 +256,7 @@ pub const Compiler = struct {
         }
 
         const ret_reg = try self.compile_expr(function.body);
-        _ = try self.append_inst(ir.Instruction{ .ret = ret_reg });
+        try self.append_terminator(ir.Instruction{ .ret = ret_reg });
 
         return fn_idx;
     }
@@ -319,18 +326,18 @@ pub const Compiler = struct {
                     .true_branch = true_bb,
                     .false_branch = false_bb,
                 });
-                _ = try self.append_inst(ir.Instruction{ .branch = branch });
+                try self.append_terminator(ir.Instruction{ .branch = branch });
 
                 self.current = true_bb;
                 const true_reg = try self.compile_expr(condition.then_block);
-                _ = try self.append_inst(ir.Instruction{ .jmp = join_bb });
+                try self.append_terminator(ir.Instruction{ .jmp = join_bb });
                 self.current = false_bb;
 
                 const false_reg = if (condition.else_block) |else_block|
                     try self.compile_expr(else_block)
                 else
                     try self.append_inst(ir.Instruction.nil);
-                _ = try self.append_inst(ir.Instruction{ .jmp = join_bb });
+                try self.append_terminator(ir.Instruction{ .jmp = join_bb });
                 self.current = join_bb;
 
                 // insert phony node that merges two result
@@ -370,7 +377,7 @@ pub const Compiler = struct {
     }
 
     pub fn get_curr(self: *Compiler) *ir.BasicBlock {
-        return self.get(ir.BasicBlock, self.current);
+        return self.get_ptr(ir.BasicBlock, self.current);
     }
 
     pub fn create_with(self: *Compiler, comptime T: type, value: T) !Stores.get_index_type(T) {
@@ -381,7 +388,11 @@ pub const Compiler = struct {
         return self.stores.create_with(T, T{});
     }
 
-    pub fn get(self: *Compiler, comptime T: type, index: Stores.get_index_type(T)) *T {
+    pub fn get_ptr(self: *Compiler, comptime T: type, index: Stores.get_index_type(T)) *T {
+        return self.stores.get_ptr(T, index);
+    }
+
+    pub fn get(self: *const Compiler, comptime T: type, index: Stores.get_index_type(T)) T {
         return self.stores.get(T, index);
     }
 
@@ -390,15 +401,30 @@ pub const Compiler = struct {
     }
 
     pub fn append_inst(self: *Compiler, inst: ir.Instruction) !ir.Reg {
+        std.debug.assert(!inst.is_terminator());
         const inst_idx = try self.create_inst(inst);
         var bb = self.get_curr();
         try bb.instructions.append(self.permanent_alloc, inst_idx);
         return inst_idx;
     }
 
+    pub fn append_terminator(self: *Compiler, inst: ir.Instruction) !void {
+        std.debug.assert(inst.is_terminator());
+        const inst_idx = try self.create_inst(inst);
+        var bb = self.get_curr();
+        try bb.instructions.append(self.permanent_alloc, inst_idx);
+
+        // add predecesors
+        var succesors = self.get_succesors(self.current);
+        while (succesors.next()) |succ_idx| {
+            const succesor = self.get_ptr(ir.BasicBlock, succ_idx);
+            try succesor.predecessors.append(self.permanent_alloc, self.current);
+        }
+    }
+
     pub fn append_basicblock(self: *Compiler) !ir.BasicBlockIdx {
         const bb_idx = try self.create(ir.BasicBlock);
-        const curr_fn = self.get(ir.Function, self.fn_idx);
+        const curr_fn = self.get_ptr(ir.Function, self.fn_idx);
         try curr_fn.basicblocks.append(self.permanent_alloc, bb_idx);
         return bb_idx;
     }
@@ -408,6 +434,23 @@ pub const Compiler = struct {
             .entry_fn = self.entry_fn,
             .stores = self.stores,
         };
+    }
+
+    pub fn get_succesors(self: *const Compiler, bb_idx: ir.BasicBlockIdx) ir.Instruction.LabelIterator {
+        const LabelIter = ir.Instruction.LabelIterator;
+        const bb = self.stores.get_const_ptr(ir.BasicBlock, bb_idx);
+        const last_inst_idx = bb.instructions.items[bb.instructions.items.len - 1];
+        const last_inst = self.get(ir.Instruction, last_inst_idx);
+        std.debug.assert(last_inst.is_terminator());
+        switch (last_inst) {
+            .jmp => |next_idx| return LabelIter.create_one(next_idx),
+            .branch => |branch_idx| {
+                const branch = self.get(ir.BranchData, branch_idx);
+                return LabelIter.create_two(branch.true_branch, branch.false_branch);
+            },
+            .ret => |_| return LabelIter.create_zero(),
+            else => unreachable,
+        }
     }
 };
 
@@ -435,22 +478,22 @@ test "basic" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-        \\function {
-        \\basicblock0:
-        \\    %0 = ldi 1
-        \\    %1 = ldi 2
-        \\    %2 = add %0, %1
-        \\    %3 = ldi 3
-        \\    %4 = ldi 4
-        \\    %5 = mul %3, %4
-        \\    %6 = sub %2, %5
-        \\    %7 = ldi 4
-        \\    %8 = ldi 2
-        \\    %9 = div %7, %8
-        \\    %10 = add %6, %9
-        \\    ret %10
-        \\}
-        \\
+       \\function {
+       \\basicblock0: []
+       \\    %0 = ldi 1
+       \\    %1 = ldi 2
+       \\    %2 = add %0, %1
+       \\    %3 = ldi 3
+       \\    %4 = ldi 4
+       \\    %5 = mul %3, %4
+       \\    %6 = sub %2, %5
+       \\    %7 = ldi 4
+       \\    %8 = ldi 2
+       \\    %9 = div %7, %8
+       \\    %10 = add %6, %9
+       \\    ret %10
+       \\}
+       \\
     ).equal_fmt(res);
 }
 
@@ -482,22 +525,22 @@ test "let" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-        \\function {
-        \\basicblock0:
-        \\    %0 = ldi 1
-        \\    set_local 0, %0
-        \\    %2 = get_local 0
-        \\    %3 = ldi 2
-        \\    set_local 1, %3
-        \\    %5 = get_local 1
-        \\    %6 = get_local 0
-        \\    %7 = get_local 1
-        \\    %8 = add %6, %7
-        \\    %9 = load_env 0
-        \\    %10 = add %8, %9
-        \\    ret %10
-        \\}
-        \\
+       \\function {
+       \\basicblock0: []
+       \\    %0 = ldi 1
+       \\    set_local 0, %0
+       \\    %2 = get_local 0
+       \\    %3 = ldi 2
+       \\    set_local 1, %3
+       \\    %5 = get_local 1
+       \\    %6 = get_local 0
+       \\    %7 = get_local 1
+       \\    %8 = add %6, %7
+       \\    %9 = load_env 0
+       \\    %10 = add %8, %9
+       \\    ret %10
+       \\}
+       \\
     ).equal_fmt(res);
 }
 
@@ -526,22 +569,22 @@ test "condition" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-        \\function {
-        \\basicblock0:
-        \\    %0 = true 
-        \\    branch %0, basicblock1, basicblock2
-        \\basicblock1:
-        \\    %2 = ldi 1
-        \\    jmp 3
-        \\basicblock2:
-        \\    %4 = ldi 1
-        \\    %5 = ldi 2
-        \\    %6 = add %4, %5
-        \\    jmp 3
-        \\basicblock3:
-        \\    %8 = phony 1 -> %2, 2 -> %6
-        \\    ret %8
-        \\}
-        \\
+       \\function {
+       \\basicblock0: []
+       \\    %0 = true 
+       \\    branch %0, basicblock1, basicblock2
+       \\basicblock1: [0]
+       \\    %2 = ldi 1
+       \\    jmp 3
+       \\basicblock2: [0]
+       \\    %4 = ldi 1
+       \\    %5 = ldi 2
+       \\    %6 = add %4, %5
+       \\    jmp 3
+       \\basicblock3: [1, 2]
+       \\    %8 = phony 1 -> %2, 2 -> %6
+       \\    ret %8
+       \\}
+       \\
     ).equal_fmt(res);
 }

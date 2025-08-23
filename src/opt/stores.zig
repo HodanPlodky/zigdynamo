@@ -1,6 +1,8 @@
 const std = @import("std");
 const ir = @import("ir.zig");
 
+/// Structure that has the ownership of all
+/// data in the compiled code
 pub const Stores = struct {
     instructions: ir.InstructionDistinct.Multi = .{},
     basicblock: ir.BasicBlockDistinct.ArrayListUn = .{},
@@ -44,12 +46,51 @@ pub const Stores = struct {
         @compileError("could not find proper index");
     }
 
-    pub fn get(self: *Stores, comptime T: type, index: Stores.get_index_type(T)) *T {
+    pub fn get_ptr(self: *Stores, comptime T: type, index: Stores.get_index_type(T)) *T {
         const info = @typeInfo(Stores).@"struct";
 
         inline for (info.fields) |field| {
             if (field.type.Inner == T) {
                 return @field(self, field.name).get_ptr(index);
+            }
+        }
+
+        @compileError("could not find proper index");
+    }
+
+    pub fn get_const_ptr(self: *const Stores, comptime T: type, index: Stores.get_index_type(T)) *const T {
+        const info = @typeInfo(Stores).@"struct";
+
+        inline for (info.fields) |field| {
+            if (field.type.Inner == T) {
+                return @field(self, field.name).get_ptr_const(index);
+            }
+        }
+
+        @compileError("could not find proper index");
+    }
+
+
+    pub fn get(self: *const Stores, comptime T: type, index: Stores.get_index_type(T)) T {
+        const info = @typeInfo(Stores).@"struct";
+
+        inline for (info.fields) |field| {
+            if (field.type.Inner == T) {
+                return @field(self, field.name).get(index);
+            }
+        }
+
+        @compileError("could not find proper index");
+    }
+
+    pub fn get_max_idx(self: *const Stores, comptime T: type) Stores.get_index_type(T) {
+        const info = @typeInfo(Stores).@"struct";
+        const Index = Stores.get_index_type(T);
+
+        inline for (info.fields) |field| {
+            if (field.type.Inner == T) {
+                const index = @field(self, field.name).len();
+                return Index.new(index);
             }
         }
 
