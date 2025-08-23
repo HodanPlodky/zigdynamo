@@ -13,6 +13,7 @@ pub const BasicBlockIdx = BasicBlockDistinct.Index;
 pub const BasicBlockArray = BasicBlockDistinct.ArrayList;
 
 pub const FunctionDistinct = utils.DistinctData(u32, Function);
+pub const FunctionIdx = FunctionDistinct.Index;
 
 pub const BinOpData = struct {
     left: Reg,
@@ -119,22 +120,22 @@ pub const Instruction = union(enum) {
         curr: u8 = 0,
 
         pub fn create_zero() LabelIterator {
-            return LabelIterator {
+            return LabelIterator{
                 .data = undefined,
                 .len = 0,
             };
         }
 
         pub fn create_one(bb_idx: BasicBlockIdx) LabelIterator {
-            return LabelIterator {
-                .data = .{bb_idx, undefined},
+            return LabelIterator{
+                .data = .{ bb_idx, undefined },
                 .len = 1,
             };
         }
 
         pub fn create_two(a_idx: BasicBlockIdx, b_idx: BasicBlockIdx) LabelIterator {
-            return LabelIterator {
-                .data = .{a_idx, b_idx},
+            return LabelIterator{
+                .data = .{ a_idx, b_idx },
                 .len = 2,
             };
         }

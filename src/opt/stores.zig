@@ -70,7 +70,6 @@ pub const Stores = struct {
         @compileError("could not find proper index");
     }
 
-
     pub fn get(self: *const Stores, comptime T: type, index: Stores.get_index_type(T)) T {
         const info = @typeInfo(Stores).@"struct";
 

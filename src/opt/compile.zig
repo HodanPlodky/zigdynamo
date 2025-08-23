@@ -392,6 +392,10 @@ pub const Compiler = struct {
         return self.stores.get_ptr(T, index);
     }
 
+    pub fn get_const_ptr(self: *Compiler, comptime T: type, index: Stores.get_index_type(T)) *T {
+        return self.stores.get_const_ptr(T, index);
+    }
+
     pub fn get(self: *const Compiler, comptime T: type, index: Stores.get_index_type(T)) T {
         return self.stores.get(T, index);
     }
@@ -478,22 +482,22 @@ test "basic" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-       \\function {
-       \\basicblock0: []
-       \\    %0 = ldi 1
-       \\    %1 = ldi 2
-       \\    %2 = add %0, %1
-       \\    %3 = ldi 3
-       \\    %4 = ldi 4
-       \\    %5 = mul %3, %4
-       \\    %6 = sub %2, %5
-       \\    %7 = ldi 4
-       \\    %8 = ldi 2
-       \\    %9 = div %7, %8
-       \\    %10 = add %6, %9
-       \\    ret %10
-       \\}
-       \\
+        \\function {
+        \\basicblock0: []
+        \\    %0 = ldi 1
+        \\    %1 = ldi 2
+        \\    %2 = add %0, %1
+        \\    %3 = ldi 3
+        \\    %4 = ldi 4
+        \\    %5 = mul %3, %4
+        \\    %6 = sub %2, %5
+        \\    %7 = ldi 4
+        \\    %8 = ldi 2
+        \\    %9 = div %7, %8
+        \\    %10 = add %6, %9
+        \\    ret %10
+        \\}
+        \\
     ).equal_fmt(res);
 }
 
@@ -525,22 +529,22 @@ test "let" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-       \\function {
-       \\basicblock0: []
-       \\    %0 = ldi 1
-       \\    set_local 0, %0
-       \\    %2 = get_local 0
-       \\    %3 = ldi 2
-       \\    set_local 1, %3
-       \\    %5 = get_local 1
-       \\    %6 = get_local 0
-       \\    %7 = get_local 1
-       \\    %8 = add %6, %7
-       \\    %9 = load_env 0
-       \\    %10 = add %8, %9
-       \\    ret %10
-       \\}
-       \\
+        \\function {
+        \\basicblock0: []
+        \\    %0 = ldi 1
+        \\    set_local 0, %0
+        \\    %2 = get_local 0
+        \\    %3 = ldi 2
+        \\    set_local 1, %3
+        \\    %5 = get_local 1
+        \\    %6 = get_local 0
+        \\    %7 = get_local 1
+        \\    %8 = add %6, %7
+        \\    %9 = load_env 0
+        \\    %10 = add %8, %9
+        \\    ret %10
+        \\}
+        \\
     ).equal_fmt(res);
 }
 
@@ -569,22 +573,22 @@ test "condition" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-       \\function {
-       \\basicblock0: []
-       \\    %0 = true 
-       \\    branch %0, basicblock1, basicblock2
-       \\basicblock1: [0]
-       \\    %2 = ldi 1
-       \\    jmp 3
-       \\basicblock2: [0]
-       \\    %4 = ldi 1
-       \\    %5 = ldi 2
-       \\    %6 = add %4, %5
-       \\    jmp 3
-       \\basicblock3: [1, 2]
-       \\    %8 = phony 1 -> %2, 2 -> %6
-       \\    ret %8
-       \\}
-       \\
+        \\function {
+        \\basicblock0: []
+        \\    %0 = true 
+        \\    branch %0, basicblock1, basicblock2
+        \\basicblock1: [0]
+        \\    %2 = ldi 1
+        \\    jmp 3
+        \\basicblock2: [0]
+        \\    %4 = ldi 1
+        \\    %5 = ldi 2
+        \\    %6 = add %4, %5
+        \\    jmp 3
+        \\basicblock3: [1, 2]
+        \\    %8 = phony 1 -> %2, 2 -> %6
+        \\    ret %8
+        \\}
+        \\
     ).equal_fmt(res);
 }
