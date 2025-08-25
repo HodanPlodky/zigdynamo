@@ -8,8 +8,12 @@ pub const DominatorAnalysis = struct {
 
     base: Base,
     dominators: []BitSet,
+    frontiers: []BitSet,
+    idoms: []?ir.BasicBlockIdx,
     post_order: std.ArrayListUnmanaged(ir.BasicBlockIdx),
 
+    // temp set to not allocate
+    // when it is not necessary
     temp_set: BitSet,
 
     pub fn init(base: Base) !DominatorAnalysis {
@@ -17,6 +21,8 @@ pub const DominatorAnalysis = struct {
         const res = DominatorAnalysis{
             .base = base,
             .dominators = try base.alloc.alloc(BitSet, bb_count),
+            .frontiers = try base.alloc.alloc(BitSet, bb_count),
+            .idoms = try base.alloc.alloc(?ir.BasicBlockIdx, bb_count),
             .post_order = try std.ArrayListUnmanaged(ir.BasicBlockIdx).initCapacity(base.alloc, bb_count),
             .temp_set = try BitSet.initFull(base.alloc, bb_count),
         };
@@ -35,6 +41,31 @@ pub const DominatorAnalysis = struct {
         // get post order of basicblocks
         self.dfs(&visited, function.entry);
 
+        // compute dominators
+        self.compute_doms();
+
+        self.compute_immediate();
+
+        try self.compute_frontier();
+    }
+
+    fn dfs(self: *DominatorAnalysis, visited: *BitSet, basicblock_idx: ir.BasicBlockIdx) void {
+        if (visited.isSet(basicblock_idx.index)) {
+            return;
+        }
+
+        visited.set(basicblock_idx.index);
+
+        var succesors = self.base.compiler.get_succesors(basicblock_idx);
+        while (succesors.next()) |succ| {
+            self.dfs(visited, succ);
+        }
+
+        // should be allocated from the init
+        self.post_order.appendAssumeCapacity(basicblock_idx);
+    }
+
+    fn compute_doms(self: *DominatorAnalysis) void {
         while (true) {
             var change = false;
 
@@ -69,20 +100,40 @@ pub const DominatorAnalysis = struct {
         }
     }
 
-    fn dfs(self: *DominatorAnalysis, visited: *BitSet, basicblock_idx: ir.BasicBlockIdx) void {
-        if (visited.isSet(basicblock_idx.index)) {
-            return;
+    fn compute_immediate(self: *DominatorAnalysis) void {
+        for (self.post_order.items, 1..) |bb_idx, idx| {
+            const bb_doms = self.dominators[bb_idx.index];
+            var idom: ?ir.BasicBlockIdx = null;
+            for (self.post_order.items[idx..]) |before| {
+                if (bb_doms.isSet(before.index)) {
+                    idom = before;
+                }
+            }
+
+            self.idoms[bb_idx.index] = idom;
+        }
+    }
+
+    fn compute_frontier(self: *DominatorAnalysis) !void {
+        const bb_count = self.base.compiler.stores.get_max_idx(ir.BasicBlock).index;
+        for (self.post_order.items) |bb_idx| {
+            self.frontiers[bb_idx.index] = try BitSet.initEmpty(self.base.alloc, bb_count);
         }
 
-        visited.set(basicblock_idx.index);
+        for (self.post_order.items) |bb_idx| {
+            const bb = self.base.compiler.get_const_ptr(ir.BasicBlock, bb_idx);
 
-        var succesors = self.base.compiler.get_succesors(basicblock_idx);
-        while (succesors.next()) |succ| {
-            self.dfs(visited, succ);
+            if (bb.predecessors.items.len >= 2) {
+                std.debug.assert(self.idoms[bb_idx.index] != null);
+                for (bb.predecessors.items) |pred_idx| {
+                    var runner_idx = pred_idx;
+                    while (runner_idx.index != self.idoms[bb_idx.index].?.index) {
+                        self.frontiers[runner_idx.index].set(bb_idx.index);
+                        runner_idx = self.idoms[runner_idx.index].?;
+                    }
+                }
+            }
         }
-
-        // should be allocated from the init
-        self.post_order.appendAssumeCapacity(basicblock_idx);
     }
 };
 
@@ -130,6 +181,7 @@ test "basic" {
     var dom = try DominatorAnalysis.init(base);
     try dom.analyze(fn_idx);
 
+    // dominators
     const entry_res: [1]ir.BasicBlockIdx = .{entry_idx};
     const true_res: [2]ir.BasicBlockIdx = .{ entry_idx, true_idx };
     const false_res: [2]ir.BasicBlockIdx = .{ entry_idx, false_idx };
@@ -158,4 +210,18 @@ test "basic" {
         dom_res.toggle(item.index);
     }
     try std.testing.expectEqual(dom_res.findFirstSet(), null);
+
+    // immediate
+    try std.testing.expectEqual(dom.idoms[entry_idx.index], null);
+    try std.testing.expectEqual(dom.idoms[true_idx.index], entry_idx);
+    try std.testing.expectEqual(dom.idoms[false_idx.index], entry_idx);
+    try std.testing.expectEqual(dom.idoms[join_idx.index], entry_idx);
+
+    // frontier
+    var tmp = try std.DynamicBitSetUnmanaged.initEmpty(scratch_alloc, 4);
+    tmp.set(join_idx.index);
+    try std.testing.expectEqual(dom.frontiers[entry_idx.index].findFirstSet(), null);
+    try std.testing.expect(dom.frontiers[true_idx.index].eql(tmp));
+    try std.testing.expect(dom.frontiers[false_idx.index].eql(tmp));
+    try std.testing.expectEqual(dom.frontiers[join_idx.index].findFirstSet(), null);
 }
