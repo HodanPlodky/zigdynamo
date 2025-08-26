@@ -43,10 +43,19 @@ pub const PhonyIdx = PhonyDistinct.Index;
 pub const SetLocalData = struct {
     local_idx: u32,
     value: Reg,
-};
 
+    // this will help with the make ssa pass
+    basicblock_idx: BasicBlockIdx,
+};
 pub const SetLocalDistinct = utils.DistinctData(u32, SetLocalData);
 pub const SetLocalIdx = SetLocalDistinct.Index;
+
+pub const StoreData = struct {
+    idx: u32,
+    value: Reg,
+};
+pub const StoreDataDistinct = utils.DistinctData(u32, StoreData);
+pub const StoreDataIdx = StoreDataDistinct.Index;
 
 // taged union with max payload
 // of size 4 bytes (u32)
@@ -58,9 +67,9 @@ pub const Instruction = union(enum) {
     false,
 
     load_global: u32,
-    store_global: u32,
+    store_global: StoreDataIdx,
     load_env: u32,
-    store_env,
+    store_env: StoreDataIdx,
 
     // ops
     add: BinOpIdx,
@@ -75,6 +84,7 @@ pub const Instruction = union(enum) {
 
     arg: u32,
     phony: PhonyIdx,
+    nop,
 
     // this instruction should be removed
     // before jit
@@ -100,6 +110,7 @@ pub const Instruction = union(enum) {
             .branch => "branch",
             .jmp => "jmp",
             .arg => "arg",
+            .nop => "nop",
             .phony => "phony",
             .get_local => "get_local",
             .set_local => "set_local",

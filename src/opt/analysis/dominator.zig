@@ -30,12 +30,12 @@ pub const DominatorAnalysis = struct {
         return res;
     }
 
-    pub fn analyze(self: *DominatorAnalysis, function_idx: ir.FunctionIdx) !void {
+    pub fn analyze(self: *DominatorAnalysis) !void {
         const bb_count = self.base.compiler.stores.get_max_idx(ir.BasicBlock).index;
         for (self.dominators) |*doms| {
             doms.* = try BitSet.initFull(self.base.alloc, bb_count);
         }
-        const function = self.base.compiler.get_const_ptr(ir.Function, function_idx);
+        const function = self.base.compiler.get_const_ptr(ir.Function, self.base.function_idx);
         var visited = try BitSet.initEmpty(self.base.alloc, bb_count);
 
         // get post order of basicblocks
@@ -177,9 +177,9 @@ test "basic" {
     compiler.set_basicblock(join_idx);
     try compiler.append_terminator(ir.Instruction{ .ret = cond });
 
-    const base = Base{ .alloc = scratch_alloc, .compiler = &compiler };
+    const base = Base{ .alloc = scratch_alloc, .compiler = &compiler, .function_idx = fn_idx };
     var dom = try DominatorAnalysis.init(base);
-    try dom.analyze(fn_idx);
+    try dom.analyze();
 
     // dominators
     const entry_res: [1]ir.BasicBlockIdx = .{entry_idx};

@@ -4,7 +4,9 @@ const ast = @import("../ast.zig");
 const ir = @import("ir.zig");
 const Stores = @import("stores.zig").Stores;
 const runtime = @import("../runtime.zig");
-const MakeSSA = @import("make_ssa.zig").MakeSSA;
+const MakeSSA = @import("passes/make_ssa.zig").MakeSSA;
+const PassBase = @import("passes/pass_base.zig").PassBase;
+const AnalysisBase = @import("analysis/analysis_base.zig").AnalysisBase;
 
 pub fn ir_compile(input: *const ast.Function, metadata: runtime.FunctionMetadata, globals: [][]const u8, alloc: std.mem.Allocator) !CompiledResult {
     // it would be probably better to have this survive across the calls
@@ -24,9 +26,24 @@ pub fn run_passes(compiler: *Compiler, alloc: std.mem.Allocator) !void {
         MakeSSA,
     };
 
-    inline for (passes) |pass_type| {
-        var pass = pass_type.init(compiler, alloc);
-        try pass.run();
+    for (0..compiler.stores.function.data.items.len) |i| {
+        const fn_idx = ir.FunctionIdx.new(@intCast(i));
+        const analysis_base = AnalysisBase{
+            .compiler = compiler,
+            .alloc = alloc,
+            .function_idx = fn_idx,
+        };
+        const pass_base = PassBase{
+            .compiler = compiler,
+            .alloc = alloc,
+            .function_idx = fn_idx,
+            .analysis_base = analysis_base,
+        };
+
+        inline for (passes) |pass_type| {
+            var pass = try pass_type.init(pass_base, compiler.locals.curr_idx);
+            try pass.run();
+        }
     }
 }
 
@@ -102,6 +119,7 @@ pub const CompiledResult = struct {
             .add, .sub, .mul, .div => ir.Type.Top,
             .ret, .branch, .jmp => ir.Type.Void,
             .arg => ir.Type.Top,
+            .nop => ir.Type.Void,
             // TODO use join
             .phony => ir.Type.Top,
             .get_local => ir.Type.Top,
@@ -112,13 +130,16 @@ pub const CompiledResult = struct {
     pub fn write_payload(self: *const CompiledResult, inst: ir.Instruction, writer: anytype) !void {
         switch (inst) {
             // immediate ops
-            .ldi, .load_global, .arg, .store_global, .load_env => |num| try writer.print("{}", .{num}),
+            .ldi, .load_global, .arg, .load_env => |num| try writer.print("{}", .{num}),
 
             // TODO
-            .store_env => unreachable,
+            .store_env, .store_global => |store_idx| {
+                const data = self.stores.get(ir.StoreData, store_idx);
+                try writer.print("{}, %{}", .{ data.idx, data.value.index });
+            },
 
             // empty
-            .nil, .true, .false => {},
+            .nil, .true, .false, .nop => {},
 
             // one reg ops
             .ret, .mov => |reg| try writer.print("%{}", .{reg.index}),
@@ -299,6 +320,7 @@ pub const Compiler = struct {
                 const data = try self.create_with(ir.SetLocalData, ir.SetLocalData{
                     .local_idx = local_idx,
                     .value = value_reg,
+                    .basicblock_idx = self.current,
                 });
                 _ = try self.append_inst(ir.Instruction{ .set_local = data });
                 return try self.append_inst(ir.Instruction{ .get_local = local_idx });
@@ -326,6 +348,28 @@ pub const Compiler = struct {
                 } else {
                     const env_idx = try self.locals.set_env(ident);
                     return try self.append_inst(ir.Instruction{ .load_env = env_idx });
+                }
+            },
+            .assign => |assign| {
+                const val_reg = try self.compile_expr(assign.value);
+                const place = try self.get_ident_place(assign.target);
+                switch (place) {
+                    .local => |idx| {
+                        const data = try self.create_with(ir.SetLocalData, .{
+                            .local_idx = idx,
+                            .value = val_reg,
+                            .basicblock_idx = self.current,
+                        });
+                        return try self.append_inst(.{ .set_local = data });
+                    },
+                    .global => |idx| {
+                        const data = try self.create_with(ir.StoreData, .{ .idx = idx, .value = val_reg });
+                        return try self.append_inst(.{ .store_global = data });
+                    },
+                    .env => |idx| {
+                        const data = try self.create_with(ir.StoreData, .{ .idx = idx, .value = val_reg });
+                        return try self.append_inst(.{ .store_env = data });
+                    },
                 }
             },
             .condition => |condition| {
@@ -388,6 +432,25 @@ pub const Compiler = struct {
         return null;
     }
 
+    const IdentPlace = union(enum) {
+        local: u32,
+        global: u32,
+        env: u32,
+    };
+
+    fn get_ident_place(self: *Compiler, var_name: []const u8) !IdentPlace {
+        if (self.locals.get(var_name)) |local_idx| {
+            return .{ .local = local_idx };
+        } else if (self.get_global(var_name)) |global_idx| {
+            return .{ .global = global_idx };
+        } else if (self.locals.get_env(var_name)) |env_idx| {
+            return .{ .env = env_idx };
+        } else {
+            const env_idx = try self.locals.set_env(var_name);
+            return .{ .env = env_idx };
+        }
+    }
+
     pub fn get_curr(self: *Compiler) *ir.BasicBlock {
         return self.get_ptr(ir.BasicBlock, self.current);
     }
@@ -421,6 +484,14 @@ pub const Compiler = struct {
         const inst_idx = try self.create_inst(inst);
         var bb = self.get_curr();
         try bb.instructions.append(self.permanent_alloc, inst_idx);
+        return inst_idx;
+    }
+
+    pub fn insert_inst(self: *Compiler, bb_idx: ir.BasicBlockIdx, inst: ir.Instruction, index: usize) !ir.Reg {
+        std.debug.assert(!inst.is_terminator());
+        const inst_idx = try self.create_inst(inst);
+        const bb = self.get_ptr(ir.BasicBlock, bb_idx);
+        try bb.instructions.insert(self.permanent_alloc, index, inst_idx);
         return inst_idx;
     }
 
@@ -565,7 +636,7 @@ test "let" {
     ).equal_fmt(res);
 }
 
-test "condition" {
+test "condition1" {
     const Parser = @import("../parser.zig").Parser;
     const snap = @import("../snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -575,6 +646,54 @@ test "condition" {
     const input =
         \\ fn() = 
         \\     if (true) { 1; } else { 1 + 2; };
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+
+    // get first function
+    const node = parse_res.data[0];
+
+    // first should be function
+    const function = &node.function;
+    const metadata = runtime.FunctionMetadata{};
+
+    const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
+    const res = try ir_compile(function, metadata, globals, allocator);
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = true 
+        \\    branch %0, basicblock1, basicblock2
+        \\basicblock1: [0]
+        \\    %2 = ldi 1
+        \\    jmp 3
+        \\basicblock2: [0]
+        \\    %4 = ldi 1
+        \\    %5 = ldi 2
+        \\    %6 = add %4, %5
+        \\    jmp 3
+        \\basicblock3: [1, 2]
+        \\    %8 = phony 1 -> %2, 2 -> %6
+        \\    ret %8
+        \\}
+        \\
+    ).equal_fmt(res);
+}
+
+test "condition2" {
+    const Parser = @import("../parser.zig").Parser;
+    const snap = @import("../snap.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ fn() = {
+        \\     let x = 5;
+        \\     if (true) { x = 1; } else { x = 1 + 2; };
+        \\     x;
+        \\ };
     ;
 
     var p = Parser.new(input, allocator);

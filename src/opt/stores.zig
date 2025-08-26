@@ -10,6 +10,7 @@ pub const Stores = struct {
     binop: ir.BinOpDistinct.Multi = .{},
     branch: ir.BranchDistinct.Multi = .{},
     set_local: ir.SetLocalDistinct.Multi = .{},
+    store_data: ir.StoreDataDistinct.Multi = .{},
     phony: ir.PhonyDistinct.Multi = .{},
     alloc: std.mem.Allocator,
 
