@@ -137,6 +137,7 @@ pub const MakeSSA = struct {
         }
 
         for (self.dom.domtree_edges[@intCast(bb_idx.index)].items) |dom_succ| {
+            std.debug.assert(self.dom.idoms[@intCast(dom_succ.index)].?.index == bb_idx.index);
             try self.search(dom_succ, visited);
         }
 
@@ -145,7 +146,6 @@ pub const MakeSSA = struct {
             // should always be same or lower so no alloc and not errors
             self.stacks[local_idx].resize(self.base.alloc, self.stack_checkpoints[local_idx]) catch unreachable;
         }
-
     }
 
     fn fix_phonys(

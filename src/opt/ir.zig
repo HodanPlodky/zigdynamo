@@ -83,6 +83,8 @@ pub const Instruction = union(enum) {
     sub: BinOpIdx,
     mul: BinOpIdx,
     div: BinOpIdx,
+    lt: BinOpIdx,
+    gt: BinOpIdx,
 
     // terminators
     ret: Reg,
@@ -113,6 +115,8 @@ pub const Instruction = union(enum) {
             .sub => "sub",
             .mul => "mul",
             .div => "div",
+            .lt => "lt",
+            .gt => "gt",
             .ret => "ret",
             .branch => "branch",
             .jmp => "jmp",

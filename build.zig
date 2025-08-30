@@ -72,6 +72,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .filters = b.args orelse &.{}
     });
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
@@ -80,6 +81,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/test.zig"),
         .target = target,
         .optimize = optimize,
+        .filters = b.args orelse &.{}
     });
 
     //if (b.lazyDependency("ohsnap", .{

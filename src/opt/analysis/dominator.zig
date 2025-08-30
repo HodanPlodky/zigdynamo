@@ -114,6 +114,7 @@ pub const DominatorAnalysis = struct {
             for (self.post_order.items[idx..]) |before| {
                 if (bb_doms.isSet(before.index)) {
                     idom = before;
+                    break;
                 }
             }
 

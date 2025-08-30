@@ -116,7 +116,7 @@ pub const CompiledResult = struct {
             .store_global => ir.Type.Void,
             .load_env => ir.Type.Top,
             .store_env => ir.Type.Void,
-            .add, .sub, .mul, .div => ir.Type.Top,
+            .add, .sub, .mul, .div, .lt, .gt => ir.Type.Top,
             .ret, .branch, .jmp => ir.Type.Void,
             .arg => ir.Type.Top,
             .nop => ir.Type.Void,
@@ -145,7 +145,7 @@ pub const CompiledResult = struct {
             .ret, .mov => |reg| try writer.print("%{}", .{reg.index}),
 
             //  binop ops
-            .add, .sub, .mul, .div => |binop_idx| {
+            .add, .sub, .mul, .div, .lt, .gt => |binop_idx| {
                 const binop = self.stores.get(ir.BinOpData, binop_idx);
                 try writer.print("%{}, %{}", .{ binop.left.index, binop.right.index });
             },
@@ -304,10 +304,12 @@ pub const Compiler = struct {
                     .right = right_reg,
                 });
                 return switch (binop.op) {
-                    '+' => try self.append_inst(ir.Instruction{ .add = binop_data }),
-                    '-' => try self.append_inst(ir.Instruction{ .sub = binop_data }),
-                    '*' => try self.append_inst(ir.Instruction{ .mul = binop_data }),
-                    '/' => try self.append_inst(ir.Instruction{ .div = binop_data }),
+                    '+' => try self.append_inst(.{ .add = binop_data }),
+                    '-' => try self.append_inst(.{ .sub = binop_data }),
+                    '*' => try self.append_inst(.{ .mul = binop_data }),
+                    '/' => try self.append_inst(.{ .div = binop_data }),
+                    '<' => try self.append_inst(.{.lt = binop_data}),
+                    '>' => try self.append_inst(.{.gt = binop_data}),
                     else => unreachable,
                 };
             },
@@ -433,6 +435,7 @@ pub const Compiler = struct {
                     .false_branch = after_bb_idx,
                 });
                 try self.append_terminator(.{ .branch = branch_data });
+                self.set_basicblock(after_bb_idx);
                 
                 return phony_reg;
             },
@@ -799,9 +802,13 @@ test "loop" {
 
     const input =
         \\ fn() = {
-        \\     while(true) {
-        \\         1;
+        \\     let x = 0;
+        \\     let res = 0;
+        \\     while(x < 10) {
+        \\         res = res + x;
+        \\         x = x + 1;
         \\     };
+        \\     res;
         \\ };
     ;
 
@@ -818,31 +825,38 @@ test "loop" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-        \\function {
-        \\basicblock0: []
-        \\    %0 = ldi 5
-        \\    %1 = mov %0
-        \\    %2 = mov %1
-        \\    %3 = true 
-        \\    branch %3, basicblock1, basicblock2
-        \\basicblock1: [0]
-        \\    %5 = ldi 1
-        \\    %6 = mov %5
-        \\    %7 = ldi 1
-        \\    jmp 3
-        \\basicblock2: [0]
-        \\    %9 = ldi 1
-        \\    %10 = ldi 2
-        \\    %11 = add %9, %10
-        \\    %12 = mov %11
-        \\    %13 = ldi 2
-        \\    jmp 3
-        \\basicblock3: [1, 2]
-        \\    %18 = phony 1 -> %6, 2 -> %12
-        \\    %15 = phony 1 -> %7, 2 -> %13
-        \\    %16 = mov %18
-        \\    ret %16
-        \\}
-        \\
+      \\function {
+      \\basicblock0: []
+      \\    %0 = ldi 0
+      \\    %1 = mov %0
+      \\    %2 = mov %1
+      \\    %3 = ldi 0
+      \\    %4 = mov %3
+      \\    %5 = mov %4
+      \\    %6 = nil 
+      \\    jmp 1
+      \\basicblock1: [0, 2]
+      \\    %25 = phony 0 -> %4, 2 -> %11
+      \\    %24 = phony 0 -> %1, 2 -> %15
+      \\    %17 = phony 0 -> %6, 2 -> %15
+      \\    %18 = mov %24
+      \\    %19 = ldi 10
+      \\    %20 = lt %18, %19
+      \\    branch %20, basicblock2, basicblock3
+      \\basicblock2: [1]
+      \\    %8 = mov %25
+      \\    %9 = mov %24
+      \\    %10 = add %8, %9
+      \\    %11 = mov %10
+      \\    %12 = mov %24
+      \\    %13 = ldi 1
+      \\    %14 = add %12, %13
+      \\    %15 = mov %14
+      \\    jmp 1
+      \\basicblock3: [1]
+      \\    %22 = mov %25
+      \\    ret %22
+      \\}
+      \\
     ).equal_fmt(res);
 }
