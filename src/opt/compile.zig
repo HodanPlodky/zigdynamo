@@ -411,6 +411,31 @@ pub const Compiler = struct {
                 const phony_data = try self.create_with(ir.PhonyData, ir.PhonyData{ .data = phony_ops });
                 return try self.append_inst(ir.Instruction{ .phony = phony_data });
             },
+            .loop => |loop| {
+                const before_bb_idx = self.current;
+                const cond_bb_idx = try self.append_basicblock();
+                const body_bb_idx = try self.append_basicblock();
+                const after_bb_idx = try self.append_basicblock();
+                const default_ret = try self.append_inst(.nil);
+                try self.append_terminator(.{ .jmp = cond_bb_idx });
+
+                self.set_basicblock(body_bb_idx);
+                const body_ret = try self.compile_expr(loop.body);
+                try self.append_terminator(.{ .jmp = cond_bb_idx });
+
+                self.set_basicblock(cond_bb_idx);
+                const phony = try self.create_phony(before_bb_idx, default_ret, body_bb_idx, body_ret, null);
+                const phony_reg = try self.append_inst(phony);
+                const cond_reg = try self.compile_expr(loop.cond);
+                const branch_data = try self.create_with(ir.BranchData, .{
+                    .cond = cond_reg,
+                    .true_branch = body_bb_idx,
+                    .false_branch = after_bb_idx,
+                });
+                try self.append_terminator(.{ .branch = branch_data });
+                
+                return phony_reg;
+            },
             .bool => |value| if (value) {
                 return try self.append_inst(ir.Instruction.true);
             } else {
@@ -526,7 +551,7 @@ pub const Compiler = struct {
         a: ir.Reg,
         label_b: ir.BasicBlockIdx,
         b: ir.Reg,
-        origin: u32,
+        origin: ?u32,
     ) !ir.Instruction {
         const phony_ops = try self.permanent_alloc.alloc(ir.PhonyData.Pair, 2);
         phony_ops[0] = .{
@@ -644,22 +669,22 @@ test "let" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-        \\function {
-        \\basicblock0: []
-        \\    %0 = ldi 1
-        \\    set_local 0, %0
-        \\    %2 = get_local 0
-        \\    %3 = ldi 2
-        \\    set_local 1, %3
-        \\    %5 = get_local 1
-        \\    %6 = get_local 0
-        \\    %7 = get_local 1
-        \\    %8 = add %6, %7
-        \\    %9 = load_env 0
-        \\    %10 = add %8, %9
-        \\    ret %10
-        \\}
-        \\
+       \\function {
+       \\basicblock0: []
+       \\    %0 = ldi 1
+       \\    %1 = mov %0
+       \\    %2 = mov %1
+       \\    %3 = ldi 2
+       \\    %4 = mov %3
+       \\    %5 = mov %4
+       \\    %6 = mov %1
+       \\    %7 = mov %4
+       \\    %8 = add %6, %7
+       \\    %9 = load_env 0
+       \\    %10 = add %8, %9
+       \\    ret %10
+       \\}
+       \\
     ).equal_fmt(res);
 }
 
@@ -736,31 +761,88 @@ test "condition2" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-       \\function {
-       \\basicblock0: []
-       \\    %0 = ldi 5
-       \\    %1 = mov %0
-       \\    %2 = mov %1
-       \\    %3 = true 
-       \\    branch %3, basicblock1, basicblock2
-       \\basicblock1: [0]
-       \\    %5 = ldi 1
-       \\    %6 = mov %5
-       \\    %7 = ldi 1
-       \\    jmp 3
-       \\basicblock2: [0]
-       \\    %9 = ldi 1
-       \\    %10 = ldi 2
-       \\    %11 = add %9, %10
-       \\    %12 = mov %11
-       \\    %13 = ldi 2
-       \\    jmp 3
-       \\basicblock3: [1, 2]
-       \\    %18 = phony 1 -> %6, 2 -> %12
-       \\    %15 = phony 1 -> %7, 2 -> %13
-       \\    %16 = mov %18
-       \\    ret %16
-       \\}
-       \\
+        \\function {
+        \\basicblock0: []
+        \\    %0 = ldi 5
+        \\    %1 = mov %0
+        \\    %2 = mov %1
+        \\    %3 = true 
+        \\    branch %3, basicblock1, basicblock2
+        \\basicblock1: [0]
+        \\    %5 = ldi 1
+        \\    %6 = mov %5
+        \\    %7 = ldi 1
+        \\    jmp 3
+        \\basicblock2: [0]
+        \\    %9 = ldi 1
+        \\    %10 = ldi 2
+        \\    %11 = add %9, %10
+        \\    %12 = mov %11
+        \\    %13 = ldi 2
+        \\    jmp 3
+        \\basicblock3: [1, 2]
+        \\    %18 = phony 1 -> %6, 2 -> %12
+        \\    %15 = phony 1 -> %7, 2 -> %13
+        \\    %16 = mov %18
+        \\    ret %16
+        \\}
+        \\
+    ).equal_fmt(res);
+}
+
+test "loop" {
+    const Parser = @import("../parser.zig").Parser;
+    const snap = @import("../snap.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ fn() = {
+        \\     while(true) {
+        \\         1;
+        \\     };
+        \\ };
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+
+    // get first function
+    const node = parse_res.data[0];
+
+    // first should be function
+    const function = &node.function;
+    const metadata = runtime.FunctionMetadata{};
+
+    const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
+    const res = try ir_compile(function, metadata, globals, allocator);
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = ldi 5
+        \\    %1 = mov %0
+        \\    %2 = mov %1
+        \\    %3 = true 
+        \\    branch %3, basicblock1, basicblock2
+        \\basicblock1: [0]
+        \\    %5 = ldi 1
+        \\    %6 = mov %5
+        \\    %7 = ldi 1
+        \\    jmp 3
+        \\basicblock2: [0]
+        \\    %9 = ldi 1
+        \\    %10 = ldi 2
+        \\    %11 = add %9, %10
+        \\    %12 = mov %11
+        \\    %13 = ldi 2
+        \\    jmp 3
+        \\basicblock3: [1, 2]
+        \\    %18 = phony 1 -> %6, 2 -> %12
+        \\    %15 = phony 1 -> %7, 2 -> %13
+        \\    %16 = mov %18
+        \\    ret %16
+        \\}
+        \\
     ).equal_fmt(res);
 }
