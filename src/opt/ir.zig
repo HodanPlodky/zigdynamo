@@ -36,6 +36,13 @@ pub const PhonyData = struct {
         reg: Reg,
     };
     data: []Pair,
+
+    // which original variable was
+    // this phony, it could be the case
+    // that this phony is create not from
+    // the local but from different
+    // branching like conditional
+    origin: ?u32 = null,
 };
 pub const PhonyDistinct = utils.DistinctData(u32, PhonyData);
 pub const PhonyIdx = PhonyDistinct.Index;

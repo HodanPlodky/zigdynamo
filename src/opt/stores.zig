@@ -83,6 +83,19 @@ pub const Stores = struct {
         @compileError("could not find proper index");
     }
 
+    pub fn set(self: *Stores, comptime T: type, index: Stores.get_index_type(T), value: T) void {
+        const info = @typeInfo(Stores).@"struct";
+
+        inline for (info.fields) |field| {
+            if (field.type.Inner == T) {
+                return @field(self, field.name).set(index, value);
+            }
+        }
+
+        @compileError("could not find proper index");
+    }
+
+
     pub fn get_max_idx(self: *const Stores, comptime T: type) Stores.get_index_type(T) {
         const info = @typeInfo(Stores).@"struct";
         const Index = Stores.get_index_type(T);

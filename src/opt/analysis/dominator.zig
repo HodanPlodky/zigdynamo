@@ -10,6 +10,7 @@ pub const DominatorAnalysis = struct {
     dominators: []BitSet,
     frontiers: []BitSet,
     idoms: []?ir.BasicBlockIdx,
+    domtree_edges: []std.ArrayListUnmanaged(ir.BasicBlockIdx),
     post_order: std.ArrayListUnmanaged(ir.BasicBlockIdx),
 
     // temp set to not allocate
@@ -23,6 +24,7 @@ pub const DominatorAnalysis = struct {
             .dominators = try base.alloc.alloc(BitSet, bb_count),
             .frontiers = try base.alloc.alloc(BitSet, bb_count),
             .idoms = try base.alloc.alloc(?ir.BasicBlockIdx, bb_count),
+            .domtree_edges = try base.alloc.alloc(std.ArrayListUnmanaged(ir.BasicBlockIdx), bb_count),
             .post_order = try std.ArrayListUnmanaged(ir.BasicBlockIdx).initCapacity(base.alloc, bb_count),
             .temp_set = try BitSet.initFull(base.alloc, bb_count),
         };
@@ -35,6 +37,11 @@ pub const DominatorAnalysis = struct {
         for (self.dominators) |*doms| {
             doms.* = try BitSet.initFull(self.base.alloc, bb_count);
         }
+
+        for (self.domtree_edges) |*bb_edges| {
+            bb_edges.* = std.ArrayListUnmanaged(ir.BasicBlockIdx){};
+        }
+
         const function = self.base.compiler.get_const_ptr(ir.Function, self.base.function_idx);
         var visited = try BitSet.initEmpty(self.base.alloc, bb_count);
 
@@ -44,7 +51,7 @@ pub const DominatorAnalysis = struct {
         // compute dominators
         self.compute_doms();
 
-        self.compute_immediate();
+        try self.compute_immediate();
 
         try self.compute_frontier();
     }
@@ -100,7 +107,7 @@ pub const DominatorAnalysis = struct {
         }
     }
 
-    fn compute_immediate(self: *DominatorAnalysis) void {
+    fn compute_immediate(self: *DominatorAnalysis) !void {
         for (self.post_order.items, 1..) |bb_idx, idx| {
             const bb_doms = self.dominators[bb_idx.index];
             var idom: ?ir.BasicBlockIdx = null;
@@ -111,6 +118,9 @@ pub const DominatorAnalysis = struct {
             }
 
             self.idoms[bb_idx.index] = idom;
+            if (idom != null) {
+                try self.domtree_edges[@intCast(idom.?.index)].append(self.base.alloc, bb_idx);
+            }
         }
     }
 

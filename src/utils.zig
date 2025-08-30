@@ -131,9 +131,9 @@ pub fn DistinctMultiArrayList(comptime Index: type, comptime T: type) type {
             return self.data.get(raw_index);
         }
 
-        pub fn set(self: *const Self, index: Index, val: T) void {
+        pub fn set(self: *Self, index: Index, val: T) void {
             const raw_index = index.get_usize();
-            self.data.items[raw_index] = val;
+            self.data.set(raw_index, val);
         }
     };
 }

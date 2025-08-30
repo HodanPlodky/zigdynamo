@@ -475,6 +475,10 @@ pub const Compiler = struct {
         return self.stores.get(T, index);
     }
 
+    pub fn set(self: *Compiler, comptime T: type, index: Stores.get_index_type(T), value: T) void {
+        return self.stores.set(T, index, value);
+    }
+
     pub fn create_inst(self: *Compiler, inst: ir.Instruction) !ir.InstructionIdx {
         return self.stores.create_with(ir.Instruction, inst);
     }
@@ -514,6 +518,29 @@ pub const Compiler = struct {
         const curr_fn = self.get_ptr(ir.Function, self.fn_idx);
         try curr_fn.basicblocks.append(self.permanent_alloc, bb_idx);
         return bb_idx;
+    }
+
+    pub fn create_phony(
+        self: *Compiler,
+        label_a: ir.BasicBlockIdx,
+        a: ir.Reg,
+        label_b: ir.BasicBlockIdx,
+        b: ir.Reg,
+        origin: u32,
+    ) !ir.Instruction {
+        const phony_ops = try self.permanent_alloc.alloc(ir.PhonyData.Pair, 2);
+        phony_ops[0] = .{
+            .label = label_a,
+            .reg = a,
+        };
+        phony_ops[1] = .{
+            .label = label_b,
+            .reg = b,
+        };
+
+        const data = try self.create_with(ir.PhonyData, .{ .data = phony_ops, .origin = origin });
+
+        return .{ .phony = data };
     }
 
     // TODO fix places where this is not used
@@ -691,7 +718,7 @@ test "condition2" {
     const input =
         \\ fn() = {
         \\     let x = 5;
-        \\     if (true) { x = 1; } else { x = 1 + 2; };
+        \\     if (true) { x = 1; 1; } else { x = 1 + 2; 2;};
         \\     x;
         \\ };
     ;
@@ -709,22 +736,31 @@ test "condition2" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-        \\function {
-        \\basicblock0: []
-        \\    %0 = true 
-        \\    branch %0, basicblock1, basicblock2
-        \\basicblock1: [0]
-        \\    %2 = ldi 1
-        \\    jmp 3
-        \\basicblock2: [0]
-        \\    %4 = ldi 1
-        \\    %5 = ldi 2
-        \\    %6 = add %4, %5
-        \\    jmp 3
-        \\basicblock3: [1, 2]
-        \\    %8 = phony 1 -> %2, 2 -> %6
-        \\    ret %8
-        \\}
-        \\
+       \\function {
+       \\basicblock0: []
+       \\    %0 = ldi 5
+       \\    %1 = mov %0
+       \\    %2 = mov %1
+       \\    %3 = true 
+       \\    branch %3, basicblock1, basicblock2
+       \\basicblock1: [0]
+       \\    %5 = ldi 1
+       \\    %6 = mov %5
+       \\    %7 = ldi 1
+       \\    jmp 3
+       \\basicblock2: [0]
+       \\    %9 = ldi 1
+       \\    %10 = ldi 2
+       \\    %11 = add %9, %10
+       \\    %12 = mov %11
+       \\    %13 = ldi 2
+       \\    jmp 3
+       \\basicblock3: [1, 2]
+       \\    %18 = phony 1 -> %6, 2 -> %12
+       \\    %15 = phony 1 -> %7, 2 -> %13
+       \\    %16 = mov %18
+       \\    ret %16
+       \\}
+       \\
     ).equal_fmt(res);
 }

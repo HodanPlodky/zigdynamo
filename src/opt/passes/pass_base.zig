@@ -8,4 +8,8 @@ pub const PassBase = struct {
     alloc: std.mem.Allocator,
     function_idx: ir.FunctionIdx,
     analysis_base: AnalysisBase,
+
+    pub fn get_entry(self: *const PassBase) ir.Function {
+        return self.compiler.get(ir.Function, self.function_idx);
+    }
 };
