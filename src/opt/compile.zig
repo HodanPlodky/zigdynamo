@@ -5,6 +5,8 @@ const ir = @import("ir.zig");
 const Stores = @import("stores.zig").Stores;
 const runtime = @import("../runtime.zig");
 const MakeSSA = @import("passes/make_ssa.zig").MakeSSA;
+const MovElim = @import("passes/mov_elim.zig").MovElim;
+const UnusedElim = @import("passes/unused_elim.zig").UnusedElim;
 const PassBase = @import("passes/pass_base.zig").PassBase;
 const AnalysisBase = @import("analysis/analysis_base.zig").AnalysisBase;
 
@@ -22,8 +24,10 @@ pub fn ir_compile(input: *const ast.Function, metadata: runtime.FunctionMetadata
 }
 
 pub fn run_passes(compiler: *Compiler, alloc: std.mem.Allocator) !void {
-    const passes: [1]type = .{
+    const passes: [3]type = .{
         MakeSSA,
+        MovElim,
+        UnusedElim,
     };
 
     for (0..compiler.stores.function.data.items.len) |i| {
@@ -41,7 +45,7 @@ pub fn run_passes(compiler: *Compiler, alloc: std.mem.Allocator) !void {
         };
 
         inline for (passes) |pass_type| {
-            var pass = try pass_type.init(pass_base, compiler.locals.curr_idx);
+            var pass = try pass_type.init(pass_base);
             try pass.run();
         }
     }
@@ -94,9 +98,9 @@ pub const CompiledResult = struct {
         const inst = self.stores.get(ir.Instruction, idx);
         const inst_type = self.get_type(inst);
         if (inst_type == ir.Type.Void) {
-            try writer.print("    {s} ", .{inst.opcode()});
+            try writer.print("    {s}", .{inst.opcode()});
         } else {
-            try writer.print("    %{} = {s} ", .{ idx.index, inst.opcode() });
+            try writer.print("    %{} = {s}", .{ idx.index, inst.opcode() });
         }
         try self.write_payload(inst, writer);
         try writer.print("\n", .{});
@@ -130,7 +134,7 @@ pub const CompiledResult = struct {
     pub fn write_payload(self: *const CompiledResult, inst: ir.Instruction, writer: anytype) !void {
         switch (inst) {
             // immediate ops
-            .ldi, .load_global, .arg, .load_env => |num| try writer.print("{}", .{num}),
+            .ldi, .load_global, .arg, .load_env => |num| try writer.print(" {}", .{num}),
 
             // TODO
             .store_env, .store_global => |store_idx| {
@@ -142,35 +146,35 @@ pub const CompiledResult = struct {
             .nil, .true, .false, .nop => {},
 
             // one reg ops
-            .ret, .mov => |reg| try writer.print("%{}", .{reg.index}),
+            .ret, .mov => |reg| try writer.print(" %{}", .{reg.index}),
 
             //  binop ops
             .add, .sub, .mul, .div, .lt, .gt => |binop_idx| {
                 const binop = self.stores.get(ir.BinOpData, binop_idx);
-                try writer.print("%{}, %{}", .{ binop.left.index, binop.right.index });
+                try writer.print(" %{}, %{}", .{ binop.left.index, binop.right.index });
             },
             .branch => |branch_idx| {
                 const branch = self.stores.get(ir.BranchData, branch_idx);
-                try writer.print("%{}, basicblock{}, basicblock{}", .{
+                try writer.print(" %{}, basicblock{}, basicblock{}", .{
                     branch.cond.index,
                     branch.true_branch.index,
                     branch.false_branch.index,
                 });
             },
-            .jmp => |bb_idx| try writer.print("{}", .{bb_idx.index}),
+            .jmp => |bb_idx| try writer.print(" {}", .{bb_idx.index}),
             .phony => |phony_idx| {
                 const data = self.stores.get(ir.PhonyData, phony_idx);
                 if (data.data.len > 0) {
-                    try writer.print("{} -> %{}", .{ data.data[0].label.index, data.data[0].reg.index });
+                    try writer.print(" {} -> %{}", .{ data.data[0].label.index, data.data[0].reg.index });
                     for (data.data[1..]) |pair| {
                         try writer.print(", {} -> %{}", .{ pair.label.index, pair.reg.index });
                     }
                 }
             },
-            .get_local => |reg| try writer.print("{}", .{reg}),
+            .get_local => |reg| try writer.print(" {}", .{reg}),
             .set_local => |set_local_idx| {
                 const set_local = self.stores.get(ir.SetLocalData, set_local_idx);
-                try writer.print("{}, %{}", .{ set_local.local_idx, set_local.value.index });
+                try writer.print(" {}, %{}", .{ set_local.local_idx, set_local.value.index });
             },
         }
     }
@@ -675,13 +679,9 @@ test "let" {
         \\function {
         \\basicblock0: []
         \\    %0 = ldi 1
-        \\    %1 = mov %0
-        \\    %2 = mov %1
         \\    %3 = ldi 2
-        \\    %4 = mov %3
-        \\    %5 = mov %4
-        \\    %6 = mov %1
-        \\    %7 = mov %4
+        \\    %6 = mov %0
+        \\    %7 = mov %3
         \\    %8 = add %6, %7
         \\    %9 = load_env 0
         \\    %10 = add %8, %9
@@ -699,7 +699,7 @@ test "condition1" {
     const allocator = arena.allocator();
 
     const input =
-        \\ fn() = 
+        \\ fn() =
         \\     if (true) { 1; } else { 1 + 2; };
     ;
 
@@ -718,7 +718,7 @@ test "condition1" {
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
-        \\    %0 = true 
+        \\    %0 = true
         \\    branch %0, basicblock1, basicblock2
         \\basicblock1: [0]
         \\    %2 = ldi 1
@@ -766,26 +766,18 @@ test "condition2" {
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
-        \\    %0 = ldi 5
-        \\    %1 = mov %0
-        \\    %2 = mov %1
-        \\    %3 = true 
+        \\    %3 = true
         \\    branch %3, basicblock1, basicblock2
         \\basicblock1: [0]
         \\    %5 = ldi 1
-        \\    %6 = mov %5
-        \\    %7 = ldi 1
         \\    jmp 3
         \\basicblock2: [0]
         \\    %9 = ldi 1
         \\    %10 = ldi 2
         \\    %11 = add %9, %10
-        \\    %12 = mov %11
-        \\    %13 = ldi 2
         \\    jmp 3
         \\basicblock3: [1, 2]
-        \\    %18 = phony 1 -> %6, 2 -> %12
-        \\    %15 = phony 1 -> %7, 2 -> %13
+        \\    %18 = phony 1 -> %5, 2 -> %11
         \\    %16 = mov %18
         \\    ret %16
         \\}
@@ -828,17 +820,11 @@ test "loop" {
         \\function {
         \\basicblock0: []
         \\    %0 = ldi 0
-        \\    %1 = mov %0
-        \\    %2 = mov %1
         \\    %3 = ldi 0
-        \\    %4 = mov %3
-        \\    %5 = mov %4
-        \\    %6 = nil 
         \\    jmp 1
         \\basicblock1: [0, 2]
-        \\    %25 = phony 0 -> %4, 2 -> %11
-        \\    %24 = phony 0 -> %1, 2 -> %15
-        \\    %17 = phony 0 -> %6, 2 -> %15
+        \\    %25 = phony 0 -> %3, 2 -> %10
+        \\    %24 = phony 0 -> %0, 2 -> %14
         \\    %18 = mov %24
         \\    %19 = ldi 10
         \\    %20 = lt %18, %19
@@ -847,11 +833,9 @@ test "loop" {
         \\    %8 = mov %25
         \\    %9 = mov %24
         \\    %10 = add %8, %9
-        \\    %11 = mov %10
         \\    %12 = mov %24
         \\    %13 = ldi 1
         \\    %14 = add %12, %13
-        \\    %15 = mov %14
         \\    jmp 1
         \\basicblock3: [1]
         \\    %22 = mov %25

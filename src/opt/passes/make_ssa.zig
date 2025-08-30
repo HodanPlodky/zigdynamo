@@ -14,7 +14,8 @@ pub const MakeSSA = struct {
     stacks: []std.ArrayListUnmanaged(ir.Reg),
     stack_checkpoints: []usize,
 
-    pub fn init(base: Base, local_count: u32) !MakeSSA {
+    pub fn init(base: Base) !MakeSSA {
+        const local_count = base.compiler.locals.curr_idx;
         return MakeSSA{
             .base = base,
             .local_count = local_count,
@@ -112,7 +113,7 @@ pub const MakeSSA = struct {
                 .set_local => |set_local_idx| {
                     const set_local_data = self.base.compiler.get(ir.SetLocalData, set_local_idx);
                     const local_idx: usize = @intCast(set_local_data.local_idx);
-                    try self.stacks[local_idx].append(self.base.alloc, inst_idx);
+                    try self.stacks[local_idx].append(self.base.alloc, set_local_data.value);
                     self.base.compiler.set(ir.Instruction, inst_idx, .{ .mov = set_local_data.value });
                     append_count += 1;
                 },
