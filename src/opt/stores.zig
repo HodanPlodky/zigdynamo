@@ -95,7 +95,6 @@ pub const Stores = struct {
         @compileError("could not find proper index");
     }
 
-
     pub fn get_max_idx(self: *const Stores, comptime T: type) Stores.get_index_type(T) {
         const info = @typeInfo(Stores).@"struct";
         const Index = Stores.get_index_type(T);

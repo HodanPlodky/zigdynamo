@@ -308,8 +308,8 @@ pub const Compiler = struct {
                     '-' => try self.append_inst(.{ .sub = binop_data }),
                     '*' => try self.append_inst(.{ .mul = binop_data }),
                     '/' => try self.append_inst(.{ .div = binop_data }),
-                    '<' => try self.append_inst(.{.lt = binop_data}),
-                    '>' => try self.append_inst(.{.gt = binop_data}),
+                    '<' => try self.append_inst(.{ .lt = binop_data }),
+                    '>' => try self.append_inst(.{ .gt = binop_data }),
                     else => unreachable,
                 };
             },
@@ -436,7 +436,7 @@ pub const Compiler = struct {
                 });
                 try self.append_terminator(.{ .branch = branch_data });
                 self.set_basicblock(after_bb_idx);
-                
+
                 return phony_reg;
             },
             .bool => |value| if (value) {
@@ -672,22 +672,22 @@ test "let" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-       \\function {
-       \\basicblock0: []
-       \\    %0 = ldi 1
-       \\    %1 = mov %0
-       \\    %2 = mov %1
-       \\    %3 = ldi 2
-       \\    %4 = mov %3
-       \\    %5 = mov %4
-       \\    %6 = mov %1
-       \\    %7 = mov %4
-       \\    %8 = add %6, %7
-       \\    %9 = load_env 0
-       \\    %10 = add %8, %9
-       \\    ret %10
-       \\}
-       \\
+        \\function {
+        \\basicblock0: []
+        \\    %0 = ldi 1
+        \\    %1 = mov %0
+        \\    %2 = mov %1
+        \\    %3 = ldi 2
+        \\    %4 = mov %3
+        \\    %5 = mov %4
+        \\    %6 = mov %1
+        \\    %7 = mov %4
+        \\    %8 = add %6, %7
+        \\    %9 = load_env 0
+        \\    %10 = add %8, %9
+        \\    ret %10
+        \\}
+        \\
     ).equal_fmt(res);
 }
 
@@ -825,38 +825,38 @@ test "loop" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-      \\function {
-      \\basicblock0: []
-      \\    %0 = ldi 0
-      \\    %1 = mov %0
-      \\    %2 = mov %1
-      \\    %3 = ldi 0
-      \\    %4 = mov %3
-      \\    %5 = mov %4
-      \\    %6 = nil 
-      \\    jmp 1
-      \\basicblock1: [0, 2]
-      \\    %25 = phony 0 -> %4, 2 -> %11
-      \\    %24 = phony 0 -> %1, 2 -> %15
-      \\    %17 = phony 0 -> %6, 2 -> %15
-      \\    %18 = mov %24
-      \\    %19 = ldi 10
-      \\    %20 = lt %18, %19
-      \\    branch %20, basicblock2, basicblock3
-      \\basicblock2: [1]
-      \\    %8 = mov %25
-      \\    %9 = mov %24
-      \\    %10 = add %8, %9
-      \\    %11 = mov %10
-      \\    %12 = mov %24
-      \\    %13 = ldi 1
-      \\    %14 = add %12, %13
-      \\    %15 = mov %14
-      \\    jmp 1
-      \\basicblock3: [1]
-      \\    %22 = mov %25
-      \\    ret %22
-      \\}
-      \\
+        \\function {
+        \\basicblock0: []
+        \\    %0 = ldi 0
+        \\    %1 = mov %0
+        \\    %2 = mov %1
+        \\    %3 = ldi 0
+        \\    %4 = mov %3
+        \\    %5 = mov %4
+        \\    %6 = nil 
+        \\    jmp 1
+        \\basicblock1: [0, 2]
+        \\    %25 = phony 0 -> %4, 2 -> %11
+        \\    %24 = phony 0 -> %1, 2 -> %15
+        \\    %17 = phony 0 -> %6, 2 -> %15
+        \\    %18 = mov %24
+        \\    %19 = ldi 10
+        \\    %20 = lt %18, %19
+        \\    branch %20, basicblock2, basicblock3
+        \\basicblock2: [1]
+        \\    %8 = mov %25
+        \\    %9 = mov %24
+        \\    %10 = add %8, %9
+        \\    %11 = mov %10
+        \\    %12 = mov %24
+        \\    %13 = ldi 1
+        \\    %14 = add %12, %13
+        \\    %15 = mov %14
+        \\    jmp 1
+        \\basicblock3: [1]
+        \\    %22 = mov %25
+        \\    ret %22
+        \\}
+        \\
     ).equal_fmt(res);
 }
