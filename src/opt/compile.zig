@@ -136,7 +136,7 @@ pub const CompiledResult = struct {
             // immediate ops
             .ldi, .load_global, .arg, .load_env => |num| try writer.print(" {}", .{num}),
 
-            // TODO
+            // stores
             .store_env, .store_global => |store_idx| {
                 const data = self.stores.get(ir.StoreData, store_idx);
                 try writer.print("{}, %{}", .{ data.idx, data.value.index });
@@ -274,7 +274,7 @@ pub const Compiler = struct {
         std.debug.assert(builtin.is_test);
 
         const bb_idx = try self.create(ir.BasicBlock);
-        self.current = bb_idx;
+        self.set_basicblock(bb_idx);
         const fn_idx = try self.create_with(ir.Function, try ir.Function.create(bb_idx, self.permanent_alloc));
         self.fn_idx = fn_idx;
 
@@ -284,7 +284,7 @@ pub const Compiler = struct {
     fn compile_fn(self: *Compiler, function: *const ast.Function, metadata: runtime.FunctionMetadata) !ir.FunctionIdx {
         _ = metadata;
         const bb_idx = try self.create(ir.BasicBlock);
-        self.current = bb_idx;
+        self.set_basicblock(bb_idx);
         const fn_idx = try self.create_with(ir.Function, try ir.Function.create(bb_idx, self.permanent_alloc));
         self.fn_idx = fn_idx;
 
@@ -390,32 +390,22 @@ pub const Compiler = struct {
                 });
                 try self.append_terminator(ir.Instruction{ .branch = branch });
 
-                self.current = true_bb;
+                self.set_basicblock(true_bb);
                 const true_reg = try self.compile_expr(condition.then_block);
                 try self.append_terminator(ir.Instruction{ .jmp = join_bb });
-                self.current = false_bb;
+                self.set_basicblock(false_bb);
 
                 const false_reg = if (condition.else_block) |else_block|
                     try self.compile_expr(else_block)
                 else
                     try self.append_inst(ir.Instruction.nil);
                 try self.append_terminator(ir.Instruction{ .jmp = join_bb });
-                self.current = join_bb;
+                self.set_basicblock(join_bb);
 
                 // insert phony node that merges two result
                 // of the condition
-                const phony_ops = try self.permanent_alloc.alloc(ir.PhonyData.Pair, 2);
-                phony_ops[0] = .{
-                    .label = true_bb,
-                    .reg = true_reg,
-                };
-                phony_ops[1] = .{
-                    .label = false_bb,
-                    .reg = false_reg,
-                };
-
-                const phony_data = try self.create_with(ir.PhonyData, ir.PhonyData{ .data = phony_ops });
-                return try self.append_inst(ir.Instruction{ .phony = phony_data });
+                const phony = try self.create_phony(true_bb, true_reg, false_bb, false_reg, null);
+                return try self.append_inst(phony);
             },
             .loop => |loop| {
                 const before_bb_idx = self.current;
