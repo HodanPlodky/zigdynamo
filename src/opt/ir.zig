@@ -135,6 +135,16 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub fn possible_sideeffect(self: Instruction) bool {
+        if (self.is_terminator()) {
+            return true;
+        }
+        return switch (self) {
+            .store_env, .store_global, .set_local => true,
+            else => false,
+        };
+    }
+
     pub const LabelIterator = struct {
         // max number of labels in terminator
         data: [2]BasicBlockIdx,

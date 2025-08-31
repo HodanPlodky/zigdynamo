@@ -89,7 +89,7 @@ pub fn main() !void {
         std.debug.assert(bytecode.functions.functions.len > 1);
         for (bytecode.functions.sources, 0..) |source, idx| {
             const meta = inter.function_meta[idx + 1];
-            const res = try opt.ir_compile(source, meta, alloc);
+            const res = try opt.ir_compile(source, meta, &.{}, alloc);
             std.debug.print("{}\n", .{res});
         }
     } else {
