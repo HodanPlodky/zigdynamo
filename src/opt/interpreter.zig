@@ -1,6 +1,5 @@
 const std = @import("std");
 const CompiledResult = @import("compile.zig").CompiledResult;
-const BcIntepreter = @import("../bc_interpreter.zig").BcInterpreter;
 const runtime = @import("../runtime.zig");
 const ir = @import("ir.zig");
 
@@ -8,7 +7,7 @@ const ir = @import("ir.zig");
 /// this is for debug purpouses
 const Interpreter = struct {
     code: CompiledResult,
-    bytecode_interpreter: *BcIntepreter,
+    globals: []runtime.Value,
     env: []runtime.Value,
     regs: []runtime.Value,
     alloc: std.mem.Allocator,
@@ -16,14 +15,14 @@ const Interpreter = struct {
 
     pub fn init(
         code: CompiledResult,
-        bytecode_interpreter: *BcIntepreter,
+        globals: []runtime.Value,
         env: []runtime.Value,
         alloc: std.mem.Allocator,
     ) !Interpreter {
         const inst_count = code.stores.get_max_idx(ir.Instruction);
         return Interpreter{
             .code = code,
-            .bytecode_interpreter = bytecode_interpreter,
+            .globals = globals,
             .env = env,
             .regs = try alloc.alloc(runtime.Value, inst_count.get_usize()),
             .alloc = alloc,
@@ -38,17 +37,16 @@ const Interpreter = struct {
         const start = self.code.entry_fn;
         const function = self.code.stores.get(ir.Function, start);
         self.args = args;
-        return self.run_fn(function, args);
+        return self.run_fn(function);
     }
 
     fn run_fn(self: *Interpreter, function: ir.Function) runtime.Value {
         var before: ?ir.BasicBlockIdx = null;
         var curr_idx = function.entry;
-        //var curr_bb = self.code.stores.get(ir.BasicBlock, curr_idx);
 
         while (true) {
-            var curr_bb = self.code.stores.get(ir.BasicBlock, curr_idx);
-            for (curr_bb.instructions, 0..) |inst_idx, idx| {
+            const curr_bb = self.code.stores.get(ir.BasicBlock, curr_idx);
+            for (curr_bb.instructions.items, 0..) |inst_idx, idx| {
                 const inst = self.code.stores.get(ir.Instruction, inst_idx);
                 const reg = inst_idx.get_usize();
                 switch (inst) {
@@ -57,11 +55,13 @@ const Interpreter = struct {
                     .nil => self.regs[reg] = runtime.Value.new_nil(),
                     .true => self.regs[reg] = runtime.Value.new_bool(true),
                     .false => self.regs[reg] = runtime.Value.new_bool(false),
-                    .load_global => |num| self.bytecode_interpreter.env.global[@intCast(num)],
+                    .load_global => |num| {
+                        self.regs[reg] = self.globals[@intCast(num)];
+                    },
                     .store_global => |store_idx| {
                         const store = self.code.stores.get(ir.StoreData, store_idx);
                         const val = self.regs[store.value.get_usize()];
-                        self.bytecode_interpreter.env.global[@intCast(store.idx)] = val;
+                        self.globals[@intCast(store.idx)] = val;
                     },
                     .load_env => |num| self.regs[reg] = self.env[@intCast(num)],
                     .store_env => |store_idx| {
@@ -100,11 +100,11 @@ const Interpreter = struct {
                         runtime.Value.gt,
                     ),
                     .ret => |ret_reg| {
-                        std.debug.assert(idx == curr_bb.instructions.items.len);
+                        std.debug.assert(idx == curr_bb.instructions.items.len - 1);
                         return self.regs[ret_reg.get_usize()];
                     },
                     .branch => |branch_idx| {
-                        std.debug.assert(idx == curr_bb.instructions.items.len);
+                        std.debug.assert(idx == curr_bb.instructions.items.len - 1);
                         before = curr_idx;
                         const branch = self.code.stores.get(ir.BranchData, branch_idx);
                         const cond = self.regs[branch.cond.get_usize()];
@@ -116,24 +116,24 @@ const Interpreter = struct {
                         break;
                     },
                     .jmp => |label| {
-                        std.debug.assert(idx == curr_bb.instructions.items.len);
+                        std.debug.assert(idx == curr_bb.instructions.items.len - 1);
                         before = curr_idx;
-                        curr_bb = label;
+                        curr_idx = label;
                         break;
                     },
                     .arg => |num| self.regs[reg] = self.args[@intCast(num)],
                     .nop => {},
                     .phony => |phony_idx| {
                         const phony = self.code.stores.get(ir.PhonyData, phony_idx);
-                        const res: ?runtime.Value = null;
+                        var res: ?ir.Reg = null;
                         for (phony.data) |pair| {
-                            if (pair.label.index == before.index) {
+                            if (pair.label.index == before.?.index) {
                                 res = pair.reg;
                             }
                         }
 
                         self.regs[reg] = self.regs[res.?.get_usize()];
-                },
+                    },
                     .get_local, .set_local => @panic("after passes this should not be here"),
                 }
             }
@@ -144,10 +144,10 @@ const Interpreter = struct {
         self: *Interpreter,
         inst_idx: ir.InstructionIdx,
         binop: ir.BinOpData,
-        comptime oper: fn (runtime.Value, runtime.Value) ir.Value,
+        comptime oper: fn (runtime.Value, runtime.Value) runtime.Value,
     ) void {
         const left = self.regs[binop.left.get_usize()];
-        const right = self.regs[binop.left.get_usize()];
+        const right = self.regs[binop.right.get_usize()];
         if (left.get_type() == runtime.ValueType.number and right.get_type() == runtime.ValueType.number) {
             self.regs[inst_idx.get_usize()] = oper(left, right);
         } else {
@@ -158,5 +158,30 @@ const Interpreter = struct {
 };
 
 test "basic" {
-    
+    const Parser = @import("../parser.zig").Parser;
+    const ir_compile = @import("compile.zig").ir_compile;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ fn() = 1 + 2;
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+
+    // get first function
+    const node = parse_res.data[0];
+
+    // first should be function
+    const function = &node.function;
+    const metadata = runtime.FunctionMetadata{};
+
+    const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
+    const res = try ir_compile(function, metadata, globals, allocator);
+
+    var interpret = try Interpreter.init(res, &.{}, &.{}, allocator);
+    const ret = interpret.run(&.{});
+    try std.testing.expectEqual(ret.get_number(), 3);
 }
