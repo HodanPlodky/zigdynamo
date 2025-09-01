@@ -735,7 +735,7 @@ test "condition2" {
 
     const input =
         \\ fn() = {
-        \\     let x = 5;
+        \\     let y = let x = 5;
         \\     if (true) { x = 1; 1; } else { x = 1 + 2; 2;};
         \\     x;
         \\ };
@@ -754,24 +754,24 @@ test "condition2" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-        \\function {
-        \\basicblock0: []
-        \\    %3 = true
-        \\    branch %3, basicblock1, basicblock2
-        \\basicblock1: [0]
-        \\    %5 = ldi 1
-        \\    jmp 3
-        \\basicblock2: [0]
-        \\    %9 = ldi 1
-        \\    %10 = ldi 2
-        \\    %11 = add %9, %10
-        \\    jmp 3
-        \\basicblock3: [1, 2]
-        \\    %18 = phony 1 -> %5, 2 -> %11
-        \\    %16 = mov %18
-        \\    ret %16
-        \\}
-        \\
+       \\function {
+       \\basicblock0: []
+       \\    %5 = true
+       \\    branch %5, basicblock1, basicblock2
+       \\basicblock1: [0]
+       \\    %7 = ldi 1
+       \\    jmp 3
+       \\basicblock2: [0]
+       \\    %11 = ldi 1
+       \\    %12 = ldi 2
+       \\    %13 = add %11, %12
+       \\    jmp 3
+       \\basicblock3: [1, 2]
+       \\    %20 = phony 1 -> %7, 2 -> %13
+       \\    %18 = mov %20
+       \\    ret %18
+       \\}
+       \\
     ).equal_fmt(res);
 }
 
