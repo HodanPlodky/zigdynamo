@@ -160,7 +160,7 @@ const FnEnvironment = struct {
     }
 
     pub fn pop_frame(self: *FnEnvironment) void {
-        var tmp = self.frames.pop();
+        var tmp = self.frames.pop().?;
         tmp.deinit();
     }
 };
@@ -231,7 +231,7 @@ const Enviroment = struct {
     }
 
     pub fn pop_call(self: *Enviroment) void {
-        var tmp = self.stacks.pop();
+        var tmp = self.stacks.pop().?;
         tmp.deinit();
     }
 

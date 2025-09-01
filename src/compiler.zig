@@ -656,14 +656,14 @@ test "basic compiler" {
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
         \\main_function (17 bytes)
-        \\	5: push_byte 1
-        \\	7: push_byte 2
-        \\	9: push_byte 2
-        \\	11: mul
-        \\	12: add
-        \\	13: push_byte 3
-        \\	15: sub
-        \\	16: ret_main
+        \\ 5: push_byte 1
+        \\ 7: push_byte 2
+        \\ 9: push_byte 2
+        \\ 11: mul
+        \\ 12: add
+        \\ 13: push_byte 3
+        \\ 15: sub
+        \\ 16: ret_main
         \\
         \\
     ).expectEqualFmt(res);
@@ -684,13 +684,13 @@ test "let compiler" {
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
         \\main_function (19 bytes)
-        \\	5: push_byte 1
-        \\	7: set_global 0 0 0 0
-        \\	12: pop
-        \\	13: get_global_small 0
-        \\	15: push_byte 1
-        \\	17: add
-        \\	18: ret_main
+        \\ 5: push_byte 1
+        \\ 7: set_global 0 0 0 0
+        \\ 12: pop
+        \\ 13: get_global_small 0
+        \\ 15: push_byte 1
+        \\ 17: add
+        \\ 18: ret_main
         \\
         \\
     ).expectEqualFmt(res);
@@ -711,15 +711,15 @@ test "condition compiler" {
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
         \\main_function (32 bytes)
-        \\	5: true
-        \\	6: set_global 0 0 0 0
-        \\	11: pop
-        \\	12: get_global_small 0
-        \\	14: branch 0 0 0 26
-        \\	19: push_byte 2
-        \\	21: jump 0 0 0 31
-        \\	26: push 0 0 3 232
-        \\	31: ret_main
+        \\ 5: true
+        \\ 6: set_global 0 0 0 0
+        \\ 11: pop
+        \\ 12: get_global_small 0
+        \\ 14: branch 0 0 0 26
+        \\ 19: push_byte 2
+        \\ 21: jump 0 0 0 31
+        \\ 26: push 0 0 3 232
+        \\ 31: ret_main
         \\
         \\
     ).expectEqualFmt(res);
@@ -744,22 +744,22 @@ test "object compiler" {
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
         \\main_function (53 bytes)
-        \\	5: nil
-        \\	6: push_byte 1
-        \\	8: string 0 0 0 3
-        \\	13: object 0 0 0 4
-        \\	18: set_global 0 0 0 0
-        \\	23: pop
-        \\	24: get_global_small 0
-        \\	26: get_field 0 0 0 1
-        \\	31: push_byte 1
-        \\	33: add
-        \\	34: print 0 0 0 1
-        \\	39: pop
-        \\	40: get_global_small 0
-        \\	42: get_field 0 0 0 2
-        \\	47: print 0 0 0 1
-        \\	52: ret_main
+        \\ 5: nil
+        \\ 6: push_byte 1
+        \\ 8: string 0 0 0 3
+        \\ 13: object 0 0 0 4
+        \\ 18: set_global 0 0 0 0
+        \\ 23: pop
+        \\ 24: get_global_small 0
+        \\ 26: get_field 0 0 0 1
+        \\ 31: push_byte 1
+        \\ 33: add
+        \\ 34: print 0 0 0 1
+        \\ 39: pop
+        \\ 40: get_global_small 0
+        \\ 42: get_field 0 0 0 2
+        \\ 47: print 0 0 0 1
+        \\ 52: ret_main
         \\
         \\string (6 bytes)
         \\string: a
@@ -797,32 +797,32 @@ test "object 2 compiler" {
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
         \\main_function (79 bytes)
-        \\	5: nil
-        \\	6: push_byte 1
-        \\	8: string 0 0 0 3
-        \\	13: object 0 0 0 4
-        \\	18: set_global 0 0 0 0
-        \\	23: pop
-        \\	24: get_global_small 0
-        \\	26: get_field 0 0 0 1
-        \\	31: push_byte 1
-        \\	33: add
-        \\	34: print 0 0 0 1
-        \\	39: pop
-        \\	40: get_global_small 0
-        \\	42: get_field 0 0 0 2
-        \\	47: print 0 0 0 1
-        \\	52: pop
-        \\	53: push_byte 2
-        \\	55: get_global_small 0
-        \\	57: set_field 0 0 0 1
-        \\	62: pop
-        \\	63: get_global_small 0
-        \\	65: get_field 0 0 0 1
-        \\	70: push_byte 1
-        \\	72: add
-        \\	73: print 0 0 0 1
-        \\	78: ret_main
+        \\ 5: nil
+        \\ 6: push_byte 1
+        \\ 8: string 0 0 0 3
+        \\ 13: object 0 0 0 4
+        \\ 18: set_global 0 0 0 0
+        \\ 23: pop
+        \\ 24: get_global_small 0
+        \\ 26: get_field 0 0 0 1
+        \\ 31: push_byte 1
+        \\ 33: add
+        \\ 34: print 0 0 0 1
+        \\ 39: pop
+        \\ 40: get_global_small 0
+        \\ 42: get_field 0 0 0 2
+        \\ 47: print 0 0 0 1
+        \\ 52: pop
+        \\ 53: push_byte 2
+        \\ 55: get_global_small 0
+        \\ 57: set_field 0 0 0 1
+        \\ 62: pop
+        \\ 63: get_global_small 0
+        \\ 65: get_field 0 0 0 1
+        \\ 70: push_byte 1
+        \\ 72: add
+        \\ 73: print 0 0 0 1
+        \\ 78: ret_main
         \\
         \\string (6 bytes)
         \\string: a
@@ -863,29 +863,29 @@ test "object 3 compiler" {
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
         \\main_function (76 bytes)
-        \\	5: nil
-        \\	6: push_byte 1
-        \\	8: string 0 0 0 3
-        \\	13: closure 0 0 0 5 0 0 0 0
-        \\	22: object 0 0 0 6
-        \\	27: set_global 0 0 0 0
-        \\	32: pop
-        \\	33: push_byte 1
-        \\	35: get_global_small 0
-        \\	37: methodcall 0 0 0 4
-        \\	42: pop
-        \\	43: get_global_small 0
-        \\	45: get_field 0 0 0 2
-        \\	50: print 0 0 0 1
-        \\	55: pop
-        \\	56: push_byte 2
-        \\	58: get_global_small 0
-        \\	60: set_field 0 0 0 1
-        \\	65: pop
-        \\	66: push_byte 2
-        \\	68: get_global_small 0
-        \\	70: methodcall 0 0 0 4
-        \\	75: ret_main
+        \\ 5: nil
+        \\ 6: push_byte 1
+        \\ 8: string 0 0 0 3
+        \\ 13: closure 0 0 0 5 0 0 0 0
+        \\ 22: object 0 0 0 6
+        \\ 27: set_global 0 0 0 0
+        \\ 32: pop
+        \\ 33: push_byte 1
+        \\ 35: get_global_small 0
+        \\ 37: methodcall 0 0 0 4
+        \\ 42: pop
+        \\ 43: get_global_small 0
+        \\ 45: get_field 0 0 0 2
+        \\ 50: print 0 0 0 1
+        \\ 55: pop
+        \\ 56: push_byte 2
+        \\ 58: get_global_small 0
+        \\ 60: set_field 0 0 0 1
+        \\ 65: pop
+        \\ 66: push_byte 2
+        \\ 68: get_global_small 0
+        \\ 70: methodcall 0 0 0 4
+        \\ 75: ret_main
         \\
         \\string (6 bytes)
         \\string: a
@@ -900,12 +900,12 @@ test "object 3 compiler" {
         \\string: f
         \\
         \\function (33 bytes)
-        \\	17: get_small 0
-        \\	19: get_field 0 0 0 1
-        \\	24: get_small 1
-        \\	26: add
-        \\	27: print 0 0 0 1
-        \\	32: ret
+        \\ 17: get_small 0
+        \\ 19: get_field 0 0 0 1
+        \\ 24: get_small 1
+        \\ 26: add
+        \\ 27: print 0 0 0 1
+        \\ 32: ret
         \\
         \\class (17 bytes)
         \\class: 1 2 4
@@ -994,63 +994,63 @@ test "linked list" {
     const res = try compile(prog, allocator);
     try oh.snap(@src(),
         \\main_function (172 bytes)
-        \\	5: closure 0 0 0 4 0 0 0 0
-        \\	14: set_global 0 0 0 0
-        \\	19: pop
-        \\	20: closure 0 0 0 15 0 0 0 0
-        \\	29: set_global 0 0 0 1
-        \\	34: pop
-        \\	35: get_global_small 1
-        \\	37: call
-        \\	38: set_global 0 0 0 2
-        \\	43: pop
-        \\	44: push_byte 0
-        \\	46: set_global 0 0 0 3
-        \\	51: pop
-        \\	52: nil
-        \\	53: get_global_small 3
-        \\	55: push_byte 100
-        \\	57: lt
-        \\	58: branch 0 0 0 68
-        \\	63: jump 0 0 0 163
-        \\	68: pop
-        \\	69: push_byte 1
-        \\	71: get_global_small 2
-        \\	73: methodcall 0 0 0 6
-        \\	78: pop
-        \\	79: push_byte 2
-        \\	81: get_global_small 2
-        \\	83: methodcall 0 0 0 6
-        \\	88: pop
-        \\	89: push_byte 3
-        \\	91: get_global_small 2
-        \\	93: methodcall 0 0 0 6
-        \\	98: pop
-        \\	99: push_byte 42
-        \\	101: get_global_small 2
-        \\	103: methodcall 0 0 0 8
-        \\	108: pop
-        \\	109: get_global_small 2
-        \\	111: methodcall 0 0 0 10
-        \\	116: print 0 0 0 1
-        \\	121: pop
-        \\	122: get_global_small 2
-        \\	124: methodcall 0 0 0 10
-        \\	129: print 0 0 0 1
-        \\	134: pop
-        \\	135: get_global_small 2
-        \\	137: methodcall 0 0 0 10
-        \\	142: print 0 0 0 1
-        \\	147: pop
-        \\	148: get_global_small 3
-        \\	150: push_byte 1
-        \\	152: add
-        \\	153: set_global 0 0 0 3
-        \\	158: jump 0 0 0 53
-        \\	163: pop
-        \\	164: get_global_small 2
-        \\	166: methodcall 0 0 0 12
-        \\	171: ret_main
+        \\ 5: closure 0 0 0 4 0 0 0 0
+        \\ 14: set_global 0 0 0 0
+        \\ 19: pop
+        \\ 20: closure 0 0 0 15 0 0 0 0
+        \\ 29: set_global 0 0 0 1
+        \\ 34: pop
+        \\ 35: get_global_small 1
+        \\ 37: call
+        \\ 38: set_global 0 0 0 2
+        \\ 43: pop
+        \\ 44: push_byte 0
+        \\ 46: set_global 0 0 0 3
+        \\ 51: pop
+        \\ 52: nil
+        \\ 53: get_global_small 3
+        \\ 55: push_byte 100
+        \\ 57: lt
+        \\ 58: branch 0 0 0 68
+        \\ 63: jump 0 0 0 163
+        \\ 68: pop
+        \\ 69: push_byte 1
+        \\ 71: get_global_small 2
+        \\ 73: methodcall 0 0 0 6
+        \\ 78: pop
+        \\ 79: push_byte 2
+        \\ 81: get_global_small 2
+        \\ 83: methodcall 0 0 0 6
+        \\ 88: pop
+        \\ 89: push_byte 3
+        \\ 91: get_global_small 2
+        \\ 93: methodcall 0 0 0 6
+        \\ 98: pop
+        \\ 99: push_byte 42
+        \\ 101: get_global_small 2
+        \\ 103: methodcall 0 0 0 8
+        \\ 108: pop
+        \\ 109: get_global_small 2
+        \\ 111: methodcall 0 0 0 10
+        \\ 116: print 0 0 0 1
+        \\ 121: pop
+        \\ 122: get_global_small 2
+        \\ 124: methodcall 0 0 0 10
+        \\ 129: print 0 0 0 1
+        \\ 134: pop
+        \\ 135: get_global_small 2
+        \\ 137: methodcall 0 0 0 10
+        \\ 142: print 0 0 0 1
+        \\ 147: pop
+        \\ 148: get_global_small 3
+        \\ 150: push_byte 1
+        \\ 152: add
+        \\ 153: set_global 0 0 0 3
+        \\ 158: jump 0 0 0 53
+        \\ 163: pop
+        \\ 164: get_global_small 2
+        \\ 166: methodcall 0 0 0 12
+        \\ 171: ret_main
         \\
         \\string (8 bytes)
         \\string: val
@@ -1061,11 +1061,11 @@ test "linked list" {
         \\class (13 bytes)
         \\class: 1 2
         \\function (27 bytes)
-        \\	17: nil
-        \\	18: get_small 0
-        \\	20: nil
-        \\	21: object 0 0 0 3
-        \\	26: ret
+        \\ 17: nil
+        \\ 18: get_small 0
+        \\ 20: nil
+        \\ 21: object 0 0 0 3
+        \\ 26: ret
         \\
         \\string (9 bytes)
         \\string: head
@@ -1074,155 +1074,155 @@ test "linked list" {
         \\string: append
         \\
         \\function (113 bytes)
-        \\	17: get_small 0
-        \\	19: get_field 0 0 0 5
-        \\	24: nil
-        \\	25: eq
-        \\	26: branch 0 0 0 100
-        \\	31: get_small 0
-        \\	33: get_field 0 0 0 5
-        \\	38: set 0 0 0 2
-        \\	43: pop
-        \\	44: nil
-        \\	45: get_small 2
-        \\	47: get_field 0 0 0 2
-        \\	52: nil
-        \\	53: ne
-        \\	54: branch 0 0 0 64
-        \\	59: jump 0 0 0 82
-        \\	64: pop
-        \\	65: get_small 2
-        \\	67: get_field 0 0 0 2
-        \\	72: set 0 0 0 2
-        \\	77: jump 0 0 0 45
-        \\	82: pop
-        \\	83: get_small 1
-        \\	85: get_global_small 0
-        \\	87: call
-        \\	88: get_small 2
-        \\	90: set_field 0 0 0 2
-        \\	95: jump 0 0 0 112
-        \\	100: get_small 1
-        \\	102: get_global_small 0
-        \\	104: call
-        \\	105: get_small 0
-        \\	107: set_field 0 0 0 5
-        \\	112: ret
+        \\ 17: get_small 0
+        \\ 19: get_field 0 0 0 5
+        \\ 24: nil
+        \\ 25: eq
+        \\ 26: branch 0 0 0 100
+        \\ 31: get_small 0
+        \\ 33: get_field 0 0 0 5
+        \\ 38: set 0 0 0 2
+        \\ 43: pop
+        \\ 44: nil
+        \\ 45: get_small 2
+        \\ 47: get_field 0 0 0 2
+        \\ 52: nil
+        \\ 53: ne
+        \\ 54: branch 0 0 0 64
+        \\ 59: jump 0 0 0 82
+        \\ 64: pop
+        \\ 65: get_small 2
+        \\ 67: get_field 0 0 0 2
+        \\ 72: set 0 0 0 2
+        \\ 77: jump 0 0 0 45
+        \\ 82: pop
+        \\ 83: get_small 1
+        \\ 85: get_global_small 0
+        \\ 87: call
+        \\ 88: get_small 2
+        \\ 90: set_field 0 0 0 2
+        \\ 95: jump 0 0 0 112
+        \\ 100: get_small 1
+        \\ 102: get_global_small 0
+        \\ 104: call
+        \\ 105: get_small 0
+        \\ 107: set_field 0 0 0 5
+        \\ 112: ret
         \\
         \\string (12 bytes)
         \\string: prepend
         \\
         \\function (58 bytes)
-        \\	17: get_small 0
-        \\	19: get_field 0 0 0 5
-        \\	24: set 0 0 0 2
-        \\	29: pop
-        \\	30: get_small 1
-        \\	32: get_global_small 0
-        \\	34: call
-        \\	35: get_small 0
-        \\	37: set_field 0 0 0 5
-        \\	42: pop
-        \\	43: get_small 2
-        \\	45: get_small 0
-        \\	47: get_field 0 0 0 5
-        \\	52: set_field 0 0 0 2
-        \\	57: ret
+        \\ 17: get_small 0
+        \\ 19: get_field 0 0 0 5
+        \\ 24: set 0 0 0 2
+        \\ 29: pop
+        \\ 30: get_small 1
+        \\ 32: get_global_small 0
+        \\ 34: call
+        \\ 35: get_small 0
+        \\ 37: set_field 0 0 0 5
+        \\ 42: pop
+        \\ 43: get_small 2
+        \\ 45: get_small 0
+        \\ 47: get_field 0 0 0 5
+        \\ 52: set_field 0 0 0 2
+        \\ 57: ret
         \\
         \\string (8 bytes)
         \\string: pop
         \\
         \\function (173 bytes)
-        \\	17: get_small 0
-        \\	19: get_field 0 0 0 5
-        \\	24: nil
-        \\	25: eq
-        \\	26: branch 0 0 0 171
-        \\	31: get_small 0
-        \\	33: get_field 0 0 0 5
-        \\	38: get_field 0 0 0 2
-        \\	43: nil
-        \\	44: eq
-        \\	45: branch 0 0 0 136
-        \\	50: get_small 0
-        \\	52: get_field 0 0 0 5
-        \\	57: set 0 0 0 1
-        \\	62: pop
-        \\	63: nil
-        \\	64: get_small 1
-        \\	66: get_field 0 0 0 2
-        \\	71: get_field 0 0 0 2
-        \\	76: nil
-        \\	77: ne
-        \\	78: branch 0 0 0 88
-        \\	83: jump 0 0 0 106
-        \\	88: pop
-        \\	89: get_small 1
-        \\	91: get_field 0 0 0 2
-        \\	96: set 0 0 0 1
-        \\	101: jump 0 0 0 64
-        \\	106: pop
-        \\	107: get_small 1
-        \\	109: get_field 0 0 0 1
-        \\	114: set 0 0 0 2
-        \\	119: pop
-        \\	120: nil
-        \\	121: get_small 1
-        \\	123: set_field 0 0 0 2
-        \\	128: pop
-        \\	129: get_small 2
-        \\	131: jump 0 0 0 166
-        \\	136: get_small 0
-        \\	138: get_field 0 0 0 5
-        \\	143: set 0 0 0 3
-        \\	148: pop
-        \\	149: get_small 0
-        \\	151: get_field 0 0 0 5
-        \\	156: nil
-        \\	157: eq
-        \\	158: pop
-        \\	159: get_small 1
-        \\	161: get_field 0 0 0 1
-        \\	166: jump 0 0 0 172
-        \\	171: nil
-        \\	172: ret
+        \\ 17: get_small 0
+        \\ 19: get_field 0 0 0 5
+        \\ 24: nil
+        \\ 25: eq
+        \\ 26: branch 0 0 0 171
+        \\ 31: get_small 0
+        \\ 33: get_field 0 0 0 5
+        \\ 38: get_field 0 0 0 2
+        \\ 43: nil
+        \\ 44: eq
+        \\ 45: branch 0 0 0 136
+        \\ 50: get_small 0
+        \\ 52: get_field 0 0 0 5
+        \\ 57: set 0 0 0 1
+        \\ 62: pop
+        \\ 63: nil
+        \\ 64: get_small 1
+        \\ 66: get_field 0 0 0 2
+        \\ 71: get_field 0 0 0 2
+        \\ 76: nil
+        \\ 77: ne
+        \\ 78: branch 0 0 0 88
+        \\ 83: jump 0 0 0 106
+        \\ 88: pop
+        \\ 89: get_small 1
+        \\ 91: get_field 0 0 0 2
+        \\ 96: set 0 0 0 1
+        \\ 101: jump 0 0 0 64
+        \\ 106: pop
+        \\ 107: get_small 1
+        \\ 109: get_field 0 0 0 1
+        \\ 114: set 0 0 0 2
+        \\ 119: pop
+        \\ 120: nil
+        \\ 121: get_small 1
+        \\ 123: set_field 0 0 0 2
+        \\ 128: pop
+        \\ 129: get_small 2
+        \\ 131: jump 0 0 0 166
+        \\ 136: get_small 0
+        \\ 138: get_field 0 0 0 5
+        \\ 143: set 0 0 0 3
+        \\ 148: pop
+        \\ 149: get_small 0
+        \\ 151: get_field 0 0 0 5
+        \\ 156: nil
+        \\ 157: eq
+        \\ 158: pop
+        \\ 159: get_small 1
+        \\ 161: get_field 0 0 0 1
+        \\ 166: jump 0 0 0 172
+        \\ 171: nil
+        \\ 172: ret
         \\
         \\string (10 bytes)
         \\string: debug
         \\
         \\function (77 bytes)
-        \\	17: get_small 0
-        \\	19: get_field 0 0 0 5
-        \\	24: set 0 0 0 1
-        \\	29: pop
-        \\	30: nil
-        \\	31: get_small 1
-        \\	33: nil
-        \\	34: ne
-        \\	35: branch 0 0 0 45
-        \\	40: jump 0 0 0 76
-        \\	45: pop
-        \\	46: get_small 1
-        \\	48: get_field 0 0 0 1
-        \\	53: print 0 0 0 1
-        \\	58: pop
-        \\	59: get_small 1
-        \\	61: get_field 0 0 0 2
-        \\	66: set 0 0 0 1
-        \\	71: jump 0 0 0 31
-        \\	76: ret
+        \\ 17: get_small 0
+        \\ 19: get_field 0 0 0 5
+        \\ 24: set 0 0 0 1
+        \\ 29: pop
+        \\ 30: nil
+        \\ 31: get_small 1
+        \\ 33: nil
+        \\ 34: ne
+        \\ 35: branch 0 0 0 45
+        \\ 40: jump 0 0 0 76
+        \\ 45: pop
+        \\ 46: get_small 1
+        \\ 48: get_field 0 0 0 1
+        \\ 53: print 0 0 0 1
+        \\ 58: pop
+        \\ 59: get_small 1
+        \\ 61: get_field 0 0 0 2
+        \\ 66: set 0 0 0 1
+        \\ 71: jump 0 0 0 31
+        \\ 76: ret
         \\
         \\class (25 bytes)
         \\class: 5 6 8 10 12
         \\function (61 bytes)
-        \\	17: nil
-        \\	18: nil
-        \\	19: closure 0 0 0 7 0 0 0 0
-        \\	28: closure 0 0 0 9 0 0 0 0
-        \\	37: closure 0 0 0 11 0 0 0 0
-        \\	46: closure 0 0 0 13 0 0 0 0
-        \\	55: object 0 0 0 14
-        \\	60: ret
+        \\ 17: nil
+        \\ 18: nil
+        \\ 19: closure 0 0 0 7 0 0 0 0
+        \\ 28: closure 0 0 0 9 0 0 0 0
+        \\ 37: closure 0 0 0 11 0 0 0 0
+        \\ 46: closure 0 0 0 13 0 0 0 0
+        \\ 55: object 0 0 0 14
+        \\ 60: ret
         \\
         \\
     ).expectEqualFmt(res);
