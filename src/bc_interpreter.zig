@@ -212,7 +212,14 @@ pub const Stack = struct {
     }
 
     pub fn push(self: *Stack, value: runtime.Value) void {
-        self.stack.append(value) catch unreachable;
+        // for some reason this would not be
+        // already optimized out like that
+        // the fuck
+        if (self.stack.items.len < self.stack.capacity) {
+            self.push_unsafe(value);
+        } else {
+            self.stack.append(value) catch unreachable;
+        }
     }
 
     pub fn push_unsafe(self: *Stack, value: runtime.Value) void {

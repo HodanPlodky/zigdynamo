@@ -754,24 +754,24 @@ test "condition2" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-       \\function {
-       \\basicblock0: []
-       \\    %5 = true
-       \\    branch %5, basicblock1, basicblock2
-       \\basicblock1: [0]
-       \\    %7 = ldi 1
-       \\    jmp 3
-       \\basicblock2: [0]
-       \\    %11 = ldi 1
-       \\    %12 = ldi 2
-       \\    %13 = add %11, %12
-       \\    jmp 3
-       \\basicblock3: [1, 2]
-       \\    %20 = phony 1 -> %7, 2 -> %13
-       \\    %18 = mov %20
-       \\    ret %18
-       \\}
-       \\
+        \\function {
+        \\basicblock0: []
+        \\    %5 = true
+        \\    branch %5, basicblock1, basicblock2
+        \\basicblock1: [0]
+        \\    %7 = ldi 1
+        \\    jmp 3
+        \\basicblock2: [0]
+        \\    %11 = ldi 1
+        \\    %12 = ldi 2
+        \\    %13 = add %11, %12
+        \\    jmp 3
+        \\basicblock3: [1, 2]
+        \\    %20 = phony 1 -> %7, 2 -> %13
+        \\    %18 = mov %20
+        \\    ret %18
+        \\}
+        \\
     ).equal_fmt(res);
 }
 
