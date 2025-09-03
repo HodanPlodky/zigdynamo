@@ -409,52 +409,85 @@ pub fn Interpreter(comptime use_jit: bool) type {
             while (true) {
                 const inst = self.read_inst();
                 std.debug.assert(self.stack.stack.items.len <= self.stack.stack.capacity);
-                switch (inst) {
+                sw: switch (inst) {
                     bc.Instruction.push => {
                         const num = self.read_u32();
                         const val = Value.new_num(num);
                         self.stack.push(val);
+
+                        // this continues is present
+                        // in all instruction and it should force
+                        // the compiler to generate threaded
+                        // intepreter loop and not clasic while
+                        // with switch
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.push_byte => {
                         const num = self.read_u8();
                         const val = Value.new_num(@intCast(num));
                         self.stack.push(val);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.pop => {
                         _ = self.stack.pop();
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.dup => {
                         self.stack.push(self.stack.top());
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.true => {
                         const val = Value.new_true();
                         self.stack.push(val);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.false => {
                         const val = Value.new_false();
                         self.stack.push(val);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.nil => {
                         const val = Value.new_nil();
                         self.stack.push(val);
+                        continue :sw self.read_inst();
                     },
 
                     // should not create call
-                    bc.Instruction.add => self.handle_binop(Value.add),
-                    bc.Instruction.sub => self.handle_binop(Value.sub),
-                    bc.Instruction.mul => self.handle_binop(Value.mul),
-                    bc.Instruction.div => self.handle_binop(Value.div),
-                    bc.Instruction.gt => self.handle_binop(Value.gt),
-                    bc.Instruction.lt => self.handle_binop(Value.lt),
+                    bc.Instruction.add => {
+                        self.handle_binop(Value.add);
+                        continue :sw self.read_inst();
+                    },
+                    bc.Instruction.sub => {
+                        self.handle_binop(Value.sub);
+                        continue :sw self.read_inst();
+                    },
+                    bc.Instruction.mul => {
+                        self.handle_binop(Value.mul);
+                        continue :sw self.read_inst();
+                    },
+                    bc.Instruction.div => {
+                        self.handle_binop(Value.div);
+                        continue :sw self.read_inst();
+                    },
+                    bc.Instruction.gt => {
+                        self.handle_binop(Value.gt);
+                        continue :sw self.read_inst();
+                    },
+                    bc.Instruction.lt => {
+                        self.handle_binop(Value.lt);
+                        continue :sw self.read_inst();
+                    },
                     bc.Instruction.eq => {
                         const right = self.stack.pop();
                         const left = self.stack.top();
                         self.stack.set_top(Value.eq(left, right));
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.ne => {
                         const right = self.stack.pop();
                         const left = self.stack.top();
                         self.stack.set_top(Value.ne(left, right));
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.ret => {
                         const restore_data = self.env.local.get_ret();
@@ -462,6 +495,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
                         self.curr_fn = restore_data.ret_fn;
                         self.bytecode.set_curr_function(restore_data.ret_fn);
                         self.env.local.pop_locals();
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.ret_main => {
                         return self.stack.top();
@@ -471,47 +505,56 @@ pub fn Interpreter(comptime use_jit: bool) type {
                         const value = self.stack.top();
                         const idx = self.read_u32();
                         self.env.set_global(idx, value);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.set => {
                         const value = self.stack.top();
                         const idx = self.read_u32();
                         self.env.local.set(idx, value);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.set_global_small => {
                         const value = self.stack.top();
                         const idx = self.read_u8();
                         self.env.set_global(@intCast(idx), value);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.set_small => {
                         const value = self.stack.top();
                         const idx = self.read_u8();
                         self.env.local.set(@intCast(idx), value);
+                        continue :sw self.read_inst();
                     },
 
                     bc.Instruction.get_global => {
                         const idx = self.read_u32();
                         const value = self.env.get_global(idx);
                         self.stack.push(value);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.get_global_small => {
                         const idx = self.read_u8();
                         const value = self.env.get_global(@intCast(idx));
                         self.stack.push(value);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.get => {
                         const idx = self.read_u32();
                         const value = self.env.local.get(idx);
                         self.stack.push(value);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.get_small => {
                         const idx = self.read_u8();
                         const value = self.env.local.get(@intCast(idx));
                         self.stack.push(value);
+                        continue :sw self.read_inst();
                     },
 
                     bc.Instruction.jump => {
                         const pc = self.read_u32();
                         self.pc = pc;
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.branch => {
                         const pc = self.read_u32();
@@ -521,11 +564,13 @@ pub fn Interpreter(comptime use_jit: bool) type {
                             ValueType.false => {},
                             else => @panic("If condition must be boolean"),
                         }
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.closure => {
                         const constant_idx: u64 = self.read_u32();
                         const unbound_count: u64 = self.read_u32();
                         self.do_closure(constant_idx, unbound_count);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.call => {
                         const jit_state = self.get_jit_state();
@@ -537,10 +582,12 @@ pub fn Interpreter(comptime use_jit: bool) type {
                         } else {
                             @call(.always_inline, Self.do_value_call, .{ self, null, &jit_state, target });
                         }
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.print => {
                         const arg_count: u64 = @intCast(self.read_u32());
                         self.do_print(arg_count);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.string => {
                         const idx = bc.ConstantIndex.new(self.read_u32());
@@ -549,24 +596,29 @@ pub fn Interpreter(comptime use_jit: bool) type {
                         }
                         const val = Value.new_string(idx.index);
                         self.stack.push(val);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.object => {
                         const class_idx = bc.ConstantIndex.new(self.read_u32());
                         self.do_object(class_idx);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.get_field => {
                         const field_idx = self.read_u32();
 
                         self.do_get_field(bc.ConstantIndex.new(field_idx));
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.set_field => {
                         const field_idx = self.read_u32();
                         self.do_set_field(bc.ConstantIndex.new(field_idx));
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.methodcall => {
                         const field_idx = self.read_u32();
                         const jit_state = self.get_jit_state();
                         self.do_method_call(&jit_state, bc.ConstantIndex.new(field_idx));
+                        continue :sw self.read_inst();
                     },
                 }
             }
