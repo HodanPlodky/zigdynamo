@@ -2,6 +2,7 @@ const std = @import("std");
 const runtime = @import("runtime.zig");
 const bc = @import("bytecode.zig");
 const jit = @import("jit_compiler.zig");
+const JitState = @import("jit_utils.zig").JitState;
 
 const Value = runtime.Value;
 const ValueType = runtime.ValueType;
@@ -717,7 +718,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
         fn do_value_call(
             self: *Self,
             this: ?Value,
-            jit_state: *const jit.JitState,
+            jit_state: *const JitState,
             target: Value,
         ) void {
             if (target.get_type() != runtime.ValueType.closure) {
@@ -781,7 +782,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
 
         fn do_method_call(
             self: *Self,
-            jit_state: *const jit.JitState,
+            jit_state: *const JitState,
             method_idx: bc.ConstantIndex,
         ) void {
             const target = self.stack.pop();
@@ -884,9 +885,9 @@ pub fn Interpreter(comptime use_jit: bool) type {
             };
         }
 
-        fn get_jit_state(self: *const Self) jit.JitState {
+        fn get_jit_state(self: *const Self) JitState {
             if (use_jit) {
-                return jit.JitState{
+                return JitState{
                     .intepreter = self,
                     .stack = &self.stack,
                     .env = &self.env,
@@ -907,7 +908,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
                     .string_panic = &string_panic,
                 };
             } else {
-                const tmp: jit.JitState = undefined;
+                const tmp: JitState = undefined;
                 return tmp;
             }
         }
@@ -949,14 +950,14 @@ fn gc_alloc_closure(intepreter: *JitInterpreter, env_size: usize) callconv(.C) *
     return intepreter.gc.alloc_with_additional(bc.Closure, env_size, intepreter.get_roots());
 }
 
-fn do_call(noalias interpret: *JitInterpreter, noalias jit_state: *const jit.JitState) callconv(.C) void {
+fn do_call(noalias interpret: *JitInterpreter, noalias jit_state: *const JitState) callconv(.C) void {
     const target = interpret.stack.pop();
     interpret.do_value_call(null, jit_state, target);
 }
 
 fn do_method_call_jit(
     noalias self: *JitInterpreter,
-    noalias jit_state: *const jit.JitState,
+    noalias jit_state: *const JitState,
     method_idx: bc.ConstantIndex,
 ) callconv(.C) void {
     const target = self.stack.pop();

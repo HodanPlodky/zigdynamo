@@ -157,16 +157,12 @@ const Interpreter = struct {
     }
 };
 
-test "basic" {
+fn test_helper(input: []const u8) !runtime.Value {
     const Parser = @import("../parser.zig").Parser;
     const ir_compile = @import("compile.zig").ir_compile;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
-
-    const input =
-        \\ fn() = 1 + 2;
-    ;
 
     var p = Parser.new(input, allocator);
     const parse_res = try p.parse();
@@ -182,6 +178,14 @@ test "basic" {
     const res = try ir_compile(function, metadata, globals, allocator);
 
     var interpret = try Interpreter.init(res, &.{}, &.{}, allocator);
-    const ret = interpret.run(&.{});
-    try std.testing.expectEqual(ret.get_number(), 3);
+    return interpret.run(&.{});
+}
+
+test "basic" {
+    const input =
+        \\ fn() = 1 + 2 * 3;
+    ;
+
+    const ret = try test_helper(input);
+    try std.testing.expectEqual(ret.get_number(), 7);
 }
