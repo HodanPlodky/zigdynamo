@@ -867,18 +867,18 @@ test "arg basic" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-       \\function {
-       \\basicblock0: []
-       \\    %0 = arg 0
-       \\    %2 = arg 1
-       \\    %4 = mov %0
-       \\    %5 = ldi 2
-       \\    %6 = mov %2
-       \\    %7 = mul %5, %6
-       \\    %8 = add %4, %7
-       \\    ret %8
-       \\}
-       \\
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %2 = arg 1
+        \\    %4 = mov %0
+        \\    %5 = ldi 2
+        \\    %6 = mov %2
+        \\    %7 = mul %5, %6
+        \\    %8 = add %4, %7
+        \\    ret %8
+        \\}
+        \\
     ).equal_fmt(res);
 }
 
@@ -916,34 +916,34 @@ test "while fib opt compiler" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-      \\function {
-      \\basicblock0: []
-      \\    %0 = arg 0
-      \\    %2 = ldi 0
-      \\    %5 = ldi 1
-      \\    jmp 1
-      \\basicblock1: [0, 2]
-      \\    %33 = phony 0 -> %5, 2 -> %17
-      \\    %32 = phony 0 -> %2, 2 -> %15
-      \\    %31 = phony 0 -> %0, 2 -> %21
-      \\    %25 = mov %31
-      \\    %26 = ldi 0
-      \\    %27 = gt %25, %26
-      \\    branch %27, basicblock2, basicblock3
-      \\basicblock2: [1]
-      \\    %10 = mov %32
-      \\    %11 = mov %33
-      \\    %12 = add %10, %11
-      \\    %15 = mov %33
-      \\    %17 = mov %12
-      \\    %19 = mov %31
-      \\    %20 = ldi 1
-      \\    %21 = sub %19, %20
-      \\    jmp 1
-      \\basicblock3: [1]
-      \\    %29 = mov %32
-      \\    ret %29
-      \\}
-      \\
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %2 = ldi 0
+        \\    %5 = ldi 1
+        \\    jmp 1
+        \\basicblock1: [0, 2]
+        \\    %33 = phony 0 -> %5, 2 -> %17
+        \\    %32 = phony 0 -> %2, 2 -> %15
+        \\    %31 = phony 0 -> %0, 2 -> %21
+        \\    %25 = mov %31
+        \\    %26 = ldi 0
+        \\    %27 = gt %25, %26
+        \\    branch %27, basicblock2, basicblock3
+        \\basicblock2: [1]
+        \\    %10 = mov %32
+        \\    %11 = mov %33
+        \\    %12 = add %10, %11
+        \\    %15 = mov %33
+        \\    %17 = mov %12
+        \\    %19 = mov %31
+        \\    %20 = ldi 1
+        \\    %21 = sub %19, %20
+        \\    jmp 1
+        \\basicblock3: [1]
+        \\    %29 = mov %32
+        \\    ret %29
+        \\}
+        \\
     ).equal_fmt(res);
 }

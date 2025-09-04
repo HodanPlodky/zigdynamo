@@ -6,4 +6,3 @@ pub const JitCompiler = struct {
     code_slice: []u8,
     code_ptr: usize,
 };
-
