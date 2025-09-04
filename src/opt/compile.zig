@@ -881,3 +881,69 @@ test "arg basic" {
        \\
     ).equal_fmt(res);
 }
+
+test "while fib opt compiler" {
+    const Parser = @import("../parser.zig").Parser;
+    const snap = @import("../snap.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ fn(n) = {
+        \\     let a = 0;
+        \\     let b = 1;
+        \\     while (n > 0) {
+        \\         let tmp = a + b;
+        \\         a = b;
+        \\         b = tmp;
+        \\         n = n - 1;
+        \\     };
+        \\     a;
+        \\ };
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+
+    // get first function
+    const node = parse_res.data[0];
+
+    // first should be function
+    const function = &node.function;
+    const metadata = runtime.FunctionMetadata{};
+
+    const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
+    const res = try ir_compile(function, metadata, globals, allocator);
+    try snap.Snap.init(@src(),
+      \\function {
+      \\basicblock0: []
+      \\    %0 = arg 0
+      \\    %2 = ldi 0
+      \\    %5 = ldi 1
+      \\    jmp 1
+      \\basicblock1: [0, 2]
+      \\    %33 = phony 0 -> %5, 2 -> %17
+      \\    %32 = phony 0 -> %2, 2 -> %15
+      \\    %31 = phony 0 -> %0, 2 -> %21
+      \\    %25 = mov %31
+      \\    %26 = ldi 0
+      \\    %27 = gt %25, %26
+      \\    branch %27, basicblock2, basicblock3
+      \\basicblock2: [1]
+      \\    %10 = mov %32
+      \\    %11 = mov %33
+      \\    %12 = add %10, %11
+      \\    %15 = mov %33
+      \\    %17 = mov %12
+      \\    %19 = mov %31
+      \\    %20 = ldi 1
+      \\    %21 = sub %19, %20
+      \\    jmp 1
+      \\basicblock3: [1]
+      \\    %29 = mov %32
+      \\    ret %29
+      \\}
+      \\
+    ).equal_fmt(res);
+}
