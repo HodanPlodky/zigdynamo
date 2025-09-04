@@ -236,3 +236,23 @@ test "max function" {
         try std.testing.expectEqual(ret.get_number(), 0);
     }
 }
+
+test "while fib" {
+    const input =
+        \\ fn(n) = {
+        \\     let a = 0;
+        \\     let b = 1;
+        \\     while (n > 0) {
+        \\         let tmp = a + b;
+        \\         a = b;
+        \\         b = tmp;
+        \\         n = n - 1;
+        \\     };
+        \\     a;
+        \\ };
+    ;
+
+    var args: [1]runtime.Value = .{runtime.Value.new_num(35)};
+    const ret = try test_helper(input, args[0..]);
+    try std.testing.expectEqual(ret.get_number(), 9227465);
+}
