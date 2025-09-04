@@ -157,7 +157,7 @@ const Interpreter = struct {
     }
 };
 
-fn test_helper(input: []const u8) !runtime.Value {
+fn test_helper(input: []const u8, args: []runtime.Value) !runtime.Value {
     const Parser = @import("../parser.zig").Parser;
     const ir_compile = @import("compile.zig").ir_compile;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -178,7 +178,7 @@ fn test_helper(input: []const u8) !runtime.Value {
     const res = try ir_compile(function, metadata, globals, allocator);
 
     var interpret = try Interpreter.init(res, &.{}, &.{}, allocator);
-    return interpret.run(&.{});
+    return interpret.run(args);
 }
 
 test "basic" {
@@ -186,7 +186,7 @@ test "basic" {
         \\ fn() = 1 + 2 * 3;
     ;
 
-    const ret = try test_helper(input);
+    const ret = try test_helper(input, &.{});
     try std.testing.expectEqual(ret.get_number(), 7);
 }
 
@@ -200,6 +200,39 @@ test "let" {
         \\ };
     ;
 
-    const ret = try test_helper(input);
+    const ret = try test_helper(input, &.{});
     try std.testing.expectEqual(ret.get_number(), 4);
+}
+
+test "max function" {
+    const input =
+        \\ fn(a, b) = if (a < b) b else a;
+    ;
+
+    {
+        var args: [2]runtime.Value = .{
+            runtime.Value.new_num(2),
+            runtime.Value.new_num(3),
+        };
+        const ret = try test_helper(input, args[0..]);
+        try std.testing.expectEqual(ret.get_number(), 3);
+    }
+
+    {
+        var args: [2]runtime.Value = .{
+            runtime.Value.new_num(5),
+            runtime.Value.new_num(3),
+        };
+        const ret = try test_helper(input, args[0..]);
+        try std.testing.expectEqual(ret.get_number(), 5);
+    }
+
+    {
+        var args: [2]runtime.Value = .{
+            runtime.Value.new_num(0),
+            runtime.Value.new_num(0),
+        };
+        const ret = try test_helper(input, args[0..]);
+        try std.testing.expectEqual(ret.get_number(), 0);
+    }
 }
