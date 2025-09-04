@@ -288,8 +288,16 @@ pub const Compiler = struct {
         const fn_idx = try self.create_with(ir.Function, try ir.Function.create(bb_idx, self.permanent_alloc));
         self.fn_idx = fn_idx;
 
-        for (function.params, 0..) |_, i| {
-            _ = try self.append_inst(ir.Instruction{ .arg = @intCast(i) });
+        for (function.params, 0..) |param_name, i| {
+            const arg_reg = try self.append_inst(ir.Instruction{ .arg = @intCast(i) });
+            const local_idx = try self.locals.set(param_name);
+
+            const data = try self.create_with(ir.SetLocalData, ir.SetLocalData{
+                .local_idx = local_idx,
+                .value = arg_reg,
+                .basicblock_idx = self.current,
+            });
+            _ = try self.append_inst(ir.Instruction{ .set_local = data });
         }
 
         const ret_reg = try self.compile_expr(function.body);
@@ -832,5 +840,44 @@ test "loop" {
         \\    ret %22
         \\}
         \\
+    ).equal_fmt(res);
+}
+
+test "arg basic" {
+    const Parser = @import("../parser.zig").Parser;
+    const snap = @import("../snap.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ fn(x, y) = x + 2 * y;
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+
+    // get first function
+    const node = parse_res.data[0];
+
+    // first should be function
+    const function = &node.function;
+    const metadata = runtime.FunctionMetadata{};
+
+    const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
+    const res = try ir_compile(function, metadata, globals, allocator);
+    try snap.Snap.init(@src(),
+       \\function {
+       \\basicblock0: []
+       \\    %0 = arg 0
+       \\    %2 = arg 1
+       \\    %4 = mov %0
+       \\    %5 = ldi 2
+       \\    %6 = mov %2
+       \\    %7 = mul %5, %6
+       \\    %8 = add %4, %7
+       \\    ret %8
+       \\}
+       \\
     ).equal_fmt(res);
 }

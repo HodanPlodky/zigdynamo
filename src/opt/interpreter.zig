@@ -189,3 +189,17 @@ test "basic" {
     const ret = try test_helper(input);
     try std.testing.expectEqual(ret.get_number(), 7);
 }
+
+test "let" {
+    const input =
+        \\ fn() = {
+        \\     let x = 1;
+        \\     let y = 2;
+        \\     x = x + 1;
+        \\     x + y;
+        \\ };
+    ;
+
+    const ret = try test_helper(input);
+    try std.testing.expectEqual(ret.get_number(), 4);
+}
