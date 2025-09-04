@@ -123,9 +123,6 @@ pub const JitCompiler = struct {
     scratch_arena: std.heap.ArenaAllocator,
     heuristic: Heuristic,
 
-    current_additional_stack: usize,
-    max_additional_stack: usize,
-
     pub fn init(code_buffer_size: usize, heuristic: Heuristic) JitCompiler {
         const addr = std.os.linux.mmap(
             null,
@@ -150,8 +147,6 @@ pub const JitCompiler = struct {
             .panic_table = .{},
             .scratch_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
             .heuristic = heuristic,
-            .current_additional_stack = 0,
-            .max_additional_stack = 0,
         };
         res.init_panic_handlers() catch unreachable;
         return res;
@@ -222,8 +217,6 @@ pub const JitCompiler = struct {
         metadata: *runtime.FunctionMetadata,
     ) JitError!JitFunction {
         self.pc = 0;
-        self.current_additional_stack = 0;
-        self.max_additional_stack = 0;
 
         if (metadata.jit_state != 0) {
             return JitFunction{ .code = @ptrCast(&self.code_slice[metadata.jit_state]) };
@@ -838,8 +831,6 @@ pub const JitCompiler = struct {
         const modrm = 0b01_001_000 | (stack_addr_val & 0x7);
         const dec_slice: [4]u8 = .{ rex, 0xff, modrm, len_offset };
         try self.emit_slice(dec_slice[0..]);
-
-        self.current_additional_stack -= 1;
     }
 
     fn stack_push(self: *JitCompiler, src: GPR64) !void {
@@ -864,32 +855,26 @@ pub const JitCompiler = struct {
         const len_store_slice: [4]u8 = .{ 0x49, 0x89, 0x77, 0x08 };
         try self.emit_slice(len_store_slice[0..]);
 
-        // tracking if there is even posibility of realloc
-        if (self.current_additional_stack >= self.max_additional_stack) {
-            // check capacity and jump over call if
-            // it is not necessary
+        // check capacity and jump over call if
+        // it is not necessary
 
-            // load cap
-            const cap_offset = @offsetOf(std.ArrayList(runtime.Value), "capacity");
-            try self.mov_from_struct_64(GPR64.rcx, stack_addr, cap_offset);
+        // load cap
+        const cap_offset = @offsetOf(std.ArrayList(runtime.Value), "capacity");
+        try self.mov_from_struct_64(GPR64.rcx, stack_addr, cap_offset);
 
-            // cmp rsi, rcx
-            // 48 39 ce
-            const cmp_slice: [3]u8 = .{ 0x48, 0x39, 0xce };
-            try self.emit_slice(cmp_slice[0..]);
+        // cmp rsi, rcx
+        // 48 39 ce
+        const cmp_slice: [3]u8 = .{ 0x48, 0x39, 0xce };
+        try self.emit_slice(cmp_slice[0..]);
 
-            // jle <after_alloc_stack>
-            // 7e 09
-            const jump_slice: [2]u8 = .{ 0x7e, 0x09 };
-            try self.emit_slice(jump_slice[0..]);
+        // jle <after_alloc_stack>
+        // 7e 09
+        const jump_slice: [2]u8 = .{ 0x7e, 0x09 };
+        try self.emit_slice(jump_slice[0..]);
 
-            try self.call("alloc_stack");
-            self.max_additional_stack += self.current_additional_stack + 1;
-        }
+        try self.call("alloc_stack");
 
         try self.stack_set_top(src);
-
-        self.current_additional_stack += 1;
 
         // do dbg
         if (DGB) {
