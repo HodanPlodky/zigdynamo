@@ -5,6 +5,36 @@ const BcInterpreter = @import("bc_interpreter.zig").BcInterpreter;
 const JitInterpreter = @import("bc_interpreter.zig").JitInterpreter;
 const Bytecode = @import("bytecode.zig").Bytecode;
 const runtime = @import("runtime.zig");
+const snap = @import("snap.zig");
+
+const TestResult = struct {
+    result: u64,
+    output: []const u8,
+
+    fn new(result: u64, output: []const u8) !TestResult {
+        const tmp = try std.testing.allocator.alloc(u8, output.len);
+        std.mem.copyForwards(u8, tmp, output);
+        return TestResult{
+            .result = result,
+            .output = tmp,
+        };
+    }
+
+    fn deinit(self: TestResult) void {
+        std.testing.allocator.free(self.output);
+    }
+
+    pub fn format(
+        self: *const TestResult,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt; // autofix
+        _ = options; // autofix
+        try writer.print("result: {x} ({})\n{s}\n", .{ self.result, self.result >> 32, self.output });
+    }
+};
 
 fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.Allocator, writer: std.io.AnyWriter) !runtime.Value {
     var runtime_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -13,7 +43,7 @@ fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.All
     var interpret = Interpret.init(
         alloc,
         bytecode,
-        try allocator.allocWithOptions(u8, 1024 * 10, 16, null),
+        try allocator.allocWithOptions(u8, 1024 + 512, 16, null),
         writer,
         .{ .call_count = 0 },
     );
@@ -21,7 +51,7 @@ fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.All
     return val;
 }
 
-fn test_helper(code: []const u8) !void {
+fn test_helper(code: []const u8) !TestResult {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -48,6 +78,8 @@ fn test_helper(code: []const u8) !void {
     );
     try std.testing.expectEqual(bc_val.data, jit_val.data);
     try std.testing.expectEqualStrings(bc_writer.items, jit_writer.items);
+
+    return try TestResult.new(bc_val.data, bc_writer.items);
 }
 
 test "basic" {
@@ -55,7 +87,13 @@ test "basic" {
         \\ let f = fn() = 1;
         \\ f();
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 100000000 (1)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "fib" {
@@ -68,7 +106,13 @@ test "fib" {
         \\ 
         \\ fib(10);
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 3700000000 (55)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "assign" {
@@ -80,7 +124,15 @@ test "assign" {
         \\ a = 11;
         \\ a;
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: b00000000 (11)
+        \\5 
+        \\10 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "basic arith" {
@@ -88,7 +140,13 @@ test "basic arith" {
         \\  1 + 2;
         \\ 1 +   2 * 2 - 3;
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 200000000 (2)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "basic_closure" {
@@ -97,7 +155,13 @@ test "basic_closure" {
         \\ let inc1 = inc(1);
         \\ inc1(2);
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 300000000 (3)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "basic_function" {
@@ -105,7 +169,13 @@ test "basic_function" {
         \\ let f = fn(n) = n + 1;
         \\ f(1);
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 200000000 (2)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "basic_method_call" {
@@ -122,7 +192,16 @@ test "basic_method_call" {
         \\ o.a = 2;
         \\ o.f(2);
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1 (0)
+        \\2 
+        \\lalal 
+        \\4 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "basic_object" {
@@ -137,7 +216,16 @@ test "basic_object" {
         \\ o.a = 2;
         \\ print(o.a + 1);
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1 (0)
+        \\2 
+        \\ahoj 
+        \\3 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "closure_test" {
@@ -151,7 +239,14 @@ test "closure_test" {
         \\ 
         \\ f2();
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1 (0)
+        \\1 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "function" {
@@ -169,7 +264,15 @@ test "function" {
         \\ 
         \\ inc(2)(inc1(1) + inc(1)(2));
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 700000000 (7)
+        \\11 
+        \\hello 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "if" {
@@ -177,7 +280,13 @@ test "if" {
         \\ let x = true;
         \\ if (x) 1 else 2;
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 100000000 (1)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 //test "incorrect_add" {
@@ -193,7 +302,13 @@ test "let" {
         \\ let x = 1 + 2;
         \\ x + 2;
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 500000000 (5)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "linkedlist" {
@@ -207,6 +322,7 @@ test "linkedlist" {
         \\     head: nil,
         \\ 
         \\     append: fn(val) = {
+        \\         print("append");
         \\         if (this.head == nil) {
         \\             this.head = createnode(val);
         \\         } else {
@@ -219,12 +335,14 @@ test "linkedlist" {
         \\     },
         \\ 
         \\     prepend: fn(val) = {
+        \\         print("prepend");
         \\         let tmp = this.head;
         \\         this.head = createnode(val);
         \\         this.head.next = tmp;
         \\     },
         \\ 
         \\     pop: fn() = {
+        \\         print("pop");
         \\         if (this.head == nil) {
         \\ 
         \\         } else if (this.head.next == nil) {
@@ -268,14 +386,59 @@ test "linkedlist" {
         \\ list.debug();
     ;
 
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1 (0)
+        \\append 
+        \\append 
+        \\append 
+        \\prepend 
+        \\pop 
+        \\2 
+        \\pop 
+        \\1 
+        \\pop 
+        \\42 
+        \\append 
+        \\append 
+        \\append 
+        \\prepend 
+        \\pop 
+        \\2 
+        \\pop 
+        \\1 
+        \\pop 
+        \\42 
+        \\append 
+        \\append 
+        \\append 
+        \\prepend 
+        \\pop 
+        \\2 
+        \\pop 
+        \\1 
+        \\pop 
+        \\42 
+        \\42 
+        \\42 
+        \\42 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "number" {
     const code =
         \\ 1;
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 100000000 (1)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "object" {
@@ -332,7 +495,18 @@ test "object" {
         \\ 
         \\ pos.x + pos.y;
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 300000000 (3)
+        \\Adam age 25 
+        \\can drink 
+        \\cannot drink 
+        \\16 
+        \\Yo Adam ! 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "ret1" {
@@ -340,7 +514,13 @@ test "ret1" {
         \\ let f = fn() = 1;
         \\ f();
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 100000000 (1)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "retadd" {
@@ -348,7 +528,13 @@ test "retadd" {
         \\ let f = fn() = 1 + 2 + 3;
         \\ f();
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 600000000 (6)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "retbignum" {
@@ -356,7 +542,13 @@ test "retbignum" {
         \\ let f = fn() = 12345;
         \\ f();
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 303900000000 (12345)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "retident" {
@@ -365,7 +557,13 @@ test "retident" {
         \\ let f = fn(x, y) = x + 2 * y;
         \\ f(ident(2), ident(3));
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 800000000 (8)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "retif" {
@@ -373,7 +571,13 @@ test "retif" {
         \\ let f = fn() = if (1 < 2) 1 else 2;
         \\ f();
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 100000000 (1)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "retinnercall" {
@@ -382,7 +586,13 @@ test "retinnercall" {
         \\ let double_inc = fn(x) = inc(inc(x));
         \\ double_inc(1);
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 300000000 (3)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "retmul" {
@@ -390,7 +600,13 @@ test "retmul" {
         \\ let f = fn() = 2 * 3 * 4;
         \\ f();
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1800000000 (24)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "retobject" {
@@ -401,7 +617,13 @@ test "retobject" {
         \\ 
         \\ f(1).n;
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 200000000 (2)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "retset" {
@@ -414,7 +636,13 @@ test "retset" {
         \\ 
         \\ f(1);
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 400000000 (4)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "retstring" {
@@ -422,7 +650,13 @@ test "retstring" {
         \\ let f = fn() = "hello";
         \\ f();
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 7 (0)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "retsub" {
@@ -430,7 +664,13 @@ test "retsub" {
         \\ let f = fn() = 10 - 1;
         \\ f();
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 900000000 (9)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "sayhello" {
@@ -447,7 +687,23 @@ test "sayhello" {
         \\ 
         \\ do_it_more();
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1 (0)
+        \\hello 
+        \\hello 
+        \\hello 
+        \\hello 
+        \\hello 
+        \\hello 
+        \\hello 
+        \\hello 
+        \\hello 
+        \\hello 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "setglobal" {
@@ -463,7 +719,16 @@ test "setglobal" {
         \\ f();
         \\ print(n);
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1 (0)
+        \\1 
+        \\2 
+        \\3 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "while" {
@@ -482,7 +747,13 @@ test "while" {
         \\ 
         \\ fib(40);
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 6197ecb00000000 (102334155)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "division" {
@@ -492,7 +763,15 @@ test "division" {
         \\ print(f(7) == 2);
         \\ f(7);
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 200000000 (2)
+        \\true 
+        \\true 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }
 
 test "print multiple" {
@@ -504,5 +783,15 @@ test "print multiple" {
         \\ f("a", 1);
         \\ f(1, "2");
     ;
-    try test_helper(code[0..]);
+    const res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1 (0)
+        \\1 a hello 
+        \\x is a y is 1 
+        \\2 1 hello 
+        \\x is 1 y is 2 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
 }

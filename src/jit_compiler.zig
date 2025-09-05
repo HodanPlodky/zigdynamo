@@ -2,6 +2,12 @@ const std = @import("std");
 const bytecode = @import("bytecode.zig");
 const bc_interpret = @import("bc_interpreter.zig");
 const runtime = @import("runtime.zig");
+const jit_utils = @import("jit_utils.zig");
+
+const JitState = jit_utils.JitState;
+const JitFunction = jit_utils.JitFunction;
+const GPR64 = jit_utils.GPR64;
+const Scale = jit_utils.Scale;
 
 const BREAKPOINT: bool = false;
 const DGB: bool = false;
@@ -11,92 +17,6 @@ pub const JitError = error{
     UnsupportedBcInstruction,
     OutOfMem,
     HeuristicNotMet,
-};
-
-pub const JitFunction = struct {
-    code: [*]u8,
-
-    pub fn run(self: *const JitFunction, state: *const JitState) void {
-        const f: *const fn (*const JitState) callconv(.C) void = @alignCast(@ptrCast(self.code));
-        f(state);
-    }
-};
-
-/// struct representing state of interpreter
-/// for jit compiled code this is necessary because
-/// normal structs in zig do not gurantee order of
-/// fields and jit code needs different set of fields
-/// then the bytecode interpreter
-pub const JitState = extern struct {
-    intepreter: *const bc_interpret.JitInterpreter,
-    stack: *const bc_interpret.Stack,
-    env: *const bc_interpret.Environment,
-    gc: *const bc_interpret.GC,
-
-    // basic
-    alloc_stack: *const fn (*bc_interpret.Stack, usize) callconv(.C) void,
-
-    // objects handle
-    create_closure: *const fn (noalias *bc_interpret.JitInterpreter, u64, u64) callconv(.C) void,
-    create_object: *const fn (noalias *bc_interpret.JitInterpreter, bytecode.ConstantIndex) callconv(.C) void,
-    get_field: *const fn (noalias *bc_interpret.JitInterpreter, bytecode.ConstantIndex) callconv(.C) void,
-    set_field: *const fn (noalias *bc_interpret.JitInterpreter, bytecode.ConstantIndex) callconv(.C) void,
-
-    // calls
-    call: *const fn (noalias *bc_interpret.JitInterpreter, noalias *const JitState) callconv(.C) void,
-    method_call: *const fn (noalias *bc_interpret.JitInterpreter, noalias *const JitState, bytecode.ConstantIndex) callconv(.C) void,
-    print: *const fn (noalias *bc_interpret.JitInterpreter, arg_count: u64) callconv(.C) void,
-
-    // debug
-    dbg: *const fn (runtime.Value) callconv(.C) void,
-    dbg_raw: *const fn (u64) callconv(.C) void,
-    dbg_inst: *const fn (u64) callconv(.C) void,
-
-    // panics
-    binop_panic: *const fn (runtime.Value, runtime.Value) callconv(.C) void,
-    if_condition_panic: *const fn () callconv(.C) void,
-    string_panic: *const fn () callconv(.C) void,
-
-    pub fn get_offset(comptime field_name: []const u8) u32 {
-        return @offsetOf(JitState, field_name);
-    }
-};
-
-const GPR64 = enum(u4) {
-    rax = 0,
-    rbx = 3,
-    rcx = 1,
-    rdx = 2,
-    rsi = 6,
-    rdi = 7,
-    rsp = 4,
-    rbp = 5,
-
-    r8 = 8,
-    r9 = 9,
-    r10 = 10,
-    r11 = 11,
-    r12 = 12,
-    r13 = 13,
-    r14 = 14,
-    r15 = 15,
-};
-
-const Scale = enum(u2) {
-    scale1 = 0b00,
-    scale2 = 0b01,
-    scale4 = 0b10,
-    scale8 = 0b11,
-
-    pub fn from_size(size: usize) Scale {
-        return switch (size) {
-            0 => Scale.scale1,
-            2 => Scale.scale2,
-            4 => Scale.scale4,
-            8 => Scale.scale8,
-            else => @panic("invalid scale"),
-        };
-    }
 };
 
 const PanicTable = struct {
@@ -211,33 +131,27 @@ pub const JitCompiler = struct {
         @panic("cannot do panic jump");
     }
 
-    pub fn compile_fn(self: *JitCompiler, function: bytecode.Constant) JitError!JitFunction {
-        switch (function.get_type()) {
-            bytecode.ConstantType.function => self.pc = 0,
-            else => return JitError.CanOnlyCompileFn,
-        }
+    pub fn compile_fn(
+        self: *JitCompiler,
+        function: *const bytecode.Function,
+        metadata: *runtime.FunctionMetadata,
+    ) JitError!JitFunction {
+        self.pc = 0;
 
-        const jit_offset = bytecode.Constant.function_header_size - 4;
-        const jit_state: u32 = function.get_u32(@intCast(jit_offset));
-        if ((jit_state & 0xfffffff0) != 0) {
-            return JitFunction{ .code = @ptrCast(&self.code_slice[jit_state]) };
+        if (metadata.jit_state != 0) {
+            return JitFunction{ .code = @ptrCast(&self.code_slice[metadata.jit_state]) };
         }
-        var counter: u8 = @intCast(jit_state & 0x0f);
 
         // this heuristic is purely chosen by vibe
-        if (counter < self.heuristic.call_count) {
-            counter += 1;
-            function.data[jit_offset + 3] = counter;
+        if (metadata.call_counter < self.heuristic.call_count) {
+            metadata.call_counter += 1;
             return JitError.HeuristicNotMet;
         }
 
         _ = std.os.linux.mprotect(self.code_slice.ptr, self.code_slice.len, std.os.linux.PROT.WRITE | std.os.linux.PROT.READ);
 
-        var offsets = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4) catch unreachable;
-        var jumps = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.get_size() + 4) catch unreachable;
-
-        // append dummy data for header
-        offsets.appendNTimesAssumeCapacity(0xfefefefe, bytecode.Constant.function_header_size);
+        var offsets = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.code.count + 4) catch unreachable;
+        var jumps = std.ArrayList(u32).initCapacity(self.scratch_arena.allocator(), function.code.count + 4) catch unreachable;
 
         // align
         self.code_ptr = (self.code_ptr + 15) & 0xffffffff_fffffff0;
@@ -245,7 +159,7 @@ pub const JitCompiler = struct {
         const start = self.code_ptr;
 
         // ignore the header of function
-        self.bytecode = function.get_slice()[(bytecode.Constant.function_header_size)..];
+        self.bytecode = function.code.get_slice_const();
 
         if (BREAKPOINT) {
             try self.emit_break();
@@ -261,11 +175,7 @@ pub const JitCompiler = struct {
         const ok = self.scratch_arena.reset(std.heap.ArenaAllocator.ResetMode.retain_capacity);
         std.debug.assert(ok);
 
-        // set jit offset
-        function.data[jit_offset] = @intCast((start >> 24) & 0xff);
-        function.data[jit_offset + 1] = @intCast((start >> 16) & 0xff);
-        function.data[jit_offset + 2] = @intCast((start >> 8) & 0xff);
-        function.data[jit_offset + 3] = @intCast(start & 0xff);
+        metadata.jit_state = @intCast(start);
 
         _ = std.os.linux.mprotect(self.code_slice.ptr, self.code_slice.len, std.os.linux.PROT.EXEC | std.os.linux.PROT.READ);
         return JitFunction{ .code = @ptrCast(&self.code_slice[start]) };
@@ -1208,10 +1118,10 @@ pub const JitCompiler = struct {
     //
 
     fn emit_prolog(self: *JitCompiler) !void {
-        // push rax
-        try self.emit_byte(0x50);
         // push rbx
         try self.emit_byte(0x53);
+        // push rbp
+        try self.emit_byte(0x55);
         // push r8
         try self.emit_byte(0x41);
         try self.emit_byte(0x50);
@@ -1261,10 +1171,10 @@ pub const JitCompiler = struct {
         // pop r8
         try self.emit_byte(0x41);
         try self.emit_byte(0x58);
+        // pop rbp
+        try self.emit_byte(0x5d);
         // pop rbx
         try self.emit_byte(0x5b);
-        // pop rax
-        try self.emit_byte(0x58);
     }
 
     //
