@@ -51,7 +51,7 @@ pub const UnusedElim = struct {
 
     fn cannot_remove(self: *const UnusedElim, inst_idx: ir.InstructionIdx) bool {
         const inst = self.base.compiler.get(ir.Instruction, inst_idx);
-        if (inst.is_terminator()) {
+        if (inst.is_terminator() or inst.possible_sideeffect()) {
             return true;
         }
         return false;

@@ -139,7 +139,7 @@ pub const CompiledResult = struct {
             // stores
             .store_env, .store_global => |store_idx| {
                 const data = self.stores.get(ir.StoreData, store_idx);
-                try writer.print("{}, %{}", .{ data.idx, data.value.index });
+                try writer.print(" {}, %{}", .{ data.idx, data.value.index });
             },
 
             // empty
@@ -943,6 +943,47 @@ test "while fib opt compiler" {
         \\basicblock3: [1]
         \\    %29 = mov %32
         \\    ret %29
+        \\}
+        \\
+    ).equal_fmt(res);
+}
+
+test "globals opt compile" {
+    const Parser = @import("../parser.zig").Parser;
+    const snap = @import("../snap.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ fn(n) = {
+        \\     let tmp = g;
+        \\     g = n;
+        \\     tmp;
+        \\ };
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+
+    // get first function
+    const node = parse_res.data[0];
+
+    // first should be function
+    const function = &node.function;
+    const metadata = runtime.FunctionMetadata{};
+
+    var globals: [1][]const u8 = .{"g"};
+    const res = try ir_compile(function, metadata, globals[0..], allocator);
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %2 = load_global 0
+        \\    %5 = mov %0
+        \\    store_global 0, %5
+        \\    %7 = mov %2
+        \\    ret %7
         \\}
         \\
     ).equal_fmt(res);

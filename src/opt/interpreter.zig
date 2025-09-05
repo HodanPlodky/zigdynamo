@@ -157,7 +157,12 @@ const Interpreter = struct {
     }
 };
 
-fn test_helper(input: []const u8, args: []runtime.Value) !runtime.Value {
+fn test_helper(
+    input: []const u8,
+    args: []runtime.Value,
+    global_names: [][]const u8,
+    globals: []runtime.Value,
+) !runtime.Value {
     const Parser = @import("../parser.zig").Parser;
     const ir_compile = @import("compile.zig").ir_compile;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -174,10 +179,9 @@ fn test_helper(input: []const u8, args: []runtime.Value) !runtime.Value {
     const function = &node.function;
     const metadata = runtime.FunctionMetadata{};
 
-    const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, metadata, globals, allocator);
+    const res = try ir_compile(function, metadata, global_names, allocator);
 
-    var interpret = try Interpreter.init(res, &.{}, &.{}, allocator);
+    var interpret = try Interpreter.init(res, globals, &.{}, allocator);
     return interpret.run(args);
 }
 
@@ -186,7 +190,7 @@ test "basic" {
         \\ fn() = 1 + 2 * 3;
     ;
 
-    const ret = try test_helper(input, &.{});
+    const ret = try test_helper(input, &.{}, &.{}, &.{});
     try std.testing.expectEqual(ret.get_number(), 7);
 }
 
@@ -200,7 +204,7 @@ test "let" {
         \\ };
     ;
 
-    const ret = try test_helper(input, &.{});
+    const ret = try test_helper(input, &.{}, &.{}, &.{});
     try std.testing.expectEqual(ret.get_number(), 4);
 }
 
@@ -214,7 +218,7 @@ test "max function" {
             runtime.Value.new_num(2),
             runtime.Value.new_num(3),
         };
-        const ret = try test_helper(input, args[0..]);
+        const ret = try test_helper(input, args[0..], &.{}, &.{});
         try std.testing.expectEqual(ret.get_number(), 3);
     }
 
@@ -223,7 +227,7 @@ test "max function" {
             runtime.Value.new_num(5),
             runtime.Value.new_num(3),
         };
-        const ret = try test_helper(input, args[0..]);
+        const ret = try test_helper(input, args[0..], &.{}, &.{});
         try std.testing.expectEqual(ret.get_number(), 5);
     }
 
@@ -232,7 +236,7 @@ test "max function" {
             runtime.Value.new_num(0),
             runtime.Value.new_num(0),
         };
-        const ret = try test_helper(input, args[0..]);
+        const ret = try test_helper(input, args[0..], &.{}, &.{});
         try std.testing.expectEqual(ret.get_number(), 0);
     }
 }
@@ -253,6 +257,23 @@ test "while fib" {
     ;
 
     var args: [1]runtime.Value = .{runtime.Value.new_num(35)};
-    const ret = try test_helper(input, args[0..]);
+    const ret = try test_helper(input, args[0..], &.{}, &.{});
     try std.testing.expectEqual(ret.get_number(), 9227465);
+}
+
+test "intepreter global" {
+    const input =
+        \\ fn(n) = {
+        \\     let tmp = g;
+        \\     g = n;
+        \\     tmp;
+        \\ };
+    ;
+
+    var args: [1]runtime.Value = .{runtime.Value.new_num(321)};
+    var global_names: [1][]const u8 = .{"g"};
+    var globals: [1]runtime.Value = .{runtime.Value.new_num(123)};
+    const ret = try test_helper(input, args[0..], global_names[0..], globals[0..]);
+    try std.testing.expectEqual(ret.get_number(), 123);
+    try std.testing.expectEqual(globals[0].get_number(), 321);
 }
