@@ -171,11 +171,10 @@ pub const Stores = struct {
             }
             const res = switch (self.data) {
                 .phony_iter => |pairs| pairs[self.current].reg,
-                .call_iter => |calldata|
-                    if (self.current == 0)
-                        calldata.target
-                    else 
-                        calldata.args[self.current - 1],
+                .call_iter => |calldata| if (self.current == 0)
+                    calldata.target
+                else
+                    calldata.args[self.current - 1],
                 .other => |data| data.regs[self.current],
             };
             self.current += 1;
