@@ -64,6 +64,13 @@ pub const StoreData = struct {
 pub const StoreDataDistinct = utils.DistinctData(u32, StoreData);
 pub const StoreDataIdx = StoreDataDistinct.Index;
 
+pub const CallData = struct {
+    target: Reg,
+    args: []Reg,
+};
+pub const CallDataDistinct = utils.DistinctData(u32, CallData);
+pub const CallDataIdx = CallDataDistinct.Index;
+
 // taged union with max payload
 // of size 4 bytes (u32)
 pub const Instruction = union(enum) {
@@ -95,6 +102,9 @@ pub const Instruction = union(enum) {
     phony: PhonyIdx,
     nop,
 
+    // calls
+    call: CallDataIdx,
+
     // this instruction should be removed
     // before jit
     get_local: u32,
@@ -123,6 +133,7 @@ pub const Instruction = union(enum) {
             .arg => "arg",
             .nop => "nop",
             .phony => "phony",
+            .call => "call",
             .get_local => "get_local",
             .set_local => "set_local",
         };
@@ -140,7 +151,7 @@ pub const Instruction = union(enum) {
             return true;
         }
         return switch (self) {
-            .store_env, .store_global, .set_local => true,
+            .store_env, .store_global, .set_local, .call => true,
             else => false,
         };
     }

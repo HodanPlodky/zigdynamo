@@ -12,6 +12,7 @@ pub const Stores = struct {
     set_local: ir.SetLocalDistinct.Multi = .{},
     store_data: ir.StoreDataDistinct.Multi = .{},
     phony: ir.PhonyDistinct.Multi = .{},
+    call: ir.CallDataDistinct.Multi = .{},
     alloc: std.mem.Allocator,
 
     const Self = @This();
@@ -118,6 +119,7 @@ pub const Stores = struct {
 
         const IterTypes = union(enum) {
             phony_iter: []ir.PhonyData.Pair,
+            call_iter: ir.CallData,
             other: OtherData,
         };
 
@@ -127,6 +129,12 @@ pub const Stores = struct {
         fn create_phony(phony_data: ir.PhonyData) RegIter {
             return RegIter{
                 .data = .{ .phony_iter = phony_data.data },
+            };
+        }
+
+        fn create_call(calldata: ir.CallData) RegIter {
+            return RegIter{
+                .data = .{ .call_iter = calldata },
             };
         }
 
@@ -152,6 +160,7 @@ pub const Stores = struct {
         fn get_len(self: *const RegIter) usize {
             return switch (self.data) {
                 .phony_iter => |pairs| pairs.len,
+                .call_iter => |calldata| calldata.args.len + 1,
                 .other => |data| @intCast(data.len),
             };
         }
@@ -162,6 +171,11 @@ pub const Stores = struct {
             }
             const res = switch (self.data) {
                 .phony_iter => |pairs| pairs[self.current].reg,
+                .call_iter => |calldata|
+                    if (self.current == 0)
+                        calldata.target
+                    else 
+                        calldata.args[self.current - 1],
                 .other => |data| data.regs[self.current],
             };
             self.current += 1;
@@ -197,6 +211,10 @@ pub const Stores = struct {
             .phony => |phony_idx| {
                 const data = self.get(ir.PhonyData, phony_idx);
                 return RegIter.create_phony(data);
+            },
+            .call => |call_idx| {
+                const data = self.get(ir.CallData, call_idx);
+                return RegIter.create_call(data);
             },
             .get_local => return RegIter.create_empty(),
             .set_local => |set_local_idx| {

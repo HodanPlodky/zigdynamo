@@ -126,6 +126,7 @@ pub const CompiledResult = struct {
             .nop => ir.Type.Void,
             // TODO use join
             .phony => ir.Type.Top,
+            .call => ir.Type.Top,
             .get_local => ir.Type.Top,
             .set_local => ir.Type.Void,
         };
@@ -176,6 +177,17 @@ pub const CompiledResult = struct {
                 const set_local = self.stores.get(ir.SetLocalData, set_local_idx);
                 try writer.print(" {}, %{}", .{ set_local.local_idx, set_local.value.index });
             },
+            .call => |call_idx| {
+                const call = self.stores.get(ir.CallData, call_idx);
+                try writer.print(" %{}(", .{call.target.index});
+                if (call.args.len > 0) {
+                    try writer.print("%{}", .{call.args[0].index});
+                    for (call.args[1..]) |arg| {
+                        try writer.print(", %{}", .{arg.index});
+                    }
+                }
+                try writer.print(")", .{});
+            }
         }
     }
 };
@@ -445,6 +457,16 @@ pub const Compiler = struct {
                 return try self.append_inst(ir.Instruction.true);
             } else {
                 return try self.append_inst(ir.Instruction.false);
+            },
+            .call => |call| {
+                const target = try self.compile_expr(call.target);
+                const args = try self.permanent_alloc.alloc(ir.Reg, call.args.len);
+                for (call.args, 0..) |*arg, idx| {
+                    args[idx] = try self.compile_expr(arg);
+                }
+
+                const data = try self.create_with(ir.CallData, .{.target = target, .args = args});
+                return self.append_inst(.{.call = data});
             },
             else => {
                 std.debug.print("{}", .{expr});
@@ -949,6 +971,47 @@ test "while fib opt compiler" {
 }
 
 test "globals opt compile" {
+    const Parser = @import("../parser.zig").Parser;
+    const snap = @import("../snap.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ fn(n) = {
+        \\     let tmp = g;
+        \\     g = n;
+        \\     tmp;
+        \\ };
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+
+    // get first function
+    const node = parse_res.data[0];
+
+    // first should be function
+    const function = &node.function;
+    const metadata = runtime.FunctionMetadata{};
+
+    var globals: [1][]const u8 = .{"g"};
+    const res = try ir_compile(function, metadata, globals[0..], allocator);
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %2 = load_global 0
+        \\    %5 = mov %0
+        \\    store_global 0, %5
+        \\    %7 = mov %2
+        \\    ret %7
+        \\}
+        \\
+    ).equal_fmt(res);
+}
+
+test "call opt compiler" {
     const Parser = @import("../parser.zig").Parser;
     const snap = @import("../snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

@@ -134,6 +134,7 @@ const Interpreter = struct {
 
                         self.regs[reg] = self.regs[res.?.get_usize()];
                     },
+                    .call => unreachable,
                     .get_local, .set_local => @panic("after passes this should not be here"),
                 }
             }
