@@ -187,7 +187,7 @@ pub const CompiledResult = struct {
                     }
                 }
                 try writer.print(")", .{});
-            }
+            },
         }
     }
 };
@@ -465,8 +465,8 @@ pub const Compiler = struct {
                     args[idx] = try self.compile_expr(arg);
                 }
 
-                const data = try self.create_with(ir.CallData, .{.target = target, .args = args});
-                return self.append_inst(.{.call = data});
+                const data = try self.create_with(ir.CallData, .{ .target = target, .args = args });
+                return self.append_inst(.{ .call = data });
             },
             else => {
                 std.debug.print("{}", .{expr});
@@ -1020,9 +1020,9 @@ test "call opt compiler" {
 
     const input =
         \\ fn(n) = {
-        \\     let tmp = g;
-        \\     g = n;
-        \\     tmp;
+        \\     g(n + 1, 2);
+        \\     g(g(n * 2, 1), 1);
+        \\     g(1, n);
         \\ };
     ;
 
@@ -1043,10 +1043,25 @@ test "call opt compiler" {
         \\basicblock0: []
         \\    %0 = arg 0
         \\    %2 = load_global 0
-        \\    %5 = mov %0
-        \\    store_global 0, %5
-        \\    %7 = mov %2
-        \\    ret %7
+        \\    %3 = mov %0
+        \\    %4 = ldi 1
+        \\    %5 = add %3, %4
+        \\    %6 = ldi 2
+        \\    %7 = call %2(%5, %6)
+        \\    %8 = load_global 0
+        \\    %9 = load_global 0
+        \\    %10 = mov %0
+        \\    %11 = ldi 2
+        \\    %12 = mul %10, %11
+        \\    %13 = ldi 1
+        \\    %14 = call %9(%12, %13)
+        \\    %15 = ldi 1
+        \\    %16 = call %8(%14, %15)
+        \\    %17 = load_global 0
+        \\    %18 = ldi 1
+        \\    %19 = mov %0
+        \\    %20 = call %17(%18, %19)
+        \\    ret %20
         \\}
         \\
     ).equal_fmt(res);
