@@ -928,30 +928,30 @@ test "while fib opt compiler" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-       \\function {
-       \\basicblock0: []
-       \\    %0 = arg 0
-       \\    %2 = ldi 0
-       \\    %5 = ldi 1
-       \\    jmp 1
-       \\basicblock1: [0, 2]
-       \\    %33 = phony 0 -> %5, 2 -> %17
-       \\    %32 = phony 0 -> %2, 2 -> %15
-       \\    %31 = phony 0 -> %0, 2 -> %21
-       \\    %26 = ldi 0
-       \\    %27 = gt %31, %26
-       \\    branch %27, basicblock2, basicblock3
-       \\basicblock2: [1]
-       \\    %12 = add %32, %33
-       \\    %15 = mov %33
-       \\    %17 = mov %12
-       \\    %20 = ldi 1
-       \\    %21 = sub %31, %20
-       \\    jmp 1
-       \\basicblock3: [1]
-       \\    ret %32
-       \\}
-       \\
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %2 = ldi 0
+        \\    %5 = ldi 1
+        \\    jmp 1
+        \\basicblock1: [0, 2]
+        \\    %33 = phony 0 -> %5, 2 -> %17
+        \\    %32 = phony 0 -> %2, 2 -> %15
+        \\    %31 = phony 0 -> %0, 2 -> %21
+        \\    %26 = ldi 0
+        \\    %27 = gt %31, %26
+        \\    branch %27, basicblock2, basicblock3
+        \\basicblock2: [1]
+        \\    %12 = add %32, %33
+        \\    %15 = mov %33
+        \\    %17 = mov %12
+        \\    %20 = ldi 1
+        \\    %21 = sub %31, %20
+        \\    jmp 1
+        \\basicblock3: [1]
+        \\    ret %32
+        \\}
+        \\
     ).equal_fmt(res);
 }
 
