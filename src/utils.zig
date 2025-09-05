@@ -104,10 +104,12 @@ pub fn DistinctData(comptime I: type, comptime T: type) type {
 
         pub const Multi = struct {
             const Self = @This();
+            pub const MultiArr = std.MultiArrayList(T);
+
             pub const Inner = T;
             pub const DistIndex = Index;
 
-            data: std.MultiArrayList(T) = .{},
+            data: MultiArr = .{},
 
             pub fn init() Self {
                 return Self{
@@ -126,6 +128,15 @@ pub fn DistinctData(comptime I: type, comptime T: type) type {
             pub fn get(self: *const Self, index: Index) T {
                 const raw_index = index.get_usize();
                 return self.data.get(raw_index);
+            }
+
+            pub fn get_field_ptr(
+                self: *Self,
+                comptime field_type: type,
+                comptime field: MultiArr.Field,
+                index: Index,
+            ) *field_type {
+                return &self.data.items(field)[index.get_usize()];
             }
 
             pub fn set(self: *Self, index: Index, val: T) void {

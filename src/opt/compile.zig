@@ -700,9 +700,7 @@ test "let" {
         \\basicblock0: []
         \\    %0 = ldi 1
         \\    %3 = ldi 2
-        \\    %6 = mov %0
-        \\    %7 = mov %3
-        \\    %8 = add %6, %7
+        \\    %8 = add %0, %3
         \\    %9 = load_env 0
         \\    %10 = add %8, %9
         \\    ret %10
@@ -798,8 +796,7 @@ test "condition2" {
         \\    jmp 3
         \\basicblock3: [1, 2]
         \\    %20 = phony 1 -> %7, 2 -> %13
-        \\    %18 = mov %20
-        \\    ret %18
+        \\    ret %20
         \\}
         \\
     ).equal_fmt(res);
@@ -845,21 +842,16 @@ test "loop" {
         \\basicblock1: [0, 2]
         \\    %25 = phony 0 -> %3, 2 -> %10
         \\    %24 = phony 0 -> %0, 2 -> %14
-        \\    %18 = mov %24
         \\    %19 = ldi 10
-        \\    %20 = lt %18, %19
+        \\    %20 = lt %24, %19
         \\    branch %20, basicblock2, basicblock3
         \\basicblock2: [1]
-        \\    %8 = mov %25
-        \\    %9 = mov %24
-        \\    %10 = add %8, %9
-        \\    %12 = mov %24
+        \\    %10 = add %25, %24
         \\    %13 = ldi 1
-        \\    %14 = add %12, %13
+        \\    %14 = add %24, %13
         \\    jmp 1
         \\basicblock3: [1]
-        \\    %22 = mov %25
-        \\    ret %22
+        \\    ret %25
         \\}
         \\
     ).equal_fmt(res);
@@ -893,11 +885,9 @@ test "arg basic" {
         \\basicblock0: []
         \\    %0 = arg 0
         \\    %2 = arg 1
-        \\    %4 = mov %0
         \\    %5 = ldi 2
-        \\    %6 = mov %2
-        \\    %7 = mul %5, %6
-        \\    %8 = add %4, %7
+        \\    %7 = mul %5, %2
+        \\    %8 = add %0, %7
         \\    ret %8
         \\}
         \\
@@ -938,35 +928,30 @@ test "while fib opt compiler" {
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
     const res = try ir_compile(function, metadata, globals, allocator);
     try snap.Snap.init(@src(),
-        \\function {
-        \\basicblock0: []
-        \\    %0 = arg 0
-        \\    %2 = ldi 0
-        \\    %5 = ldi 1
-        \\    jmp 1
-        \\basicblock1: [0, 2]
-        \\    %33 = phony 0 -> %5, 2 -> %17
-        \\    %32 = phony 0 -> %2, 2 -> %15
-        \\    %31 = phony 0 -> %0, 2 -> %21
-        \\    %25 = mov %31
-        \\    %26 = ldi 0
-        \\    %27 = gt %25, %26
-        \\    branch %27, basicblock2, basicblock3
-        \\basicblock2: [1]
-        \\    %10 = mov %32
-        \\    %11 = mov %33
-        \\    %12 = add %10, %11
-        \\    %15 = mov %33
-        \\    %17 = mov %12
-        \\    %19 = mov %31
-        \\    %20 = ldi 1
-        \\    %21 = sub %19, %20
-        \\    jmp 1
-        \\basicblock3: [1]
-        \\    %29 = mov %32
-        \\    ret %29
-        \\}
-        \\
+       \\function {
+       \\basicblock0: []
+       \\    %0 = arg 0
+       \\    %2 = ldi 0
+       \\    %5 = ldi 1
+       \\    jmp 1
+       \\basicblock1: [0, 2]
+       \\    %33 = phony 0 -> %5, 2 -> %17
+       \\    %32 = phony 0 -> %2, 2 -> %15
+       \\    %31 = phony 0 -> %0, 2 -> %21
+       \\    %26 = ldi 0
+       \\    %27 = gt %31, %26
+       \\    branch %27, basicblock2, basicblock3
+       \\basicblock2: [1]
+       \\    %12 = add %32, %33
+       \\    %15 = mov %33
+       \\    %17 = mov %12
+       \\    %20 = ldi 1
+       \\    %21 = sub %31, %20
+       \\    jmp 1
+       \\basicblock3: [1]
+       \\    ret %32
+       \\}
+       \\
     ).equal_fmt(res);
 }
 
@@ -1002,10 +987,8 @@ test "globals opt compile" {
         \\basicblock0: []
         \\    %0 = arg 0
         \\    %2 = load_global 0
-        \\    %5 = mov %0
-        \\    store_global 0, %5
-        \\    %7 = mov %2
-        \\    ret %7
+        \\    store_global 0, %0
+        \\    ret %2
         \\}
         \\
     ).equal_fmt(res);
@@ -1043,24 +1026,21 @@ test "call opt compiler" {
         \\basicblock0: []
         \\    %0 = arg 0
         \\    %2 = load_global 0
-        \\    %3 = mov %0
         \\    %4 = ldi 1
-        \\    %5 = add %3, %4
+        \\    %5 = add %0, %4
         \\    %6 = ldi 2
         \\    %7 = call %2(%5, %6)
         \\    %8 = load_global 0
         \\    %9 = load_global 0
-        \\    %10 = mov %0
         \\    %11 = ldi 2
-        \\    %12 = mul %10, %11
+        \\    %12 = mul %0, %11
         \\    %13 = ldi 1
         \\    %14 = call %9(%12, %13)
         \\    %15 = ldi 1
         \\    %16 = call %8(%14, %15)
         \\    %17 = load_global 0
         \\    %18 = ldi 1
-        \\    %19 = mov %0
-        \\    %20 = call %17(%18, %19)
+        \\    %20 = call %17(%18, %0)
         \\    ret %20
         \\}
         \\

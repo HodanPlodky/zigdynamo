@@ -20,11 +20,13 @@ const Interpreter = struct {
         alloc: std.mem.Allocator,
     ) !Interpreter {
         const inst_count = code.stores.get_max_idx(ir.Instruction);
+        const regs = try alloc.alloc(runtime.Value, inst_count.get_usize());
+        @memset(regs, runtime.Value.new_nil());
         return Interpreter{
             .code = code,
             .globals = globals,
             .env = env,
-            .regs = try alloc.alloc(runtime.Value, inst_count.get_usize()),
+            .regs = regs,
             .alloc = alloc,
         };
     }
@@ -49,6 +51,7 @@ const Interpreter = struct {
             for (curr_bb.instructions.items, 0..) |inst_idx, idx| {
                 const inst = self.code.stores.get(ir.Instruction, inst_idx);
                 const reg = inst_idx.get_usize();
+
                 switch (inst) {
                     .ldi => |num| self.regs[reg] = runtime.Value.new_num(num),
                     .mov => |src_reg| self.regs[reg] = self.regs[src_reg.get_usize()],
