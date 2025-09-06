@@ -1,5 +1,6 @@
 const std = @import("std");
 const Base = @import("analysis_base.zig").AnalysisBase;
+const SharedData = @import("analysis_base.zig").SharedData;
 const ir = @import("../ir.zig");
 const bit_set_move = @import("../../utils.zig").bit_set_move;
 
@@ -188,7 +189,13 @@ test "basic" {
     compiler.set_basicblock(join_idx);
     try compiler.append_terminator(ir.Instruction{ .ret = cond });
 
-    const base = Base{ .alloc = scratch_alloc, .compiler = &compiler, .function_idx = fn_idx };
+    const shared_data = try SharedData.init(&compiler, scratch_alloc);
+    const base = Base{
+        .alloc = scratch_alloc,
+        .compiler = &compiler,
+        .function_idx = fn_idx,
+        .shared_data = shared_data,
+    };
     var dom = try DominatorAnalysis.init(base);
     try dom.analyze();
 

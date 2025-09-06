@@ -9,6 +9,7 @@ const MovElim = @import("passes/mov_elim.zig").MovElim;
 const UnusedElim = @import("passes/unused_elim.zig").UnusedElim;
 const PassBase = @import("passes/pass_base.zig").PassBase;
 const AnalysisBase = @import("analysis/analysis_base.zig").AnalysisBase;
+const SharedData = @import("analysis/analysis_base.zig").SharedData;
 
 pub fn ir_compile(input: *const ast.Function, metadata: runtime.FunctionMetadata, globals: [][]const u8, alloc: std.mem.Allocator) !CompiledResult {
     // it would be probably better to have this survive across the calls
@@ -30,12 +31,15 @@ pub fn run_passes(compiler: *Compiler, alloc: std.mem.Allocator) !void {
         UnusedElim,
     };
 
+    const shared_data = try SharedData.init(compiler, alloc);
+
     for (0..compiler.stores.function.data.items.len) |i| {
         const fn_idx = ir.FunctionIdx.new(@intCast(i));
         const analysis_base = AnalysisBase{
             .compiler = compiler,
             .alloc = alloc,
             .function_idx = fn_idx,
+            .shared_data = shared_data,
         };
         const pass_base = PassBase{
             .compiler = compiler,

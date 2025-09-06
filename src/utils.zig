@@ -189,6 +189,31 @@ pub fn DistinctData(comptime I: type, comptime T: type) type {
     };
 }
 
+pub fn ReversedSlice(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        data: []T,
+        current: usize,
+
+        pub fn init(data: []T) Self {
+            return Self{
+                .data = data,
+                .current = data.len,
+            };
+        }
+
+        pub fn next(self: *Self) ?T {
+            if (self.current == 0) {
+                return null;
+            }
+
+            self.current -= 1;
+            return self.data[self.current];
+        }
+    };
+}
+
 /// copy dat from one bit set
 /// to another I dont know why
 /// this is not in the standard lib

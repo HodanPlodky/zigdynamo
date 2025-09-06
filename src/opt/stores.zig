@@ -149,6 +149,37 @@ pub const Stores = struct {
         @compileError("could not find proper index");
     }
 
+    fn IdxIter(comptime Index: type) type {
+        return struct {
+            const IterType = @This();
+
+            curr: usize,
+            count: usize,
+
+            pub fn init(count: Index) IterType {
+                return IterType{
+                    .curr = 0,
+                    .count = count.get_usize(),
+                };
+            }
+
+            pub fn next(self: *IterType) ?Index {
+                if (self.curr >= self.count) {
+                    return null;
+                }
+
+                const res = self.curr;
+                self.curr += 1;
+                return Index.new(@intCast(res));
+            }
+        };
+    }
+
+    pub fn idx_iter(self: *const Stores, comptime T: type) IdxIter(Stores.get_index_type(T)) {
+        const count = self.get_max_idx(T);
+        return IdxIter(Stores.get_index_type(T)).init(count);
+    }
+
     const RegIter = struct {
         const OtherData = struct {
             // max number of the regs in non phony
