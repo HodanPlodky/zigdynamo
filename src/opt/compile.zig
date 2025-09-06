@@ -935,7 +935,7 @@ test "while fib opt compiler" {
         \\    %5 = ldi 1
         \\    jmp 1
         \\basicblock1: [0, 2]
-        \\    %33 = phony 0 -> %5, 2 -> %17
+        \\    %33 = phony 0 -> %5, 2 -> %12
         \\    %32 = phony 0 -> %2, 2 -> %15
         \\    %31 = phony 0 -> %0, 2 -> %21
         \\    %26 = ldi 0
@@ -944,7 +944,6 @@ test "while fib opt compiler" {
         \\basicblock2: [1]
         \\    %12 = add %32, %33
         \\    %15 = mov %33
-        \\    %17 = mov %12
         \\    %20 = ldi 1
         \\    %21 = sub %31, %20
         \\    jmp 1

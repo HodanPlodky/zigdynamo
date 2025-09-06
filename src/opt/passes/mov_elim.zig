@@ -37,7 +37,10 @@ pub const MovElim = struct {
             switch (inst) {
                 .mov => {},
                 // could be made better
-                .phony => {},
+                .phony => |idx| {
+                    const data = self.base.compiler.get(ir.PhonyData, idx);
+                    self.process_phony(data);
+                },
                 else => self.process_inst(inst_idx),
             }
         }
@@ -48,6 +51,29 @@ pub const MovElim = struct {
         while (regs_iter.next()) |reg| {
             const orig = self.get_origin(reg.*);
             reg.* = orig;
+        }
+    }
+
+    fn process_phony(self: *MovElim, phony_data: ir.PhonyData) void {
+        for (phony_data.data) |*pair| {
+            const orig = self.get_origin_phony(pair.reg);
+            pair.reg = orig;
+        }
+    }
+
+    fn get_origin_phony(self: *MovElim, reg: ir.Reg) ir.Reg {
+        var last: ir.Reg = reg;
+        var res = reg;
+        while (true) {
+            const inst = self.base.compiler.get(ir.Instruction, res);
+            switch (inst) {
+                .mov => |mov_reg| {
+                    last = res;
+                    res = mov_reg;
+                },
+                .phony => return last,
+                else => return res,
+            }
         }
     }
 
