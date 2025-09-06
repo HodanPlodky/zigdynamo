@@ -1045,3 +1045,57 @@ test "call opt compiler" {
         \\
     ).equal_fmt(res);
 }
+
+test "fib recursive opt compile" {
+    const Parser = @import("../parser.zig").Parser;
+    const snap = @import("../snap.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ fn(n) = {
+        \\     if (n < 2) n
+        \\     else fib(n - 1) + fib(n - 2);
+        \\ };
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+
+    // get first function
+    const node = parse_res.data[0];
+
+    // first should be function
+    const function = &node.function;
+    const metadata = runtime.FunctionMetadata{};
+
+    var globals: [1][]const u8 = .{"fib"};
+    const res = try ir_compile(function, metadata, globals[0..], allocator);
+    try snap.Snap.init(@src(),
+       \\function {
+       \\basicblock0: []
+       \\    %0 = arg 0
+       \\    %3 = ldi 2
+       \\    %4 = lt %0, %3
+       \\    branch %4, basicblock1, basicblock2
+       \\basicblock1: [0]
+       \\    jmp 3
+       \\basicblock2: [0]
+       \\    %8 = load_global 0
+       \\    %10 = ldi 1
+       \\    %11 = sub %0, %10
+       \\    %12 = call %8(%11)
+       \\    %13 = load_global 0
+       \\    %15 = ldi 2
+       \\    %16 = sub %0, %15
+       \\    %17 = call %13(%16)
+       \\    %18 = add %12, %17
+       \\    jmp 3
+       \\basicblock3: [1, 2]
+       \\    %20 = phony 1 -> %0, 2 -> %18
+       \\    ret %20
+       \\}
+       \\
+    ).equal_fmt(res);
+}
