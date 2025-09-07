@@ -159,7 +159,7 @@ pub const JitCompilerBase = struct {
         try self.call(panic_name);
     }
 
-    fn emit_panic_handler_with_prolog(self: *JitCompilerBase, comptime panic_name: []const u8, comptime prolog: fn (*JitCompiler) JitError!void) !void {
+    fn emit_panic_handler_with_prolog(self: *JitCompilerBase, comptime panic_name: []const u8, comptime prolog: fn (*JitCompilerBase) JitError!void) !void {
         @field(self.panic_table, panic_name) = self.code_ptr;
         try prolog(self);
         try self.call(panic_name);
@@ -289,69 +289,67 @@ pub const JitCompilerBase = struct {
         const modrm = ((dest_value & 0x7) << 3) | (src_value & 0x7);
         try self.emit_byte(modrm);
     }
-
-    //
-    // Other helpers
-    //
-
-    /// creates basic REX.W assuming only regs
-    fn create_rex(reg: GPR64, rm64: GPR64) u8 {
-        const reg_val: u8 = @intFromEnum(reg);
-        const rm64_val: u8 = @intFromEnum(rm64);
-
-        // REX.W
-        // | 4-bit | W | R | X | B |
-        // The W is set
-        // The R contains highest bit of reg number
-        // The B contains highest bit of rm64 number
-        return 0x48 | ((reg_val & 0x8) >> 1) | ((rm64_val & 0x8) >> 3);
-    }
-
-    /// creates basic MODrm assuming only regs
-    fn create_modrm_regs(reg: GPR64, rm64: GPR64) u8 {
-        const reg_val: u8 = @intFromEnum(reg);
-        const rm64_val: u8 = @intFromEnum(rm64);
-
-        // MODrm
-        // mod = 0b11 = direct | lower bits reg | lower bits rm64
-        return 0b11_000_000 | ((reg_val & 0x7) << 3) | (rm64_val & 0x7);
-    }
-
-    /// creates basic MODrm assuming only regs
-    fn create_modrm_sib(reg: GPR64, offset: u32) u8 {
-        const reg_val: u8 = @intFromEnum(reg);
-
-        // ModRM
-        // | mode | reg | r/m |
-        // mode = 00/01/10 =>
-        //      this depends on size of the
-        //      offset 0 => 00, 1-255 => 01
-        //      otherwise 10
-        // reg = bottom 3 bits of to_reg_val
-        // rm = 100 => the sib follows
-        const mod: u8 = if (offset >= 256)
-            0b1000_0000
-        else if (offset != 0)
-            0b0100_0000
-        else
-            0;
-
-        const to_reg_lower: u8 = (reg_val & 0x7) << 3;
-        const rm_sib: u8 = 0b100;
-        return mod | to_reg_lower | rm_sib;
-    }
-
-    fn create_sib(scale: Scale, base: GPR64, index: GPR64) u8 {
-        const base_val = @intFromEnum(base);
-        var index_val = @intFromEnum(index);
-
-        // SIB
-        // | scale : 2b | index : 3b | base : 3b |
-        var scale_val: u8 = @intFromEnum(scale);
-        scale_val <<= 6;
-        index_val <<= 3;
-        return scale_val | index_val | base_val;
-    }
-
-
 };
+
+//
+// Helpers for createing the opcodes
+//
+
+/// creates basic REX.W assuming only regs
+fn create_rex(reg: GPR64, rm64: GPR64) u8 {
+    const reg_val: u8 = @intFromEnum(reg);
+    const rm64_val: u8 = @intFromEnum(rm64);
+
+    // REX.W
+    // | 4-bit | W | R | X | B |
+    // The W is set
+    // The R contains highest bit of reg number
+    // The B contains highest bit of rm64 number
+    return 0x48 | ((reg_val & 0x8) >> 1) | ((rm64_val & 0x8) >> 3);
+}
+
+/// creates basic MODrm assuming only regs
+fn create_modrm_regs(reg: GPR64, rm64: GPR64) u8 {
+    const reg_val: u8 = @intFromEnum(reg);
+    const rm64_val: u8 = @intFromEnum(rm64);
+
+    // MODrm
+    // mod = 0b11 = direct | lower bits reg | lower bits rm64
+    return 0b11_000_000 | ((reg_val & 0x7) << 3) | (rm64_val & 0x7);
+}
+
+/// creates basic MODrm assuming only regs
+fn create_modrm_sib(reg: GPR64, offset: u32) u8 {
+    const reg_val: u8 = @intFromEnum(reg);
+
+    // ModRM
+    // | mode | reg | r/m |
+    // mode = 00/01/10 =>
+    //      this depends on size of the
+    //      offset 0 => 00, 1-255 => 01
+    //      otherwise 10
+    // reg = bottom 3 bits of to_reg_val
+    // rm = 100 => the sib follows
+    const mod: u8 = if (offset >= 256)
+        0b1000_0000
+    else if (offset != 0)
+        0b0100_0000
+    else
+        0;
+
+    const to_reg_lower: u8 = (reg_val & 0x7) << 3;
+    const rm_sib: u8 = 0b100;
+    return mod | to_reg_lower | rm_sib;
+}
+
+fn create_sib(scale: Scale, base: GPR64, index: GPR64) u8 {
+    const base_val = @intFromEnum(base);
+    var index_val = @intFromEnum(index);
+
+    // SIB
+    // | scale : 2b | index : 3b | base : 3b |
+    var scale_val: u8 = @intFromEnum(scale);
+    scale_val <<= 6;
+    index_val <<= 3;
+    return scale_val | index_val | base_val;
+}
