@@ -30,7 +30,7 @@ pub const LiveRangesAnalysis = struct {
     }
 
     fn analyze_fn(self: *LiveRangesAnalysis, function_idx: ir.FunctionIdx) void {
-        var curr_idx: u32 = 0;    
+        var curr_idx: u32 = 0;
 
         for (self.base.shared_data.get_emit(function_idx)) |bb_idx| {
             curr_idx = self.process_bb(bb_idx, curr_idx);
@@ -44,7 +44,7 @@ pub const LiveRangesAnalysis = struct {
             self.ranges[inst_idx.get_usize()].begin = curr_idx;
             self.ranges[inst_idx.get_usize()].end = curr_idx;
             var reg_iter = self.base.compiler.stores.get_reg_iter(inst_idx);
-            while(reg_iter.next()) |reg| {
+            while (reg_iter.next()) |reg| {
                 self.ranges[reg.get_usize()].end = curr_idx;
             }
             curr_idx += 1;

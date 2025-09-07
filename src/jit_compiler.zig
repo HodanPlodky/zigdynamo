@@ -63,7 +63,6 @@ pub const JitCompiler = struct {
             try self.compile_bytecode_inst();
         }
 
-
         metadata.jit_state = @intCast(start);
 
         self.base.end_compilation();
@@ -545,7 +544,6 @@ pub const JitCompiler = struct {
         return res;
     }
 
-
     //
     // Stack helpers
     //
@@ -721,7 +719,6 @@ pub const JitCompiler = struct {
         };
         try self.base.emit_slice(store_curent_ptr_slice[0..]);
     }
-
 
     //
     // Prolog and epilog

@@ -4,7 +4,7 @@ const ir = @import("../ir.zig");
 const rev = @import("../../utils.zig").ReversedSlice;
 
 // not implemented
-// since I think I wont need it 
+// since I think I wont need it
 // in near future
 pub const LivenessAnalysis = struct {
     const BitSet = std.DynamicBitSetUnmanaged;
@@ -45,7 +45,7 @@ pub const LivenessAnalysis = struct {
         const bb = self.base.compiler.get(ir.BasicBlock, bb_idx);
         var inst_iter = rev(ir.InstructionIdx).init(bb.instructions);
         while (inst_iter.next()) |inst_idx| {
-            _ = inst_idx; 
+            _ = inst_idx;
         }
 
         return false;
@@ -55,4 +55,3 @@ pub const LivenessAnalysis = struct {
         return self.liveness_at[place.get_usize()];
     }
 };
-

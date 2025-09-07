@@ -175,7 +175,6 @@ pub const Stores = struct {
         };
     }
 
-
     fn IdxIter(comptime Index: type) type {
         return struct {
             const IterType = @This();

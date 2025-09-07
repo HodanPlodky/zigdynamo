@@ -46,7 +46,6 @@ pub const MakeSSA = struct {
 
         var visited = try BitSet.initEmpty(self.base.alloc, bb_count.index);
 
-
         // all the allocated data should be distincte across the function
         // so this should be correct to do
         for (self.base.compiler.stores.function.data.items) |function| {

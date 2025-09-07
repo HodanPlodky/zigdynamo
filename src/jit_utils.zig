@@ -533,7 +533,6 @@ pub const JitCompilerBase = struct {
         try self.mov_from_struct_64(to_reg, state_addr, offset);
     }
 
-
     //
     // Calls
     //
