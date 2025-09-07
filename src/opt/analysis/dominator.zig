@@ -43,7 +43,15 @@ pub const DominatorAnalysis = struct {
             bb_edges.* = std.ArrayListUnmanaged(ir.BasicBlockIdx){};
         }
 
-        const function = self.base.compiler.get_const_ptr(ir.Function, self.base.function_idx);
+        var iter = self.base.compiler.stores.idx_iter(ir.Function);
+        while (iter.next()) |idx| {
+            try self.analyze_fn(idx);
+        }
+    }
+
+    pub fn analyze_fn(self: *DominatorAnalysis, function_idx: ir.FunctionIdx) !void {
+        const bb_count = self.base.compiler.stores.get_max_idx(ir.BasicBlock).index;
+        const function = self.base.compiler.get_const_ptr(ir.Function, function_idx);
         var visited = try BitSet.initEmpty(self.base.alloc, bb_count);
 
         // get post order of basicblocks
@@ -164,7 +172,7 @@ test "basic" {
     const globals = try std.testing.allocator.alloc([]const u8, 0);
     defer std.testing.allocator.free(globals);
     var compiler = try Compiler.init(globals, permanent_alloc, scratch_alloc);
-    const fn_idx = try compiler.create_empty();
+    _ = try compiler.create_empty();
 
     // basic blocks
     const entry_idx = compiler.current;
@@ -193,7 +201,6 @@ test "basic" {
     const base = Base{
         .alloc = scratch_alloc,
         .compiler = &compiler,
-        .function_idx = fn_idx,
         .shared_data = shared_data,
     };
     var dom = try DominatorAnalysis.init(base);

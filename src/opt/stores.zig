@@ -149,6 +149,33 @@ pub const Stores = struct {
         @compileError("could not find proper index");
     }
 
+    pub fn get_type(self: *const Stores, inst: ir.Instruction) ir.Type {
+        return switch (inst) {
+            .ldi => ir.Type.Int,
+            .mov => |reg| {
+                const src_inst = self.get(ir.Instruction, reg);
+                return self.get_type(src_inst);
+            },
+            .nil => ir.Type.Nil,
+            .true => ir.Type.True,
+            .false => ir.Type.False,
+            .load_global => ir.Type.Top,
+            .store_global => ir.Type.Void,
+            .load_env => ir.Type.Top,
+            .store_env => ir.Type.Void,
+            .add, .sub, .mul, .div, .lt, .gt => ir.Type.Top,
+            .ret, .branch, .jmp => ir.Type.Void,
+            .arg => ir.Type.Top,
+            .nop => ir.Type.Void,
+            // TODO use join
+            .phony => ir.Type.Top,
+            .call => ir.Type.Top,
+            .get_local => ir.Type.Top,
+            .set_local => ir.Type.Void,
+        };
+    }
+
+
     fn IdxIter(comptime Index: type) type {
         return struct {
             const IterType = @This();

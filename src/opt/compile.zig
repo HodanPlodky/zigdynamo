@@ -33,25 +33,20 @@ pub fn run_passes(compiler: *Compiler, alloc: std.mem.Allocator) !void {
 
     const shared_data = try SharedData.init(compiler, alloc);
 
-    for (0..compiler.stores.function.data.items.len) |i| {
-        const fn_idx = ir.FunctionIdx.new(@intCast(i));
-        const analysis_base = AnalysisBase{
-            .compiler = compiler,
-            .alloc = alloc,
-            .function_idx = fn_idx,
-            .shared_data = shared_data,
-        };
-        const pass_base = PassBase{
-            .compiler = compiler,
-            .alloc = alloc,
-            .function_idx = fn_idx,
-            .analysis_base = analysis_base,
-        };
+    const analysis_base = AnalysisBase{
+        .compiler = compiler,
+        .alloc = alloc,
+        .shared_data = shared_data,
+    };
+    const pass_base = PassBase{
+        .compiler = compiler,
+        .alloc = alloc,
+        .analysis_base = analysis_base,
+    };
 
-        inline for (passes) |pass_type| {
-            var pass = try pass_type.init(pass_base);
-            try pass.run();
-        }
+    inline for (passes) |pass_type| {
+        var pass = try pass_type.init(pass_base);
+        try pass.run();
     }
 }
 
@@ -100,7 +95,7 @@ pub const CompiledResult = struct {
 
     pub fn write_inst(self: *const CompiledResult, idx: ir.InstructionIdx, writer: anytype) !void {
         const inst = self.stores.get(ir.Instruction, idx);
-        const inst_type = self.get_type(inst);
+        const inst_type = self.stores.get_type(inst);
         if (inst_type == ir.Type.Void) {
             try writer.print("    {s}", .{inst.opcode()});
         } else {
@@ -108,32 +103,6 @@ pub const CompiledResult = struct {
         }
         try self.write_payload(inst, writer);
         try writer.print("\n", .{});
-    }
-
-    pub fn get_type(self: *const CompiledResult, inst: ir.Instruction) ir.Type {
-        return switch (inst) {
-            .ldi => ir.Type.Int,
-            .mov => |reg| {
-                const src_inst = self.stores.get(ir.Instruction, reg);
-                return self.get_type(src_inst);
-            },
-            .nil => ir.Type.Nil,
-            .true => ir.Type.True,
-            .false => ir.Type.False,
-            .load_global => ir.Type.Top,
-            .store_global => ir.Type.Void,
-            .load_env => ir.Type.Top,
-            .store_env => ir.Type.Void,
-            .add, .sub, .mul, .div, .lt, .gt => ir.Type.Top,
-            .ret, .branch, .jmp => ir.Type.Void,
-            .arg => ir.Type.Top,
-            .nop => ir.Type.Void,
-            // TODO use join
-            .phony => ir.Type.Top,
-            .call => ir.Type.Top,
-            .get_local => ir.Type.Top,
-            .set_local => ir.Type.Void,
-        };
     }
 
     pub fn write_payload(self: *const CompiledResult, inst: ir.Instruction, writer: anytype) !void {
@@ -1077,29 +1046,29 @@ test "fib recursive opt compile" {
     var globals: [1][]const u8 = .{"fib"};
     const res = try ir_compile(function, metadata, globals[0..], allocator);
     try snap.Snap.init(@src(),
-       \\function {
-       \\basicblock0: []
-       \\    %0 = arg 0
-       \\    %3 = ldi 2
-       \\    %4 = lt %0, %3
-       \\    branch %4, basicblock1, basicblock2
-       \\basicblock1: [0]
-       \\    jmp 3
-       \\basicblock2: [0]
-       \\    %8 = load_global 0
-       \\    %10 = ldi 1
-       \\    %11 = sub %0, %10
-       \\    %12 = call %8(%11)
-       \\    %13 = load_global 0
-       \\    %15 = ldi 2
-       \\    %16 = sub %0, %15
-       \\    %17 = call %13(%16)
-       \\    %18 = add %12, %17
-       \\    jmp 3
-       \\basicblock3: [1, 2]
-       \\    %20 = phony 1 -> %0, 2 -> %18
-       \\    ret %20
-       \\}
-       \\
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %3 = ldi 2
+        \\    %4 = lt %0, %3
+        \\    branch %4, basicblock1, basicblock2
+        \\basicblock1: [0]
+        \\    jmp 3
+        \\basicblock2: [0]
+        \\    %8 = load_global 0
+        \\    %10 = ldi 1
+        \\    %11 = sub %0, %10
+        \\    %12 = call %8(%11)
+        \\    %13 = load_global 0
+        \\    %15 = ldi 2
+        \\    %16 = sub %0, %15
+        \\    %17 = call %13(%16)
+        \\    %18 = add %12, %17
+        \\    jmp 3
+        \\basicblock3: [1, 2]
+        \\    %20 = phony 1 -> %0, 2 -> %18
+        \\    ret %20
+        \\}
+        \\
     ).equal_fmt(res);
 }

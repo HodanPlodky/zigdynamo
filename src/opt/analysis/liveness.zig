@@ -3,6 +3,9 @@ const Base = @import("analysis_base.zig").AnalysisBase;
 const ir = @import("../ir.zig");
 const rev = @import("../../utils.zig").ReversedSlice;
 
+// not implemented
+// since I think I wont need it 
+// in near future
 pub const LivenessAnalysis = struct {
     const BitSet = std.DynamicBitSetUnmanaged;
 

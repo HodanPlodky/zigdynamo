@@ -45,7 +45,13 @@ pub const MakeSSA = struct {
         }
 
         var visited = try BitSet.initEmpty(self.base.alloc, bb_count.index);
-        try self.search(self.base.get_entry().entry, &visited);
+
+
+        // all the allocated data should be distincte across the function
+        // so this should be correct to do
+        for (self.base.compiler.stores.function.data.items) |function| {
+            try self.search(function.entry, &visited);
+        }
     }
 
     fn place_phonys(self: *MakeSSA, places: []BitSet) !void {

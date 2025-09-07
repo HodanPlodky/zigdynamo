@@ -5,7 +5,6 @@ const ir = @import("../ir.zig");
 pub const AnalysisBase = struct {
     compiler: *const Compiler,
     alloc: std.mem.Allocator,
-    function_idx: ir.FunctionIdx,
     shared_data: SharedData,
 };
 
@@ -16,18 +15,28 @@ pub const SharedData = struct {
     const BitSet = std.DynamicBitSetUnmanaged;
 
     post_orders: []std.ArrayListUnmanaged(ir.BasicBlockIdx),
+    emit_orders: []std.ArrayListUnmanaged(ir.BasicBlockIdx),
     visited_bb: BitSet,
 
     pub fn init(compiler: *const Compiler, alloc: std.mem.Allocator) !SharedData {
         const function_idx = compiler.stores.get_max_idx(ir.Function);
 
-        // post order init
+        // orders init
         const post_orders = try alloc.alloc(
+            std.ArrayListUnmanaged(ir.BasicBlockIdx),
+            function_idx.get_usize(),
+        );
+        const emit_orders = try alloc.alloc(
             std.ArrayListUnmanaged(ir.BasicBlockIdx),
             function_idx.get_usize(),
         );
         for (compiler.stores.function.data.items, 0..) |function, idx| {
             post_orders[idx] = try std.ArrayListUnmanaged(ir.BasicBlockIdx).initCapacity(
+                alloc,
+                function.basicblocks.items.len,
+            );
+
+            emit_orders[idx] = try std.ArrayListUnmanaged(ir.BasicBlockIdx).initCapacity(
                 alloc,
                 function.basicblocks.items.len,
             );
@@ -39,6 +48,7 @@ pub const SharedData = struct {
 
         var res = SharedData{
             .post_orders = post_orders,
+            .emit_orders = emit_orders,
             .visited_bb = visited_bb,
         };
 
@@ -48,6 +58,10 @@ pub const SharedData = struct {
 
     pub fn get_postorder(self: *const SharedData, function_idx: ir.FunctionIdx) []ir.BasicBlockIdx {
         return self.post_orders[function_idx.get_usize()];
+    }
+
+    pub fn get_emitorder(self: *const SharedData, function_idx: ir.FunctionIdx) []ir.BasicBlockIdx {
+        return self.emit_orders[function_idx.get_usize()];
     }
 
     pub fn update_all_post_orders(self: *SharedData, compiler: *const Compiler) void {
