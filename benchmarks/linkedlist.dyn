@@ -1,0 +1,81 @@
+let createnode = fn(val) = object {
+    val : val,
+    next: nil,
+};
+
+let createlist = fn() = object {
+    head: nil,
+    
+    append: fn(val) = {
+        if (this.head == nil) {
+            this.head = createnode(val);
+        } else {
+            let tmp = this.head;
+            while (tmp.next != nil) {
+                tmp = tmp.next;
+            };
+            tmp.next = createnode(val);
+        };
+    },
+
+    prepend: fn(val) = {
+        let tmp = this.head;
+        this.head = createnode(val);
+        this.head.next = tmp;
+    },
+
+    pop: fn() = {
+        if (this.head == nil) {
+
+        } else if (this.head.next == nil) {
+            let res = this.head.val;
+            this.head == nil;
+            res;
+        } else {
+            let tmp = this.head;
+            while (tmp.next.next != nil) {
+                tmp = tmp.next;
+            };
+            let res = tmp.val;
+            tmp.next = nil;
+            res;
+        };
+    },
+
+    debug: fn() = {
+        let tmp = this.head;
+        while (tmp != nil) {
+            print(tmp.val);
+            tmp = tmp.next;
+        };
+    },
+};
+
+let list = createlist();
+
+
+let f = fn(n) = {
+    let i = 0;
+    while(i < n) {
+        list.append(1);
+        list.append(2);
+        list.append(3);
+        list.prepend(42);
+        list.pop();
+        list.pop();
+        list.pop();
+        i = i + 1;
+    };
+
+    i = 0;
+    while (i < n) {
+        list.pop();
+        i = i + 1;
+    };
+};
+
+let i = 10;
+while (i < 400) {
+    f(i);
+    i = i + 1;
+};

@@ -12,7 +12,7 @@
     // In a future version of Zig it will be used for package deduplication.
     .version = "0.0.0",
 
-    .fingerprint = 0x49d7265523cba5a7,
+    .fingerprint = 0x49d72655cd4e2c1e,
 
     // This field is optional.
     // This is currently advisory only; Zig does not yet do anything
@@ -24,12 +24,12 @@
     // `zig build --fetch` can be used to fetch all dependencies of a package, recursively.
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
-    .dependencies = .{
-        .ohsnap = .{
-            .url = "https://github.com/mnemnion/ohsnap/archive/refs/tags/v0.3.1.tar.gz",
-            .hash = "1220380908ede3cce3dafb2e69b4994a3df55a468597d9d571a495c66ad38ac73ef8",
-        },
-    },
+    //.dependencies = .{
+        //.ohsnap = .{
+            //.url = "https://github.com/mnemnion/ohsnap/archive/refs/tags/v0.3.1.tar.gz",
+            //.hash = "1220380908ede3cce3dafb2e69b4994a3df55a468597d9d571a495c66ad38ac73ef8",
+        //},
+    //},
     .paths = .{
         "build.zig",
         "build.zig.zon",

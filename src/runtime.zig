@@ -1,4 +1,5 @@
 const std = @import("std");
+const utils = @import("utils.zig");
 
 pub const Heap = struct {
     data: []u8,
@@ -45,27 +46,7 @@ pub const Heap = struct {
 };
 
 pub fn FlexibleArr(comptime T: type) type {
-    return packed struct {
-        const Self = @This();
-        count: usize,
-
-        pub fn additional_size(count: usize) usize {
-            return @sizeOf(T) * count;
-        }
-
-        pub fn get_ptr(self: *Self, index: usize) *T {
-            const place = @intFromPtr(&self.count);
-            return @ptrFromInt(place + @sizeOf(usize) + @sizeOf(T) * index);
-        }
-
-        pub fn get(self: *Self, index: usize) T {
-            return self.get_ptr(index).*;
-        }
-
-        pub fn set(self: *Self, index: usize, val: T) void {
-            self.get_ptr(index).* = val;
-        }
-    };
+    return utils.FlexibleArr(T, usize);
 }
 
 pub const ValueType = enum(u4) {
@@ -194,7 +175,6 @@ pub const Value = packed struct {
     }
 
     pub fn sub(left: Value, right: Value) Value {
-        // TODO: check
         return Value.new_raw(left.data - right.data);
     }
 
@@ -246,19 +226,7 @@ pub const Value = packed struct {
     }
 };
 
-pub fn print(values: []Value) void {
-    for (values) |val| {
-        switch (val.get_type()) {
-            ValueType.string => {
-                //const data = val.get_ptr(String);
-                std.debug.print("TODO ", .{});
-            },
-            ValueType.number => {
-                const data = val.get_number();
-                std.debug.print("{} ", .{data});
-            },
-            else => @panic("Cannot print"),
-        }
-    }
-    std.debug.print("\n", .{});
-}
+pub const FunctionMetadata = struct {
+    jit_state: u32 = 0,
+    call_counter: u32 = 0,
+};

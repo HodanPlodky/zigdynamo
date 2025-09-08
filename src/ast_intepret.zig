@@ -462,9 +462,9 @@ pub const Interpret = struct {
     fn handle_object(self: *Interpret, object: ast.Object) Value {
         const prototype =
             if (object.prototype) |proto|
-            self.eval(proto)
-        else
-            Value.new_nil();
+                self.eval(proto)
+            else
+                Value.new_nil();
 
         var result = self.heap.alloc_with_additional(Object, object.fields.len);
         result.prototype = prototype;

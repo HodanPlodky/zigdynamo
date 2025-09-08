@@ -1,5 +1,7 @@
 const std = @import("std");
 const runtime = @import("runtime.zig");
+const ast = @import("ast.zig");
+const utils = @import("utils.zig");
 
 pub const Instruction = enum(u8) {
     // literals
@@ -131,8 +133,6 @@ pub const Instruction = enum(u8) {
 };
 
 pub const ConstantType = enum(u8) {
-    main_function,
-    function,
     string,
     class,
 
@@ -145,12 +145,66 @@ pub const ConstantType = enum(u8) {
         _ = options; // autofix
         _ = fmt; // autofix
         const tmp = switch (self.*) {
-            ConstantType.main_function => "main_function",
-            ConstantType.function => "function",
             ConstantType.string => "string",
             ConstantType.class => "class",
         };
         try writer.print("{s}", .{tmp});
+    }
+};
+
+pub const Function = packed struct {
+    param_count: u32,
+    locals_count: u32,
+    code: utils.FlexibleArr(u8, u32),
+
+    pub fn format(
+        self: *const Function,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = options; // autofix
+        _ = fmt; // autofix
+        try writer.print("function ({} bytes)\n", .{self.code.count});
+        const size = self.code.count;
+        const slice = self.code.get_slice_const();
+        var i: usize = 0;
+        while (i < size) {
+            const inst: Instruction = @enumFromInt(slice[i]);
+            try writer.print("    {}: {}", .{ i, inst });
+            i += 1;
+            for (0..inst.get_extrabytes()) |_| {
+                try writer.print(" {}", .{slice[i]});
+                i += 1;
+            }
+            try writer.print("\n", .{});
+        }
+    }
+};
+
+pub const Functions = struct {
+    functions: []*const Function,
+    sources: []*const ast.Function,
+
+    pub fn new(functions: []*const Function, sources: []*const ast.Function) Functions {
+        return Functions{ .functions = functions, .sources = sources };
+    }
+
+    pub fn count(self: *const Functions) usize {
+        return self.functions.len;
+    }
+
+    pub fn format(
+        self: *const Functions,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = options; // autofix
+        _ = fmt; // autofix
+        for (self.functions) |f| {
+            try writer.print("{}\n", .{f});
+        }
     }
 };
 
@@ -234,8 +288,7 @@ pub const Constant = struct {
         _ = options;
         _ = fmt;
         //try writer.print("{any}", .{self.get_slice()});
-        try switch (self.get_type()) {
-            ConstantType.function, ConstantType.main_function => self.function_format(writer),
+        switch (self.get_type()) {
             ConstantType.string => {
                 try writer.print("string: {s}\n", .{self.get_slice()[5..]});
             },
@@ -246,28 +299,6 @@ pub const Constant = struct {
                     try writer.print(" {}", .{self.get_u32(index * 4 + 5)});
                 }
             },
-        };
-    }
-
-    fn function_format(
-        self: *const Constant,
-        writer: anytype,
-    ) !void {
-        var i: usize = switch (self.get_type()) {
-            ConstantType.function => Constant.function_header_size,
-            ConstantType.main_function => 5,
-            else => 0,
-        };
-        const size = self.get_size() + 4;
-        while (i < size) {
-            const inst: Instruction = @enumFromInt(self.data[i]);
-            try writer.print("\t{}: {}", .{ i, inst });
-            i += 1;
-            for (0..inst.get_extrabytes()) |_| {
-                try writer.print(" {}", .{self.data[i]});
-                i += 1;
-            }
-            try writer.print("\n", .{});
         }
     }
 };
@@ -277,6 +308,14 @@ pub const ConstantIndex = packed struct {
 
     pub fn new(index: u32) ConstantIndex {
         return ConstantIndex{ .index = index };
+    }
+};
+
+pub const FunctionIndex = packed struct {
+    index: u32,
+
+    pub fn new(index: u32) FunctionIndex {
+        return FunctionIndex{ .index = index };
     }
 };
 
@@ -290,7 +329,7 @@ pub const Forward = packed struct {
 pub const Closure = packed struct {
     // tag is u32 because of the padding
     tag: u32,
-    constant_idx: ConstantIndex,
+    function_idx: FunctionIndex,
     param_count: u32,
     local_count: u32,
     env: runtime.FlexibleArr(runtime.Value),
@@ -321,24 +360,25 @@ pub const Object = packed struct {
 };
 
 pub const Bytecode = struct {
+    functions: Functions,
     constants: []Constant,
-    current: Constant,
+    current: [*]const u8,
     global_count: usize,
 
     pub fn read_inst(self: *const Bytecode, pc: usize) Instruction {
-        return @enumFromInt(self.current.data[pc]);
+        return @enumFromInt(self.current[pc]);
     }
 
     pub fn read_u8(self: *const Bytecode, pc: usize) u8 {
-        return self.current.data[pc];
+        return self.current[pc];
     }
 
     pub fn read_u32(self: *const Bytecode, pc: usize) u32 {
         const tmp_arr: [4]u8 align(4) = .{
-            self.current.data[pc + 3],
-            self.current.data[pc + 2],
-            self.current.data[pc + 1],
-            self.current.data[pc],
+            self.current[pc + 3],
+            self.current[pc + 2],
+            self.current[pc + 1],
+            self.current[pc],
         };
         const tmp: *const u32 = @ptrCast(@alignCast(&tmp_arr));
         return tmp.*;
@@ -348,12 +388,16 @@ pub const Bytecode = struct {
         return self.constants[@intCast(idx.index)];
     }
 
+    pub fn get_function(self: *const Bytecode, idx: FunctionIndex) *const Function {
+        return self.functions.functions[@intCast(idx.index)];
+    }
+
     pub fn get_type(self: *const Bytecode, idx: ConstantIndex) ConstantType {
         return self.constants[@intCast(idx.index)].get_type();
     }
 
-    pub fn set_curr_const(self: *Bytecode, idx: ConstantIndex) void {
-        self.current = self.get_constant(idx);
+    pub fn set_curr_function(self: *Bytecode, idx: FunctionIndex) void {
+        self.current = self.get_function(idx).code.get_unchecked_slice_const();
     }
 
     pub fn format(
@@ -364,6 +408,7 @@ pub const Bytecode = struct {
     ) !void {
         _ = options; // autofix
         _ = fmt; // autofix
+        try writer.print("{}", .{self.functions});
         for (self.constants) |c| {
             const len = c.get_size() + 4;
             const typ = c.get_type();
