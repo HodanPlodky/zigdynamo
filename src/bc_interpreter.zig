@@ -3,6 +3,7 @@ const runtime = @import("runtime.zig");
 const bc = @import("bytecode.zig");
 const jit = @import("jit_compiler.zig");
 const jit_utils = @import("jit_utils.zig");
+const optjit = @import("opt/jit.zig");
 const JitState = jit_utils.JitState;
 
 const Value = runtime.Value;
@@ -385,7 +386,7 @@ pub const Environment = struct {
     }
 };
 
-pub fn Interpreter(comptime use_jit: bool) type {
+pub fn Interpreter(comptime JitType: ?type) type {
     return struct {
         const Self = @This();
         bytecode: bc.Bytecode,
@@ -396,7 +397,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
         env: Environment,
         writer: std.io.AnyWriter,
         function_meta: []runtime.FunctionMetadata,
-        jit_compiler: jit.JitCompiler,
+        jit_compiler: if (JitType) |Jit| Jit else struct {},
 
         pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: std.io.AnyWriter, heuristic: jit_utils.Heuristic) Self {
             const meta = alloc.alloc(runtime.FunctionMetadata, bytecode.functions.count()) catch unreachable;
@@ -409,7 +410,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
                 .stack = Stack.init(alloc),
                 .env = Environment.init(bytecode.global_count, alloc),
                 .function_meta = meta,
-                .jit_compiler = jit.JitCompiler.init(4096 * 1024, heuristic),
+                .jit_compiler = if (JitType) |Jit| Jit.init(4096 * 1024, heuristic) else undefined,
                 .writer = writer,
             };
         }
@@ -586,7 +587,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
                         const target = self.stack.pop();
 
                         // dont ask just trust lol
-                        if (use_jit) {
+                        if (JitType != null) {
                             self.do_value_call(null, &jit_state, target);
                         } else {
                             @call(.always_inline, Self.do_value_call, .{ self, null, &jit_state, target });
@@ -753,10 +754,11 @@ pub fn Interpreter(comptime use_jit: bool) type {
             }
             self.stack.pop_n(param_count);
 
-            if (use_jit) {
+            if (JitType) |_| {
                 const function = self.bytecode.get_function(closure.function_idx);
+                const function_source = self.bytecode.get_function_source(closure.function_idx);
                 const meta = &self.function_meta[closure.function_idx.index];
-                const compiled = self.jit_compiler.compile_fn(function, meta);
+                const compiled = self.jit_compiler.compile_fn(function, function_source, meta);
                 if (compiled) |jitted| {
                     jitted.run(jit_state);
                 } else |err| {
@@ -887,7 +889,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
         }
 
         fn get_jit_state(self: *const Self) JitState {
-            if (use_jit) {
+            if (JitType) |_| {
                 return JitState{
                     .intepreter = self,
                     .stack = &self.stack,
@@ -916,8 +918,9 @@ pub fn Interpreter(comptime use_jit: bool) type {
     };
 }
 
-pub const JitInterpreter = Interpreter(true);
-pub const BcInterpreter = Interpreter(false);
+pub const JitInterpreter = Interpreter(jit.JitCompiler);
+pub const OptJitInterpreter = Interpreter(optjit.JitCompiler);
+pub const BcInterpreter = Interpreter(null);
 
 // JIT helper functions
 

@@ -392,6 +392,10 @@ pub const Bytecode = struct {
         return self.functions.functions[@intCast(idx.index)];
     }
 
+    pub fn get_function_source(self: *const Bytecode, idx: FunctionIndex) *const ast.Function {
+        return self.functions.sources[@as(usize, idx.index) - 1];
+    }
+
     pub fn get_type(self: *const Bytecode, idx: ConstantIndex) ConstantType {
         return self.constants[@intCast(idx.index)].get_type();
     }

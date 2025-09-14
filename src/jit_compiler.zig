@@ -1,4 +1,5 @@
 const std = @import("std");
+const ast = @import("ast.zig");
 const bytecode = @import("bytecode.zig");
 const bc_interpret = @import("bc_interpreter.zig");
 const runtime = @import("runtime.zig");
@@ -33,8 +34,13 @@ pub const JitCompiler = struct {
     pub fn compile_fn(
         self: *JitCompiler,
         function: *const bytecode.Function,
+        source: *const ast.Function,
         metadata: *runtime.FunctionMetadata,
     ) jit_utils.JitError!JitFunction {
+        // this compiler does not
+        // uses source to compile
+        _ = source;
+
         self.pc = 0;
 
         if (metadata.jit_state != 0) {
@@ -55,7 +61,7 @@ pub const JitCompiler = struct {
         self.bytecode = function.code.get_slice_const();
 
         if (BREAKPOINT) {
-            try self.emit_break();
+            try self.base.emit_break();
         }
         try self.emit_prolog();
 
@@ -587,7 +593,6 @@ pub const JitCompiler = struct {
         std.debug.assert(src != GPR64.rsi);
         try self.vzeroupper();
 
-        try self.base.mov_reg_reg(GPR64.rdi, stack_addr);
         // load len
         try self.base.mov_from_struct_64(GPR64.rsi, stack_addr, 0x8);
 
@@ -613,12 +618,13 @@ pub const JitCompiler = struct {
         // 48 39 ce
         const cmp_slice: [3]u8 = .{ 0x48, 0x39, 0xce };
         try self.base.emit_slice(cmp_slice[0..]);
-
+        
         // jle <after_alloc_stack>
-        // 7e 09
-        const jump_slice: [2]u8 = .{ 0x7e, 0x09 };
+        // 7e 0c
+        const jump_slice: [2]u8 = .{ 0x7e, 0x0c };
         try self.base.emit_slice(jump_slice[0..]);
 
+        try self.base.mov_reg_reg(GPR64.rdi, stack_addr);
         try self.base.call("alloc_stack");
 
         try self.stack_set_top(src);

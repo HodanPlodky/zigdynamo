@@ -63,13 +63,26 @@ pub fn main() !void {
             bytecode,
             try allocator.allocWithOptions(u8, HEAP_SIZE, 16, null),
             writer,
-            .{},
+            .{ .call_count = 0},
+        );
+        _ = inter.run();
+    } else if (std.mem.eql(u8, "--optjit", kind)) {
+        var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        const alloc = runtime_arena.allocator();
+        const bytecode = compiler.compile(program, allocator) catch @panic("error");
+        const writer = std.io.getStdOut().writer().any();
+        var inter = bc.OptJitInterpreter.init(
+            alloc,
+            bytecode,
+            try allocator.allocWithOptions(u8, HEAP_SIZE, 16, null),
+            writer,
+            .{ .call_count = 0 },
         );
         _ = inter.run();
     } else if (std.mem.eql(u8, "--cmp", kind)) {
         const bytecode = compiler.compile(program, allocator) catch @panic("error");
         std.debug.print("{}\n", .{bytecode});
-    } else if (std.mem.eql(u8, "--optir-run", kind)) {
+    } else if (std.mem.eql(u8, "--optir-cmp", kind)) {
         var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         const alloc = runtime_arena.allocator();
         const bytecode = compiler.compile(program, allocator) catch @panic("error");
