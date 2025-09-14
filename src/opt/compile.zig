@@ -20,18 +20,17 @@ pub fn ir_compile(input: *const ast.Function, metadata: runtime.FunctionMetadata
 
     var compiler = try Compiler.init(globals, alloc, scratch);
     try compiler.compile(input, metadata);
-    try run_passes(&compiler, scratch);
+    const shared_data = try SharedData.init(&compiler, alloc);
+    try run_passes(&compiler, scratch, shared_data);
     return compiler.create_result();
 }
 
-pub fn run_passes(compiler: *Compiler, alloc: std.mem.Allocator) !void {
+pub fn run_passes(compiler: *Compiler, alloc: std.mem.Allocator, shared_data: SharedData) !void {
     const passes: [3]type = .{
         MakeSSA,
         MovElim,
         UnusedElim,
     };
-
-    const shared_data = try SharedData.init(compiler, alloc);
 
     const analysis_base = AnalysisBase{
         .compiler = compiler,

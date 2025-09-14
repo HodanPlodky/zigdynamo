@@ -500,6 +500,49 @@ pub const JitCompilerBase = struct {
         try self.emit_offset(offset);
     }
 
+    pub fn mov_to_offset(self: *JitCompilerBase, base: GPR64, offset: u32, src: GPR64) !void {
+        // mov QWORD PTR [rsp - 0x10], r9
+        // MOV r/m64, r64
+        // 4c 89 4c 24 f1
+        // 4c = REX.W | W, R (from r9)
+        // 89 = opcode
+        // 4c = modrm 01_001_100
+        // 24 = sib 00_100_100
+
+        const rex = create_rex(src, base);
+        const opcode = 0x89;
+        const modrm = create_modrm_sib(src, offset);
+
+        const data = get_modrm_data(modrm);
+
+        if (data.rm64 == 0b100) {
+            const sib = create_sib_base(base);
+            try self.emit_slice(&.{ rex, opcode, modrm, sib });
+        } else {
+            try self.emit_slice(&.{ rex, opcode, modrm });
+        }
+        try self.emit_offset(offset);
+    }
+
+    pub fn mov_from_offset(self: *JitCompilerBase, base: GPR64, offset: u32, dst: GPR64) !void {
+        // mov r9, QWORD PTR [rsp - 0x10]
+        // 4c 8b 4c 24 f1
+
+        const rex = create_rex(dst, base);
+        const opcode = 0x8b;
+        const modrm = create_modrm_sib(dst, offset);
+
+        const data = get_modrm_data(modrm);
+
+        if (data.rm64 == 0b100) {
+            const sib = create_sib_base(base);
+            try self.emit_slice(&.{ rex, opcode, modrm, sib });
+        } else {
+            try self.emit_slice(&.{ rex, opcode, modrm });
+        }
+        try self.emit_offset(offset);
+    }
+
     pub fn emit_offset(self: *JitCompilerBase, offset: u32) !void {
         // if offset is zero it is captured above
         if (offset != 0) {
@@ -566,6 +609,18 @@ pub fn create_rex(reg: GPR64, rm64: GPR64) u8 {
     return 0x48 | ((reg_val & 0x8) >> 1) | ((rm64_val & 0x8) >> 3);
 }
 
+/// creates basic REX.W with only reg part
+pub fn create_rex_no_rm64(reg: GPR64) u8 {
+    const reg_val: u8 = @intFromEnum(reg);
+
+    // REX.W
+    // | 4-bit | W | R | X | B |
+    // The W is set
+    // The R contains highest bit of reg number
+    // The B contains highest bit of rm64 number
+    return 0x48 | ((reg_val & 0x8) >> 1);
+}
+
 /// creates basic MODrm assuming only regs
 pub fn create_modrm_regs(reg: GPR64, rm64: GPR64) u8 {
     const reg_val: u8 = @intFromEnum(reg);
@@ -600,6 +655,21 @@ pub fn create_modrm_sib(reg: GPR64, offset: u32) u8 {
     return mod | to_reg_lower | rm_sib;
 }
 
+pub fn get_modrm_data(value: u8) struct {
+    mod: u2,
+    reg: u3,
+    rm64: u3,
+} {
+    return .{
+        .mod = (value & 0b1100_0000) >> 6,
+        .reg = (value & 0b0011_1000) >> 3,
+        .rm64 = (value & 0b0000_0111) >> 3,
+    };
+}
+
+/// create SIB full
+/// used for instruction line
+/// mov QWORD PTR [rax + r8*8 + 0x8], r9
 pub fn create_sib(scale: Scale, base: GPR64, index: GPR64) u8 {
     const base_val = @intFromEnum(base);
     var index_val = @intFromEnum(index);
@@ -607,6 +677,21 @@ pub fn create_sib(scale: Scale, base: GPR64, index: GPR64) u8 {
     // SIB
     // | scale : 2b | index : 3b | base : 3b |
     var scale_val: u8 = @intFromEnum(scale);
+    scale_val <<= 6;
+    index_val <<= 3;
+    return scale_val | index_val | base_val;
+}
+
+/// create SIB only from base register
+/// used for instruction line
+/// mov QWORD PTR [rsp - 0x8], r9
+pub fn create_sib_base(base: GPR64) u8 {
+    const base_val = @intFromEnum(base);
+
+    // this means there is no index
+    var index_val = 0b100;
+
+    var scale_val: u8 = 0;
     scale_val <<= 6;
     index_val <<= 3;
     return scale_val | index_val | base_val;

@@ -6,7 +6,7 @@ const GPR64 = @import("../../jit_utils.zig").GPR64;
 const Value = @import("../../runtime.zig").Value;
 
 pub const RegAllocAnalysis = struct {
-    const ValuePlace = union(enum) {
+    pub const ValuePlace = union(enum) {
         reg: GPR64,
         memory: usize,
         value: Value,
