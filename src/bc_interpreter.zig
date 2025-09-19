@@ -888,9 +888,9 @@ pub fn Interpreter(comptime JitType: ?type) type {
             };
         }
 
-        fn get_jit_state(self: *const Self) JitState {
+        fn get_jit_state(self: *const Self) JitState(Self) {
             if (JitType) |_| {
-                return JitState{
+                return JitState(Self){
                     .intepreter = self,
                     .stack = &self.stack,
                     .env = &self.env,
@@ -911,7 +911,7 @@ pub fn Interpreter(comptime JitType: ?type) type {
                     .string_panic = &string_panic,
                 };
             } else {
-                const tmp: JitState = undefined;
+                const tmp: JitState(Self) = undefined;
                 return tmp;
             }
         }

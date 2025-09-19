@@ -45,45 +45,47 @@ pub const Scale = enum(u2) {
 /// normal structs in zig do not gurantee order of
 /// fields and jit code needs different set of fields
 /// then the bytecode interpreter
-pub const JitState = extern struct {
-    intepreter: *const bc_interpret.JitInterpreter,
-    stack: *const bc_interpret.Stack,
-    env: *const bc_interpret.Environment,
-    gc: *const bc_interpret.GC,
+pub fn JitState(Interpreter: type) type {
+    return extern struct {
+        intepreter: *const Interpreter,
+        stack: *const bc_interpret.Stack,
+        env: *const bc_interpret.Environment,
+        gc: *const bc_interpret.GC,
 
-    // basic
-    alloc_stack: *const fn (*bc_interpret.Stack, usize) callconv(.C) void,
+        // basic
+        alloc_stack: *const fn (*bc_interpret.Stack, usize) callconv(.C) void,
 
-    // objects handle
-    create_closure: *const fn (noalias *bc_interpret.JitInterpreter, u64, u64) callconv(.C) void,
-    create_object: *const fn (noalias *bc_interpret.JitInterpreter, bytecode.ConstantIndex) callconv(.C) void,
-    get_field: *const fn (noalias *bc_interpret.JitInterpreter, bytecode.ConstantIndex) callconv(.C) void,
-    set_field: *const fn (noalias *bc_interpret.JitInterpreter, bytecode.ConstantIndex) callconv(.C) void,
+        // objects handle
+        create_closure: *const fn (noalias *Interpreter, u64, u64) callconv(.C) void,
+        create_object: *const fn (noalias *Interpreter, bytecode.ConstantIndex) callconv(.C) void,
+        get_field: *const fn (noalias *Interpreter, bytecode.ConstantIndex) callconv(.C) void,
+        set_field: *const fn (noalias *Interpreter, bytecode.ConstantIndex) callconv(.C) void,
 
-    // calls
-    call: *const fn (noalias *bc_interpret.JitInterpreter, noalias *const JitState) callconv(.C) void,
-    method_call: *const fn (noalias *bc_interpret.JitInterpreter, noalias *const JitState, bytecode.ConstantIndex) callconv(.C) void,
-    print: *const fn (noalias *bc_interpret.JitInterpreter, arg_count: u64) callconv(.C) void,
+        // calls
+        call: *const fn (noalias *Interpreter, noalias *const JitState(Interpreter)) callconv(.C) void,
+        method_call: *const fn (noalias *Interpreter, noalias *const JitState(Interpreter), bytecode.ConstantIndex) callconv(.C) void,
+        print: *const fn (noalias *Interpreter, arg_count: u64) callconv(.C) void,
 
-    // debug
-    dbg: *const fn (runtime.Value) callconv(.C) void,
-    dbg_raw: *const fn (u64) callconv(.C) void,
-    dbg_inst: *const fn (u64) callconv(.C) void,
+        // debug
+        dbg: *const fn (runtime.Value) callconv(.C) void,
+        dbg_raw: *const fn (u64) callconv(.C) void,
+        dbg_inst: *const fn (u64) callconv(.C) void,
 
-    // panics
-    binop_panic: *const fn (runtime.Value, runtime.Value) callconv(.C) void,
-    if_condition_panic: *const fn () callconv(.C) void,
-    string_panic: *const fn () callconv(.C) void,
+        // panics
+        binop_panic: *const fn (runtime.Value, runtime.Value) callconv(.C) void,
+        if_condition_panic: *const fn () callconv(.C) void,
+        string_panic: *const fn () callconv(.C) void,
 
-    pub fn get_offset(comptime field_name: []const u8) u32 {
-        return @offsetOf(JitState, field_name);
-    }
-};
+        pub fn get_offset(comptime field_name: []const u8) u32 {
+            return @offsetOf(JitState(Interpreter), field_name);
+        }
+    };
+}
 
 pub const JitFunction = struct {
     code: [*]u8,
 
-    pub fn run(self: *const JitFunction, state: *const JitState) void {
+    pub fn run(self: *const JitFunction, comptime StateType: type, state: *const StateType) void {
         const f: *const fn (*const JitState) callconv(.C) void = @alignCast(@ptrCast(self.code));
         f(state);
     }
