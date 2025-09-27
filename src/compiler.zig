@@ -13,10 +13,12 @@ pub fn compile(program: ast.Program, alloc: std.mem.Allocator) !bytecode.Bytecod
 
 const CompilerFrame = struct {
     vars: std.ArrayList([]const u8),
+    alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator) CompilerFrame {
         return CompilerFrame{
-            .vars = std.ArrayList([]const u8).init(alloc),
+            .vars = std.ArrayList([]const u8){},
+            .alloc = alloc,
         };
     }
 
@@ -35,20 +37,21 @@ const CompilerFrame = struct {
 
     pub fn add_var(self: *CompilerFrame, var_name: []const u8) void {
         if (self.get_index(var_name) == null) {
-            self.vars.append(var_name) catch unreachable;
+            self.vars.append(self.alloc, var_name) catch unreachable;
         }
     }
 };
 
 const CompilerFnFrame = struct {
+    /// uses alloc in struct
     frames: std.ArrayList(CompilerFrame),
     max_size: usize,
     current_size: usize,
     alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator) CompilerFnFrame {
-        var frames = std.ArrayList(CompilerFrame).init(alloc);
-        frames.append(CompilerFrame.init(alloc)) catch unreachable;
+        var frames = std.ArrayList(CompilerFrame){};
+        frames.append(alloc, CompilerFrame.init(alloc)) catch unreachable;
         return CompilerFnFrame{
             .frames = frames,
             .max_size = 0,
@@ -106,7 +109,7 @@ const CompilerEnv = struct {
 
     pub fn init(alloc: std.mem.Allocator) CompilerEnv {
         return CompilerEnv{
-            .function_frames = std.ArrayList(CompilerFnFrame).init(alloc),
+            .function_frames = std.ArrayList(CompilerFnFrame){},
             .global = CompilerFrame.init(alloc),
             .alloc = alloc,
         };
@@ -154,7 +157,7 @@ const CompilerEnv = struct {
     }
 
     pub fn push(self: *CompilerEnv) void {
-        self.function_frames.append(CompilerFnFrame.init(self.alloc)) catch unreachable;
+        self.function_frames.append(self.alloc, CompilerFnFrame.init(self.alloc)) catch unreachable;
     }
 
     pub fn pop(self: *CompilerEnv) void {
@@ -169,30 +172,34 @@ const Label = struct {
 const LabelData = struct {
     position: u32,
     uses: std.ArrayList(u32),
+    alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator) LabelData {
         return LabelData{
             .position = 0,
-            .uses = std.ArrayList(u32).init(alloc),
+            .uses = std.ArrayList(u32){},
+            .alloc = alloc,
         };
     }
 
     pub fn add_use(self: *LabelData, pos: u32) void {
-        self.uses.append(pos) catch unreachable;
+        self.uses.append(self.alloc, pos) catch unreachable;
     }
 };
 
 const ConstantBuffer = struct {
     buffer: std.ArrayList(u8),
+    alloc: std.mem.Allocator,
 
     pub fn init(buffer_alloc: std.mem.Allocator) ConstantBuffer {
         return ConstantBuffer{
-            .buffer = std.ArrayList(u8).init(buffer_alloc),
+            .buffer = std.ArrayList(u8){},
+            .alloc = buffer_alloc,
         };
     }
 
     pub fn add_u32(self: *ConstantBuffer, value: u32) void {
-        self.buffer.ensureTotalCapacity(self.buffer.items.len + 4) catch unreachable;
+        self.buffer.ensureTotalCapacity(self.alloc, self.buffer.items.len + 4) catch unreachable;
         self.buffer.appendAssumeCapacity(@intCast((value >> 24) & 0xff));
         self.buffer.appendAssumeCapacity(@intCast((value >> 16) & 0xff));
         self.buffer.appendAssumeCapacity(@intCast((value >> 8) & 0xff));
@@ -200,7 +207,7 @@ const ConstantBuffer = struct {
     }
 
     pub fn add_u8(self: *ConstantBuffer, value: u8) void {
-        self.buffer.append(value) catch unreachable;
+        self.buffer.append(self.alloc, value) catch unreachable;
     }
 
     pub fn set_u32(self: *const ConstantBuffer, idx: u32, value: u32) void {
@@ -214,15 +221,20 @@ const ConstantBuffer = struct {
         const len: u32 = @intCast(self.buffer.items.len - 4);
         self.set_u32(0, len);
     }
+
+    pub fn append_slice(self: *ConstantBuffer, slice: []const u8) void {
+        self.buffer.appendSlice(self.alloc, slice) catch unreachable;
+    }
 };
 
 const FunctionBuffer = struct {
-    const BufferType = std.ArrayListAligned(u8, @alignOf(bytecode.Function));
+    const BufferType = std.ArrayListAligned(u8, std.mem.Alignment.fromByteUnits(@alignOf(bytecode.Function)));
     const functionHeader: usize = 12;
 
     buffer: BufferType,
     labels: std.ArrayList(LabelData),
     label_alloc: std.mem.Allocator,
+    buffer_alloc: std.mem.Allocator,
     source: ?*const ast.Function,
 
     pub fn init(
@@ -231,18 +243,19 @@ const FunctionBuffer = struct {
         source: ?*const ast.Function,
     ) FunctionBuffer {
         var res = FunctionBuffer{
-            .buffer = BufferType.init(buffer_alloc),
-            .labels = std.ArrayList(LabelData).init(label_alloc),
+            .buffer = BufferType{},
+            .labels = std.ArrayList(LabelData){},
             .label_alloc = label_alloc,
+            .buffer_alloc = buffer_alloc,
             .source = source,
         };
 
         // param count
-        res.buffer.appendNTimes(0, 4) catch unreachable;
+        res.buffer.appendNTimes(buffer_alloc, 0, 4) catch unreachable;
         // local count
-        res.buffer.appendNTimes(0, 4) catch unreachable;
+        res.buffer.appendNTimes(buffer_alloc, 0, 4) catch unreachable;
         // size padding
-        res.buffer.appendNTimes(0, 4) catch unreachable;
+        res.buffer.appendNTimes(buffer_alloc, 0, 4) catch unreachable;
         return res;
     }
 
@@ -255,11 +268,11 @@ const FunctionBuffer = struct {
     }
 
     pub fn add_inst(self: *FunctionBuffer, inst: bytecode.Instruction) void {
-        self.buffer.append(@intFromEnum(inst)) catch unreachable;
+        self.buffer.append(self.buffer_alloc, @intFromEnum(inst)) catch unreachable;
     }
 
     pub fn add_u32(self: *FunctionBuffer, value: u32) void {
-        self.buffer.ensureTotalCapacity(self.buffer.items.len + 4) catch unreachable;
+        self.buffer.ensureTotalCapacity(self.buffer_alloc, self.buffer.items.len + 4) catch unreachable;
         self.buffer.appendAssumeCapacity(@intCast((value >> 24) & 0xff));
         self.buffer.appendAssumeCapacity(@intCast((value >> 16) & 0xff));
         self.buffer.appendAssumeCapacity(@intCast((value >> 8) & 0xff));
@@ -267,7 +280,7 @@ const FunctionBuffer = struct {
     }
 
     pub fn add_u8(self: *FunctionBuffer, value: u8) void {
-        self.buffer.append(value) catch unreachable;
+        self.buffer.append(self.buffer_alloc, value) catch unreachable;
     }
 
     pub fn set_u32(self: *const FunctionBuffer, idx: u32, value: u32) void {
@@ -279,7 +292,7 @@ const FunctionBuffer = struct {
 
     fn create_label(self: *FunctionBuffer) Label {
         const idx = self.labels.items.len;
-        self.labels.append(LabelData.init(self.label_alloc)) catch unreachable;
+        self.labels.append(self.label_alloc, LabelData.init(self.label_alloc)) catch unreachable;
         return Label{ .idx = idx };
     }
 
@@ -334,16 +347,20 @@ const UnboundIdent = struct {
 const Compiler = struct {
     pernament_alloc: std.mem.Allocator,
     scratch_alloc: std.mem.Allocator,
+
+    /// uses scratch alloc
     constant_buffers: std.ArrayList(ConstantBuffer),
+    /// uses scratch alloc
     function_buffers: std.ArrayList(FunctionBuffer),
+
     env: CompilerEnv,
 
     pub fn init(pernament_alloc: std.mem.Allocator, scratch_alloc: std.mem.Allocator) Compiler {
         return Compiler{
             .pernament_alloc = pernament_alloc,
             .scratch_alloc = scratch_alloc,
-            .constant_buffers = std.ArrayList(ConstantBuffer).init(scratch_alloc),
-            .function_buffers = std.ArrayList(FunctionBuffer).init(scratch_alloc),
+            .constant_buffers = std.ArrayList(ConstantBuffer){},
+            .function_buffers = std.ArrayList(FunctionBuffer){},
             .env = CompilerEnv.init(scratch_alloc),
         };
     }
@@ -354,7 +371,7 @@ const Compiler = struct {
         // behaves dynamically
         self.gather_globals(program);
         var main_buffer = self.create_main_buffer();
-        var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
+        var unbound_vars = std.ArrayList(UnboundIdent){};
         for (program.data, 0..) |expr, i| {
             switch (expr) {
                 ast.Ast.let => |let| {
@@ -415,7 +432,7 @@ const Compiler = struct {
         var function_constant = self.create_function_buffer(function);
         // local count padding
         function_constant.get_fn_ptr_mut().param_count = @intCast(function.params.len);
-        var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
+        var unbound_vars = std.ArrayList(UnboundIdent){};
         self.env.push();
         if (method) {
             _ = self.env.add_var("this");
@@ -664,7 +681,7 @@ const Compiler = struct {
 
         var new_unbound = UnboundIdent.init(ident);
         new_unbound.positions.append(self.scratch_alloc, position) catch unreachable;
-        unbound_vars.append(new_unbound) catch unreachable;
+        unbound_vars.append(self.scratch_alloc, new_unbound) catch unreachable;
     }
 
     fn create_function_buffer(self: *Compiler, function: *const ast.Function) FunctionBuffer {
@@ -684,13 +701,13 @@ const Compiler = struct {
         var constant_buffer = ConstantBuffer.init(self.pernament_alloc);
         // pad length
         constant_buffer.add_u32(0);
-        constant_buffer.buffer.append(@intFromEnum(const_type)) catch unreachable;
+        constant_buffer.add_u8(@intFromEnum(const_type));
         return constant_buffer;
     }
 
     fn create_string_constant(self: *Compiler, string: []const u8) bytecode.ConstantIndex {
         var string_buffer = self.create_constant(bytecode.ConstantType.string);
-        string_buffer.buffer.appendSlice(string) catch unreachable;
+        string_buffer.append_slice(string);
         return self.add_constant(string_buffer);
     }
 
@@ -698,12 +715,12 @@ const Compiler = struct {
         if (self.dedupe_constant(constant_buffer)) |idx| {
             return idx;
         }
-        self.constant_buffers.append(constant_buffer) catch unreachable;
+        self.constant_buffers.append(self.scratch_alloc, constant_buffer) catch unreachable;
         return bytecode.ConstantIndex.new(@intCast(self.constant_buffers.items.len - 1));
     }
 
     fn add_function(self: *Compiler, function: FunctionBuffer) bytecode.FunctionIndex {
-        self.function_buffers.append(function) catch unreachable;
+        self.function_buffers.append(self.scratch_alloc, function) catch unreachable;
         return bytecode.FunctionIndex.new(@intCast(self.function_buffers.items.len - 1));
     }
 

@@ -207,10 +207,12 @@ pub const GC = struct {
 
 pub const Stack = struct {
     stack: std.ArrayList(runtime.Value),
+    alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator) Stack {
         return Stack{
-            .stack = std.ArrayList(runtime.Value).init(alloc),
+            .stack = std.ArrayList(runtime.Value){},
+            .alloc = alloc,
         };
     }
 
@@ -221,7 +223,7 @@ pub const Stack = struct {
         if (self.stack.items.len < self.stack.capacity) {
             self.push_unsafe(value);
         } else {
-            self.stack.append(value) catch unreachable;
+            self.stack.append(self.alloc, value) catch unreachable;
         }
     }
 
@@ -264,8 +266,8 @@ pub const LocalEnv = struct {
     };
 
     pub fn init(alloc: std.mem.Allocator) LocalEnv {
-        var buffer = std.ArrayList(Value).init(alloc);
-        buffer.ensureTotalCapacity(8) catch unreachable;
+        var buffer = std.ArrayList(Value){};
+        buffer.ensureTotalCapacity(alloc, 8) catch unreachable;
         return LocalEnv{
             .buffer = buffer,
             .current_ptr = 0,
@@ -395,11 +397,11 @@ pub fn Interpreter(comptime JitType: ?type) type {
         gc: GC,
         stack: Stack,
         env: Environment,
-        writer: std.io.AnyWriter,
+        writer: std.io.Writer,
         function_meta: []runtime.FunctionMetadata,
         jit_compiler: if (JitType) |Jit| Jit else struct {},
 
-        pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: std.io.AnyWriter, heuristic: jit_utils.Heuristic) Self {
+        pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: std.io.Writer, heuristic: jit_utils.Heuristic) Self {
             const meta = alloc.alloc(runtime.FunctionMetadata, bytecode.functions.count()) catch unreachable;
             @memset(meta, runtime.FunctionMetadata{ .call_counter = 0, .jit_state = 0 });
             return Self{
@@ -924,37 +926,39 @@ pub const BcInterpreter = Interpreter(null);
 
 // JIT helper functions
 
-fn alloc_stack(stack: *Stack, new_len: usize) callconv(.C) void {
-    stack.stack.ensureTotalCapacity(new_len) catch unreachable;
+const JitCallConv = jit_utils.JitCallConv;
+
+fn alloc_stack(stack: *Stack, new_len: usize) callconv(JitCallConv) void {
+    stack.stack.ensureTotalCapacity(stack.alloc, new_len) catch unreachable;
 }
 
-fn get_local(env: *const Environment, idx: u32) callconv(.C) Value {
+fn get_local(env: *const Environment, idx: u32) callconv(JitCallConv) Value {
     return env.local.get(idx);
 }
 
-fn set_local(env: *Environment, idx: u32, value: Value) callconv(.C) void {
+fn set_local(env: *Environment, idx: u32, value: Value) callconv(JitCallConv) void {
     env.local.set(idx, value);
 }
 
-fn pop_locals(env: *Environment) callconv(.C) void {
+fn pop_locals(env: *Environment) callconv(JitCallConv) void {
     env.local.pop_locals();
 }
 
-fn push_locals(env: *Environment, args_ptr: u64, args_len: usize, local_count: u32) callconv(.C) void {
+fn push_locals(env: *Environment, args_ptr: u64, args_len: usize, local_count: u32) callconv(JitCallConv) void {
     const args_tmp: [*]Value = @ptrFromInt(args_ptr);
     const args = args_tmp[0..args_len];
     env.local.push_locals(args, local_count, 0, bc.ConstantIndex.new(0));
 }
 
-fn gc_alloc_object(intepreter: *JitInterpreter, field_count: usize) callconv(.C) *bc.Object {
+fn gc_alloc_object(intepreter: *JitInterpreter, field_count: usize) callconv(JitCallConv) *bc.Object {
     return intepreter.gc.alloc_with_additional(bc.Object, field_count, intepreter.get_roots());
 }
 
-fn gc_alloc_closure(intepreter: *JitInterpreter, env_size: usize) callconv(.C) *bc.Closure {
+fn gc_alloc_closure(intepreter: *JitInterpreter, env_size: usize) callconv(JitCallConv) *bc.Closure {
     return intepreter.gc.alloc_with_additional(bc.Closure, env_size, intepreter.get_roots());
 }
 
-fn do_call(noalias interpret: *JitInterpreter, noalias jit_state: *const JitState) callconv(.C) void {
+fn do_call(noalias interpret: *JitInterpreter, noalias jit_state: *const JitState) callconv(JitCallConv) void {
     const target = interpret.stack.pop();
     interpret.do_value_call(null, jit_state, target);
 }
@@ -963,7 +967,7 @@ fn do_method_call_jit(
     noalias self: *JitInterpreter,
     noalias jit_state: *const JitState,
     method_idx: bc.ConstantIndex,
-) callconv(.C) void {
+) callconv(JitCallConv) void {
     const target = self.stack.pop();
     if (target.get_type() != ValueType.object) {
         @panic("cannot call method on non object");
@@ -978,23 +982,23 @@ fn do_method_call_jit(
     }
 }
 
-fn do_jit_print(noalias interpret: *JitInterpreter, arg_count: u64) callconv(.C) void {
+fn do_jit_print(noalias interpret: *JitInterpreter, arg_count: u64) callconv(JitCallConv) void {
     interpret.do_print(arg_count);
 }
 
-fn create_closure(noalias self: *JitInterpreter, constant_idx: u64, unbound_count: u64) callconv(.C) void {
+fn create_closure(noalias self: *JitInterpreter, constant_idx: u64, unbound_count: u64) callconv(JitCallConv) void {
     self.do_closure(constant_idx, unbound_count);
 }
 
-fn create_object(noalias self: *JitInterpreter, class_idx: bc.ConstantIndex) callconv(.C) void {
+fn create_object(noalias self: *JitInterpreter, class_idx: bc.ConstantIndex) callconv(JitCallConv) void {
     self.do_object(class_idx);
 }
 
-fn do_get_field_jit(noalias self: *JitInterpreter, string_idx: bc.ConstantIndex) callconv(.C) void {
+fn do_get_field_jit(noalias self: *JitInterpreter, string_idx: bc.ConstantIndex) callconv(JitCallConv) void {
     self.do_get_field(string_idx);
 }
 
-fn do_set_field_jit(noalias self: *JitInterpreter, string_idx: bc.ConstantIndex) callconv(.C) void {
+fn do_set_field_jit(noalias self: *JitInterpreter, string_idx: bc.ConstantIndex) callconv(JitCallConv) void {
     self.do_set_field(string_idx);
 }
 
@@ -1002,35 +1006,35 @@ const DBG_VALUE: bool = false;
 const DBG_RAW: bool = false;
 const DBG_INST: bool = true;
 
-fn dbg(value: Value) callconv(.C) void {
+fn dbg(value: Value) callconv(JitCallConv) void {
     if (DBG_VALUE) {
         std.debug.print("VALUE {x} ", .{value.data});
         std.debug.print("{}\n", .{value});
     }
 }
 
-fn dbg_raw(val: u64) callconv(.C) void {
+fn dbg_raw(val: u64) callconv(JitCallConv) void {
     if (DBG_RAW) {
         std.debug.print("RAW {x}\n", .{val});
     }
 }
 
-fn dbg_inst(inst_val: u64) callconv(.C) void {
+fn dbg_inst(inst_val: u64) callconv(JitCallConv) void {
     if (DBG_INST) {
         const inst: bc.Instruction = @enumFromInt(inst_val);
         std.debug.print("INST: {}\n", .{inst});
     }
 }
 
-fn binop_panic(left: Value, right: Value) callconv(.C) void {
+fn binop_panic(left: Value, right: Value) callconv(JitCallConv) void {
     std.debug.print("left: {}, right: {}\n", .{ left, right });
     @panic("Unimplemented dispatch");
 }
 
-fn if_condition_panic() callconv(.C) void {
+fn if_condition_panic() callconv(JitCallConv) void {
     @panic("If condition must be boolean");
 }
 
-fn string_panic() callconv(.C) void {
+fn string_panic() callconv(JitCallConv) void {
     @panic("Incorrect string");
 }

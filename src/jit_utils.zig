@@ -40,6 +40,8 @@ pub const Scale = enum(u2) {
     }
 };
 
+pub const JitCallConv = std.builtin.CallingConvention.c;
+
 /// struct representing state of interpreter
 /// for jit compiled code this is necessary because
 /// normal structs in zig do not gurantee order of
@@ -53,28 +55,28 @@ pub fn JitState(Interpreter: type) type {
         gc: *const bc_interpret.GC,
 
         // basic
-        alloc_stack: *const fn (*bc_interpret.Stack, usize) callconv(.C) void,
+        alloc_stack: *const fn (*bc_interpret.Stack, usize) callconv(JitCallConv) void,
 
         // objects handle
-        create_closure: *const fn (noalias *Interpreter, u64, u64) callconv(.C) void,
-        create_object: *const fn (noalias *Interpreter, bytecode.ConstantIndex) callconv(.C) void,
-        get_field: *const fn (noalias *Interpreter, bytecode.ConstantIndex) callconv(.C) void,
-        set_field: *const fn (noalias *Interpreter, bytecode.ConstantIndex) callconv(.C) void,
+        create_closure: *const fn (noalias *Interpreter, u64, u64) callconv(JitCallConv) void,
+        create_object: *const fn (noalias *Interpreter, bytecode.ConstantIndex) callconv(JitCallConv) void,
+        get_field: *const fn (noalias *Interpreter, bytecode.ConstantIndex) callconv(JitCallConv) void,
+        set_field: *const fn (noalias *Interpreter, bytecode.ConstantIndex) callconv(JitCallConv) void,
 
         // calls
-        call: *const fn (noalias *Interpreter, noalias *const JitState(Interpreter)) callconv(.C) void,
-        method_call: *const fn (noalias *Interpreter, noalias *const JitState(Interpreter), bytecode.ConstantIndex) callconv(.C) void,
-        print: *const fn (noalias *Interpreter, arg_count: u64) callconv(.C) void,
+        call: *const fn (noalias *Interpreter, noalias *const JitState(Interpreter)) callconv(JitCallConv) void,
+        method_call: *const fn (noalias *Interpreter, noalias *const JitState(Interpreter), bytecode.ConstantIndex) callconv(JitCallConv) void,
+        print: *const fn (noalias *Interpreter, arg_count: u64) callconv(JitCallConv) void,
 
         // debug
-        dbg: *const fn (runtime.Value) callconv(.C) void,
-        dbg_raw: *const fn (u64) callconv(.C) void,
-        dbg_inst: *const fn (u64) callconv(.C) void,
+        dbg: *const fn (runtime.Value) callconv(JitCallConv) void,
+        dbg_raw: *const fn (u64) callconv(JitCallConv) void,
+        dbg_inst: *const fn (u64) callconv(JitCallConv) void,
 
         // panics
-        binop_panic: *const fn (runtime.Value, runtime.Value) callconv(.C) void,
-        if_condition_panic: *const fn () callconv(.C) void,
-        string_panic: *const fn () callconv(.C) void,
+        binop_panic: *const fn (runtime.Value, runtime.Value) callconv(JitCallConv) void,
+        if_condition_panic: *const fn () callconv(JitCallConv) void,
+        string_panic: *const fn () callconv(JitCallConv) void,
 
         pub fn get_offset(comptime field_name: []const u8) u32 {
             return @offsetOf(JitState(Interpreter), field_name);

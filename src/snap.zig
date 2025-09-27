@@ -67,19 +67,25 @@ pub const Snap = struct {
         try std.testing.expectEqualStrings(self.expected, output);
     }
 
-    fn create_value_str(self: *const Snap, comptime T: type, value: anytype, alloc: std.mem.Allocator, comptime fmt: bool) ![]const u8 {
-        var out_data = try std.ArrayList(u8).initCapacity(alloc, self.expected.len);
-        var out_writer = out_data.writer();
+    fn create_value_str(
+        self: *const Snap,
+        comptime T: type,
+        value: anytype,
+        alloc: std.mem.Allocator,
+        comptime fmt: bool,
+    ) ![]const u8 {
+        var out_writer = try std.io.Writer.Allocating.initCapacity(alloc, self.expected.len);
+        defer out_writer.deinit();
         if (fmt) {
             try out_writer.print("{}", .{value});
         } else {
-            try pretty_print(T, value, &out_writer, 0);
+            try pretty_print(T, value, &out_writer.writer, 0);
         }
 
-        return out_data.items;
+        return out_writer.toOwnedSlice();
     }
 
-    const Writer = std.ArrayList(u8).Writer;
+    const Writer = std.io.Writer;
     const writer_indent: usize = 4;
 
     fn pretty_print(comptime T: type, value: T, writer: *Writer, depth: usize) Writer.Error!void {

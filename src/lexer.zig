@@ -251,11 +251,11 @@ test "lexer" {
     const snap = @import("snap.zig");
 
     var lexer = Lexer.new("1+2");
-    var res = std.ArrayList(Token).init(std.testing.allocator);
-    defer res.deinit();
+    var res = std.ArrayList(Token){};
+    defer res.deinit(std.testing.allocator);
     while (true) {
         const tok = lexer.get_token();
-        try res.append(tok);
+        try res.append(std.testing.allocator, tok);
         switch (tok) {
             Token.eof => break,
             Token.wrongtok => break,

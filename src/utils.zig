@@ -70,15 +70,21 @@ pub fn DistinctData(comptime I: type, comptime T: type) type {
             const Self = @This();
 
             data: std.ArrayList(T),
+            alloc: std.mem.Allocator,
 
             pub fn init(alloc: std.mem.Allocator) Self {
                 return Self{
-                    .data = std.ArrayList(T).init(alloc),
+                    .data = std.ArrayList(T){},
+                    .alloc = alloc,
                 };
             }
 
-            pub fn deinit(self: *const Self) void {
-                self.data.deinit();
+            pub fn append(self: *Self, value: T) !void {
+                try self.data.append(self.alloc, value);
+            }
+
+            pub fn deinit(self: *Self) void {
+                self.data.deinit(self.alloc);
             }
 
             pub fn get(self: *const Self, index: Index) T {
@@ -233,7 +239,7 @@ test "distinct arrays 1" {
     var small = SmallArray.init(std.testing.allocator);
     defer small.deinit();
 
-    try small.data.append(10);
+    try small.append(10);
     small.set(SmallIndex.new(0), 11);
 
     try std.testing.expectEqual(11, small.get(SmallIndex.new(0)));

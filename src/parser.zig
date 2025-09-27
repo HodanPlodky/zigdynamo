@@ -48,9 +48,9 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: *Parser) !ast.Program {
-        var res = std.ArrayList(ast.Ast).init(self.alloc);
+        var res = std.ArrayList(ast.Ast){};
         while (!self.eof()) {
-            try res.append(try self.expr());
+            try res.append(self.alloc, try self.expr());
             try self.compare(lexer.Token.semicol);
         }
 
@@ -222,13 +222,13 @@ pub const Parser = struct {
             switch (self.curr) {
                 lexer.Token.lparent => {
                     self.next();
-                    var args = std.ArrayList(ast.Ast).init(self.alloc);
+                    var args = std.ArrayList(ast.Ast){};
                     if (self.curr != lexer.Token.rparent) {
-                        try args.append(try self.expr());
+                        try args.append(self.alloc, try self.expr());
 
                         while (self.curr != lexer.Token.rparent) {
                             try self.compare(lexer.Token.comma);
-                            try args.append(try self.expr());
+                            try args.append(self.alloc, try self.expr());
                         }
                     }
                     try self.compare(lexer.Token.rparent);
@@ -309,13 +309,13 @@ pub const Parser = struct {
         }
         try self.compare(lexer.Token.lcurly);
 
-        var fields = std.ArrayList(ast.Field).init(self.alloc);
+        var fields = std.ArrayList(ast.Field){};
         while (!self.curr_is(lexer.Token.rcurly)) {
             const name = try self.parse_ident();
             try self.compare(lexer.Token.colon);
             const value = try self.expr_ptr();
             try self.compare(lexer.Token.comma);
-            try fields.append(ast.Field{
+            try fields.append(self.alloc, ast.Field{
                 .name = name,
                 .value = value,
             });
@@ -338,10 +338,10 @@ pub const Parser = struct {
     fn parse_function(self: *Parser) !ast.Ast {
         try self.compare(lexer.Token.lparent);
 
-        var args = std.ArrayList([]const u8).init(self.alloc);
+        var args = std.ArrayList([]const u8){};
         if (!self.curr_is(lexer.Token.rparent)) {
             while (true) {
-                try args.append(try self.parse_ident());
+                try args.append(self.alloc, try self.parse_ident());
                 if (!self.curr_is(lexer.Token.comma)) {
                     break;
                 }
@@ -358,9 +358,9 @@ pub const Parser = struct {
     }
 
     pub fn parse_block(self: *Parser) !ast.Ast {
-        var exprs = std.ArrayList(ast.Ast).init(self.alloc);
+        var exprs = std.ArrayList(ast.Ast){};
         while (!self.curr_is(lexer.Token.rcurly)) {
-            try exprs.append(try self.expr());
+            try exprs.append(self.alloc, try self.expr());
             try self.compare(lexer.Token.semicol);
         }
         try self.compare(lexer.Token.rcurly);

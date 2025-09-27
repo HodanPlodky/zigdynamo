@@ -36,14 +36,14 @@ const TestResult = struct {
     }
 };
 
-fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.Allocator, writer: std.io.AnyWriter) !runtime.Value {
+fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.Allocator, writer: std.io.Writer) !runtime.Value {
     var runtime_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer runtime_arena.deinit();
     const alloc = runtime_arena.allocator();
     var interpret = Interpret.init(
         alloc,
         bytecode,
-        try allocator.allocWithOptions(u8, 1024 + 512, 16, null),
+        try allocator.allocWithOptions(u8, 1024 + 512, std.mem.Alignment.@"16", null),
         writer,
         .{ .call_count = 0 },
     );
@@ -60,26 +60,28 @@ fn test_helper(code: []const u8) !TestResult {
     const prog = try p.parse();
     const bytecode = try compile(prog, allocator);
 
-    var bc_writer = std.ArrayList(u8).init(std.testing.allocator);
-    defer bc_writer.deinit();
+    var bc_writer = std.io.Writer.Allocating.init(std.testing.allocator);
     const bc_val = try run_with(
         BcInterpreter,
         bytecode,
         allocator,
-        bc_writer.writer().any(),
+        bc_writer.writer,
     );
-    var jit_writer = std.ArrayList(u8).init(std.testing.allocator);
+    var jit_writer = std.io.Writer.Allocating.init(std.testing.allocator);
     defer jit_writer.deinit();
     const jit_val = try run_with(
         JitInterpreter,
         bytecode,
         allocator,
-        jit_writer.writer().any(),
+        jit_writer.writer,
     );
     try std.testing.expectEqual(bc_val.data, jit_val.data);
-    try std.testing.expectEqualStrings(bc_writer.items, jit_writer.items);
 
-    return try TestResult.new(bc_val.data, bc_writer.items);
+    const bc_slice = try bc_writer.toOwnedSlice();
+    const jit_slice = try jit_writer.toOwnedSlice();
+    try std.testing.expectEqualStrings(bc_slice, jit_slice);
+
+    return try TestResult.new(bc_val.data, bc_slice);
 }
 
 test "basic" {
