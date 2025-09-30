@@ -4,7 +4,6 @@ const bc = @import("bytecode.zig");
 const jit = @import("jit_compiler.zig");
 const jit_utils = @import("jit_utils.zig");
 const optjit = @import("opt/jit.zig");
-const JitState = jit_utils.JitState;
 
 const Value = runtime.Value;
 const ValueType = runtime.ValueType;
@@ -284,7 +283,7 @@ pub const LocalEnv = struct {
         const tmp_pc: usize = @intCast(ret_pc);
         const ret = Value.new_raw(tmp_pc << 32 | ret_fn.index);
         self.current_ptr = @intCast(self.buffer.items.len);
-        self.buffer.ensureTotalCapacity(self.buffer.items.len + args.len + local_count + 2) catch unreachable;
+        self.buffer.ensureTotalCapacity(self.alloc, self.buffer.items.len + args.len + local_count + 2) catch unreachable;
         self.buffer.appendSliceAssumeCapacity(args);
         self.buffer.appendNTimesAssumeCapacity(Value.new_nil(), local_count);
         self.buffer.appendAssumeCapacity(old_fp);
@@ -296,7 +295,7 @@ pub const LocalEnv = struct {
         const tmp_pc: usize = @intCast(ret_pc);
         const ret = Value.new_raw(tmp_pc << 32 | ret_fn.index);
         self.current_ptr = @intCast(self.buffer.items.len);
-        self.buffer.ensureTotalCapacity(self.buffer.items.len + args.len + local_count + 2 + 1) catch unreachable;
+        self.buffer.ensureTotalCapacity(self.alloc, self.buffer.items.len + args.len + local_count + 2 + 1) catch unreachable;
         self.buffer.appendAssumeCapacity(this);
         self.buffer.appendSliceAssumeCapacity(args);
         self.buffer.appendNTimesAssumeCapacity(Value.new_nil(), local_count);
@@ -391,6 +390,7 @@ pub const Environment = struct {
 pub fn Interpreter(comptime JitType: ?type) type {
     return struct {
         const Self = @This();
+        const JitState = jit_utils.JitState(Self);
         bytecode: bc.Bytecode,
         pc: usize,
         curr_fn: bc.FunctionIndex,
@@ -762,7 +762,7 @@ pub fn Interpreter(comptime JitType: ?type) type {
                 const meta = &self.function_meta[closure.function_idx.index];
                 const compiled = self.jit_compiler.compile_fn(function, function_source, meta);
                 if (compiled) |jitted| {
-                    jitted.run(jit_state);
+                    jitted.run(JitState, jit_state);
                 } else |err| {
                     switch (err) {
                         jit_utils.JitError.HeuristicNotMet => {},
@@ -890,9 +890,9 @@ pub fn Interpreter(comptime JitType: ?type) type {
             };
         }
 
-        fn get_jit_state(self: *const Self) JitState(Self) {
+        fn get_jit_state(self: *const Self) JitState {
             if (JitType) |_| {
-                return JitState(Self){
+                return JitState{
                     .intepreter = self,
                     .stack = &self.stack,
                     .env = &self.env,
@@ -913,7 +913,7 @@ pub fn Interpreter(comptime JitType: ?type) type {
                     .string_panic = &string_panic,
                 };
             } else {
-                const tmp: JitState(Self) = undefined;
+                const tmp: JitState = undefined;
                 return tmp;
             }
         }

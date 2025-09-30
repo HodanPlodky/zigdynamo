@@ -4,8 +4,9 @@ const bytecode = @import("bytecode.zig");
 const bc_interpret = @import("bc_interpreter.zig");
 const runtime = @import("runtime.zig");
 const jit_utils = @import("jit_utils.zig");
+const BcIntepreter = @import("bc_interpreter.zig").BcInterpreter;
 
-const JitState = jit_utils.JitState;
+const JitState = jit_utils.JitState(BcIntepreter);
 const JitFunction = jit_utils.JitFunction;
 const GPR64 = jit_utils.GPR64;
 const Scale = jit_utils.Scale;
@@ -14,16 +15,17 @@ const BREAKPOINT: bool = false;
 const DGB: bool = false;
 
 pub const JitCompiler = struct {
+    const Base = jit_utils.JitCompilerBase(JitState);
     const stack_addr = GPR64.r15;
     const env_addr = GPR64.r14;
     const intepret_addr = GPR64.r13;
 
-    base: jit_utils.JitCompilerBase,
+    base: Base,
     pc: usize,
     bytecode: []const u8,
 
     pub fn init(code_buffer_size: usize, heuristic: jit_utils.Heuristic) JitCompiler {
-        const base = jit_utils.JitCompilerBase.init(code_buffer_size, heuristic);
+        const base = Base.init(code_buffer_size, heuristic);
         return JitCompiler{
             .base = base,
             .pc = undefined,
@@ -422,7 +424,7 @@ pub const JitCompiler = struct {
             },
             bytecode.Instruction.call => {
                 try self.base.mov_reg_reg(GPR64.rdi, intepret_addr);
-                try self.base.mov_reg_reg(GPR64.rsi, jit_utils.JitCompilerBase.state_addr);
+                try self.base.mov_reg_reg(GPR64.rsi, Base.state_addr);
                 try self.vzeroupper();
                 try self.base.call("call");
             },
@@ -495,7 +497,7 @@ pub const JitCompiler = struct {
             bytecode.Instruction.methodcall => {
                 const index: u64 = @intCast(self.read_u32());
                 try self.base.mov_reg_reg(GPR64.rdi, intepret_addr);
-                try self.base.mov_reg_reg(GPR64.rsi, jit_utils.JitCompilerBase.state_addr);
+                try self.base.mov_reg_reg(GPR64.rsi, Base.state_addr);
                 try self.base.set_reg_64(GPR64.rdx, index);
 
                 try self.base.call("method_call");
@@ -753,7 +755,7 @@ pub const JitCompiler = struct {
 
         // mov rbx, rdi
         // rbx will store address to state
-        try self.base.mov_reg_reg(jit_utils.JitCompilerBase.state_addr, GPR64.rdi);
+        try self.base.mov_reg_reg(Base.state_addr, GPR64.rdi);
 
         // mov r15, [rbx + <stack offset>]
         // r15 will store stack addr
