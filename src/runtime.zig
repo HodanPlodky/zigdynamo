@@ -207,12 +207,8 @@ pub const Value = packed struct {
 
     pub fn format(
         self: Value,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.Writer,
     ) !void {
-        _ = options; // autofix
-        _ = fmt; // autofix
         try switch (self.get_type()) {
             ValueType.number => writer.print("{}", .{self.get_number()}),
             ValueType.nil => writer.print("nil", .{}),

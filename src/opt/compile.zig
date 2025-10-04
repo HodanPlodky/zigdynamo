@@ -11,7 +11,7 @@ const PassBase = @import("passes/pass_base.zig").PassBase;
 const AnalysisBase = @import("analysis/analysis_base.zig").AnalysisBase;
 const SharedData = @import("analysis/analysis_base.zig").SharedData;
 
-pub fn ir_compile(input: *const ast.Function, metadata: runtime.FunctionMetadata, globals: [][]const u8, alloc: std.mem.Allocator) !CompiledResult {
+pub fn ir_compile(input: *const ast.Function, metadata: *runtime.FunctionMetadata, globals: [][]const u8, alloc: std.mem.Allocator) !CompiledResult {
     // it would be probably better to have this survive across the calls
     var scratch_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer scratch_arena.deinit();
@@ -55,13 +55,8 @@ pub const CompiledResult = struct {
 
     pub fn format(
         self: *const CompiledResult,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.Writer,
     ) !void {
-        _ = options; // autofix
-        _ = fmt;
-
         try self.write_fn(self.entry_fn, writer);
     }
 
@@ -249,7 +244,7 @@ pub const Compiler = struct {
         };
     }
 
-    fn compile(self: *Compiler, input: *const ast.Function, metadata: runtime.FunctionMetadata) !void {
+    pub fn compile(self: *Compiler, input: *const ast.Function, metadata: *runtime.FunctionMetadata) !void {
         self.entry_fn = try self.compile_fn(input, metadata);
     }
 
@@ -265,7 +260,7 @@ pub const Compiler = struct {
         return fn_idx;
     }
 
-    fn compile_fn(self: *Compiler, function: *const ast.Function, metadata: runtime.FunctionMetadata) !ir.FunctionIdx {
+    fn compile_fn(self: *Compiler, function: *const ast.Function, metadata: *runtime.FunctionMetadata) !ir.FunctionIdx {
         _ = metadata;
         const bb_idx = try self.create(ir.BasicBlock);
         self.set_basicblock(bb_idx);

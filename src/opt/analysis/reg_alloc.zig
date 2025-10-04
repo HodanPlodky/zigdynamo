@@ -14,22 +14,22 @@ pub const RegAllocAnalysis = struct {
 
     base: Base,
     translates: []ValuePlace,
-    free_regs: std.ArrayListUnmanaged(GPR64),
+    free_regs: std.ArrayList(GPR64),
     ranges: LiveRangeAnalysis,
 
-    release: []std.ArrayListUnmanaged(ir.Reg),
+    release: []std.ArrayList(ir.Reg),
     curr_max_mem: usize = 0,
 
     pub fn init(base: Base, free_regs: []GPR64) !RegAllocAnalysis {
         const inst_count = base.compiler.stores.get_max_idx(ir.Instruction);
         return RegAllocAnalysis{
             .base = base,
-            .translates = try base.alloc.alloc(GPR64, inst_count.get_usize()),
-            .free_regs = std.ArrayListUnmanaged(GPR64).initBuffer(free_regs),
+            .translates = try base.alloc.alloc(ValuePlace, inst_count.get_usize()),
+            .free_regs = std.ArrayList(GPR64).initBuffer(free_regs),
             .ranges = try LiveRangeAnalysis.init(base),
 
             // TODO: try to bound it to max size of the function
-            .release = try base.alloc.alloc(std.ArrayListUnmanaged(ir.Reg), inst_count.get_size()),
+            .release = try base.alloc.alloc(std.ArrayList(ir.Reg), inst_count.get_usize()),
         };
     }
 
@@ -72,7 +72,7 @@ pub const RegAllocAnalysis = struct {
         // then dont set arch reg for it
         switch (inst_type) {
             .Void => return,
-            .Botton => unreachable,
+            .Bottom => unreachable,
             else => {},
         }
 
@@ -81,19 +81,19 @@ pub const RegAllocAnalysis = struct {
         // runtime value
         switch (inst) {
             .ldi => |num| {
-                self.translates[inst_idx.get_usize()] = Value.new_num(num);
+                self.translates[inst_idx.get_usize()] = .{ .value = Value.new_num(num) };
                 return;
             },
             .nil => {
-                self.translates[inst_idx.get_usize()] = Value.new_nil();
+                self.translates[inst_idx.get_usize()] = .{ .value = Value.new_nil() };
                 return;
             },
             .true => {
-                self.translates[inst_idx.get_usize()] = Value.new_true();
+                self.translates[inst_idx.get_usize()] = .{ .value = Value.new_true() };
                 return;
             },
             .false => {
-                self.translates[inst_idx.get_usize()] = Value.new_false();
+                self.translates[inst_idx.get_usize()] = .{ .value = Value.new_false() };
                 return;
             },
             else => {},
@@ -109,8 +109,11 @@ pub const RegAllocAnalysis = struct {
 
     fn do_release(self: *RegAllocAnalysis, curr_idx: u32) void {
         for (self.release[@intCast(curr_idx)].items) |reg| {
-            const arch_reg = self.translates[reg.get_usize()];
-            self.free_regs.appendAssumeCapacity(arch_reg);
+            const place = self.translates[reg.get_usize()];
+            switch (place) {
+                .reg => |arch_reg| self.free_regs.appendAssumeCapacity(arch_reg),
+                else => unreachable,
+            }
         }
     }
 };

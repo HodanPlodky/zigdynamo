@@ -54,12 +54,8 @@ pub const Instruction = enum(u8) {
 
     pub fn format(
         self: *const Instruction,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.Writer,
     ) !void {
-        _ = options;
-        _ = fmt;
         try writer.print("{s}", .{self.get_str()});
     }
 
@@ -138,12 +134,8 @@ pub const ConstantType = enum(u8) {
 
     pub fn format(
         self: *const ConstantType,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.Writer,
     ) !void {
-        _ = options; // autofix
-        _ = fmt; // autofix
         const tmp = switch (self.*) {
             ConstantType.string => "string",
             ConstantType.class => "class",
@@ -159,19 +151,15 @@ pub const Function = packed struct {
 
     pub fn format(
         self: *const Function,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.Writer,
     ) !void {
-        _ = options; // autofix
-        _ = fmt; // autofix
         try writer.print("function ({} bytes)\n", .{self.code.count});
         const size = self.code.count;
         const slice = self.code.get_slice_const();
         var i: usize = 0;
         while (i < size) {
             const inst: Instruction = @enumFromInt(slice[i]);
-            try writer.print("    {}: {}", .{ i, inst });
+            try writer.print("    {}: {f}", .{ i, inst });
             i += 1;
             for (0..inst.get_extrabytes()) |_| {
                 try writer.print(" {}", .{slice[i]});
@@ -196,14 +184,10 @@ pub const Functions = struct {
 
     pub fn format(
         self: *const Functions,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.Writer,
     ) !void {
-        _ = options; // autofix
-        _ = fmt; // autofix
         for (self.functions) |f| {
-            try writer.print("{}\n", .{f});
+            try writer.print("{f}\n", .{f});
         }
     }
 };
@@ -281,12 +265,8 @@ pub const Constant = struct {
 
     pub fn format(
         self: *const Constant,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.Writer,
     ) !void {
-        _ = options;
-        _ = fmt;
         //try writer.print("{any}", .{self.get_slice()});
         switch (self.get_type()) {
             ConstantType.string => {
@@ -406,18 +386,14 @@ pub const Bytecode = struct {
 
     pub fn format(
         self: *const Bytecode,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.Writer,
     ) !void {
-        _ = options; // autofix
-        _ = fmt; // autofix
-        try writer.print("{}", .{self.functions});
+        try writer.print("{f}", .{self.functions});
         for (self.constants) |c| {
             const len = c.get_size() + 4;
             const typ = c.get_type();
-            try writer.print("{} ({} bytes)\n", .{ typ, len });
-            try writer.print("{}\n", .{c});
+            try writer.print("{f} ({} bytes)\n", .{ typ, len });
+            try writer.print("{f}\n", .{c});
         }
     }
 };

@@ -13,17 +13,20 @@ const ir = @import("ir.zig");
 const AnalysisBase = @import("analysis/analysis_base.zig").AnalysisBase;
 const SharedData = @import("analysis/analysis_base.zig").SharedData;
 const run_passes = @import("compile.zig").run_passes;
+const OptJitInterpreter = @import("../bc_interpreter.zig").OptJitInterpreter;
 
 const ValuePlace = RegAllocAnalysis.ValuePlace;
 
+const JitState = jit_utils.JitState(OptJitInterpreter);
+
 pub const JitCompiler = struct {
-    base: jit_utils.JitCompilerBase,
+    base: jit_utils.JitCompilerBase(JitState),
     ir_compiler: *const Compiler,
     register_alloc: RegAllocAnalysis,
-    globals: [][]const u8,
+    //globals: [][]const u8,
 
     pub fn init(code_buffer_size: usize, heuristic: jit_utils.Heuristic) JitCompiler {
-        const base = jit_utils.JitCompilerBase.init(code_buffer_size, heuristic);
+        const base = jit_utils.JitCompilerBase(JitState).init(code_buffer_size, heuristic);
         return JitCompiler{
             .base = base,
             .ir_compiler = undefined,
@@ -40,7 +43,7 @@ pub const JitCompiler = struct {
         // vytecode is not used;
         _ = bcdata;
 
-        defer self.base.scratch_arena.reset();
+        defer _ = self.base.scratch_arena.reset(.retain_capacity);
 
         if (metadata.jit_state != 0) {
             return JitFunction{ .code = @ptrCast(&self.base.code_slice[metadata.jit_state]) };
@@ -52,33 +55,34 @@ pub const JitCompiler = struct {
             return jit_utils.JitError.HeuristicNotMet;
         }
 
-        self.base.start_compilation(function.code.count + 4);
         const start = self.base.code_ptr;
 
         const scratch = self.base.scratch_arena.allocator();
 
-        var compiler = try Compiler.init(self.globals, scratch, scratch);
+        var compiler = try Compiler.init(&.{}, scratch, scratch);
         try compiler.compile(function, metadata);
         const shared_data = try SharedData.init(&compiler, scratch);
-        try run_passes(&compiler, scratch);
+        try run_passes(&compiler, scratch, shared_data);
+        self.base.start_compilation(compiler.stores.get_max_idx(ir.Instruction).get_usize());
 
         const analysis_base = AnalysisBase{
-            .compiler = compiler,
+            .compiler = &compiler,
             .alloc = scratch,
             .shared_data = shared_data,
         };
 
-        self.register_alloc = RegAllocAnalysis.init(analysis_base, &.{
+        var free_regs: [4]GPR64 = .{
             GPR64.rbp,
             GPR64.r8,
             GPR64.r9,
             GPR64.r10,
-        });
-        self.register_alloc.analyze();
+        };
+        self.register_alloc = try RegAllocAnalysis.init(analysis_base, &free_regs);
+        try self.register_alloc.analyze();
 
         self.ir_compiler = &compiler;
 
-        self.compile_ir_function(self.ir_compiler.entry_fn);
+        try self.compile_ir_function(self.ir_compiler.entry_fn, true);
 
         metadata.jit_state = @intCast(start);
 
@@ -88,18 +92,18 @@ pub const JitCompiler = struct {
 
     fn compile_ir_function(self: *JitCompiler, function_idx: ir.FunctionIdx, top_level: bool) !void {
         const function = self.ir_compiler.stores.get(ir.Function, function_idx);
-        self.compile_ir_basicblock(function.entry, top_level);
+        try self.compile_ir_basicblock(function.entry, top_level);
     }
 
     fn compile_ir_basicblock(self: *JitCompiler, bb_idx: ir.BasicBlockIdx, top_level: bool) !void {
         const bb = self.ir_compiler.stores.get(ir.BasicBlock, bb_idx);
-        for (bb.instructions) |inst_idx| {
-            self.compile_ir_instruction(inst_idx, top_level);
+        for (bb.instructions.items) |inst_idx| {
+            try self.compile_ir_instruction(inst_idx, top_level);
         }
 
         var succ_iter = self.ir_compiler.get_succesors(bb_idx);
         while (succ_iter.next()) |succ| {
-            try self.compile_ir_basicblock(succ);
+            try self.compile_ir_basicblock(succ, top_level);
         }
     }
 
@@ -173,7 +177,7 @@ pub const JitCompiler = struct {
             .memory => |offset| if (offset == 0)
                 try self.base.mov_from_offset(GPR64.rsp, 0, dst)
             else
-                try self.base.mov_from_offset(GPR64.rsp, (~offset + 1), dst),
+                try self.base.mov_from_offset(GPR64.rsp, (~@as(u32, @intCast(offset)) + 1), dst),
             .value => |value| try self.base.set_reg_64(dst, value.data),
         }
     }
@@ -183,7 +187,7 @@ pub const JitCompiler = struct {
             .reg => |reg| if (dst_offset == 0)
                 try self.base.mov_to_offset(GPR64.rsp, 0, reg)
             else
-                try self.base.mov_to_offset(GPR64.rsp, (~dst_offset + 1), reg),
+                try self.base.mov_to_offset(GPR64.rsp, (~@as(u32, @intCast(dst_offset)) + 1), reg),
             .memory => unreachable,
             .value => unreachable,
         }

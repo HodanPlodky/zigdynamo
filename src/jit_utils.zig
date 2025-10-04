@@ -668,9 +668,9 @@ pub fn get_modrm_data(value: u8) struct {
     rm64: u3,
 } {
     return .{
-        .mod = (value & 0b1100_0000) >> 6,
-        .reg = (value & 0b0011_1000) >> 3,
-        .rm64 = (value & 0b0000_0111) >> 3,
+        .mod = @intCast((value & 0b1100_0000) >> 6),
+        .reg = @intCast((value & 0b0011_1000) >> 3),
+        .rm64 = @intCast((value & 0b0000_0111) >> 3),
     };
 }
 
@@ -696,7 +696,7 @@ pub fn create_sib_base(base: GPR64) u8 {
     const base_val = @intFromEnum(base);
 
     // this means there is no index
-    var index_val = 0b100;
+    var index_val: u8 = 0b100;
 
     var scale_val: u8 = 0;
     scale_val <<= 6;

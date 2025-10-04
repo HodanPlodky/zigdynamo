@@ -155,7 +155,7 @@ const Interpreter = struct {
         if (left.get_type() == runtime.ValueType.number and right.get_type() == runtime.ValueType.number) {
             self.regs[inst_idx.get_usize()] = oper(left, right);
         } else {
-            std.debug.print("left: {}, right: {}\n", .{ left, right });
+            std.debug.print("left: {f}, right: {f}\n", .{ left, right });
             @panic("Unimplemented dispatch");
         }
     }

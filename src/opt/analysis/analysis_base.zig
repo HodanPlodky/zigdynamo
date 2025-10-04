@@ -14,8 +14,8 @@ pub const AnalysisBase = struct {
 pub const SharedData = struct {
     const BitSet = std.DynamicBitSetUnmanaged;
 
-    post_orders: []std.ArrayListUnmanaged(ir.BasicBlockIdx),
-    emit_orders: []std.ArrayListUnmanaged(ir.BasicBlockIdx),
+    post_orders: []std.ArrayList(ir.BasicBlockIdx),
+    emit_orders: []std.ArrayList(ir.BasicBlockIdx),
     visited_bb: BitSet,
 
     pub fn init(compiler: *const Compiler, alloc: std.mem.Allocator) !SharedData {
@@ -23,11 +23,11 @@ pub const SharedData = struct {
 
         // orders init
         const post_orders = try alloc.alloc(
-            std.ArrayListUnmanaged(ir.BasicBlockIdx),
+            std.ArrayList(ir.BasicBlockIdx),
             function_idx.get_usize(),
         );
         const emit_orders = try alloc.alloc(
-            std.ArrayListUnmanaged(ir.BasicBlockIdx),
+            std.ArrayList(ir.BasicBlockIdx),
             function_idx.get_usize(),
         );
         for (compiler.stores.function.data.items, 0..) |function, idx| {
@@ -61,7 +61,7 @@ pub const SharedData = struct {
     }
 
     pub fn get_emitorder(self: *const SharedData, function_idx: ir.FunctionIdx) []ir.BasicBlockIdx {
-        return self.emit_orders[function_idx.get_usize()];
+        return self.emit_orders[function_idx.get_usize()].items;
     }
 
     pub fn update_all_post_orders(self: *SharedData, compiler: *const Compiler) void {

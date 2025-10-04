@@ -4,9 +4,9 @@ const bytecode = @import("bytecode.zig");
 const bc_interpret = @import("bc_interpreter.zig");
 const runtime = @import("runtime.zig");
 const jit_utils = @import("jit_utils.zig");
-const BcIntepreter = @import("bc_interpreter.zig").BcInterpreter;
+const JitIntepreter = @import("bc_interpreter.zig").JitInterpreter;
 
-const JitState = jit_utils.JitState(BcIntepreter);
+const JitState = jit_utils.JitState(JitIntepreter);
 const JitFunction = jit_utils.JitFunction;
 const GPR64 = jit_utils.GPR64;
 const Scale = jit_utils.Scale;

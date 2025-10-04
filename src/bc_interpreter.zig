@@ -677,7 +677,7 @@ pub fn Interpreter(comptime JitType: ?type) type {
                 const res = oper(left, right);
                 self.stack.set_top(res);
             } else {
-                std.debug.print("left: {}, right: {}\n", .{ left, right });
+                std.debug.print("left: {f}, right: {f}\n", .{ left, right });
                 @panic("Unimplemented dispatch");
             }
         }
@@ -898,13 +898,13 @@ pub fn Interpreter(comptime JitType: ?type) type {
                     .env = &self.env,
                     .gc = &self.gc,
                     .alloc_stack = &alloc_stack,
-                    .create_closure = &create_closure,
-                    .create_object = &create_object,
-                    .get_field = &do_get_field_jit,
-                    .set_field = &do_set_field_jit,
-                    .call = &do_call,
-                    .method_call = &do_method_call_jit,
-                    .print = &do_jit_print,
+                    .create_closure = &create_closure(Self),
+                    .create_object = &create_object(Self),
+                    .get_field = &do_get_field_jit(Self),
+                    .set_field = &do_set_field_jit(Self),
+                    .call = &do_call(Self),
+                    .method_call = &do_method_call_jit(Self),
+                    .print = &do_jit_print(Self),
                     .dbg = &dbg,
                     .dbg_raw = &dbg_raw,
                     .dbg_inst = &dbg_inst,
@@ -950,56 +950,88 @@ fn push_locals(env: *Environment, args_ptr: u64, args_len: usize, local_count: u
     env.local.push_locals(args, local_count, 0, bc.ConstantIndex.new(0));
 }
 
-fn gc_alloc_object(intepreter: *JitInterpreter, field_count: usize) callconv(JitCallConv) *bc.Object {
-    return intepreter.gc.alloc_with_additional(bc.Object, field_count, intepreter.get_roots());
+fn gc_alloc_object(comptime I: type) fn (*I, usize) callconv(JitCallConv) *bc.Object {
+    return struct {
+        fn do(intepreter: *I, field_count: usize) callconv(JitCallConv) *bc.Object {
+            return intepreter.gc.alloc_with_additional(bc.Object, field_count, intepreter.get_roots());
+        }
+    }.do;
 }
 
-fn gc_alloc_closure(intepreter: *JitInterpreter, env_size: usize) callconv(JitCallConv) *bc.Closure {
-    return intepreter.gc.alloc_with_additional(bc.Closure, env_size, intepreter.get_roots());
+fn gc_alloc_closure(comptime I: type) fn (*I, usize) callconv(JitCallConv) *bc.Closure {
+    return struct {
+        fn do(intepreter: *I, env_size: usize) callconv(JitCallConv) *bc.Closure {
+            return intepreter.gc.alloc_with_additional(bc.Closure, env_size, intepreter.get_roots());
+        }
+    }.do;
 }
 
-fn do_call(noalias interpret: *JitInterpreter, noalias jit_state: *const JitState) callconv(JitCallConv) void {
-    const target = interpret.stack.pop();
-    interpret.do_value_call(null, jit_state, target);
+fn do_call(comptime I: type) fn (noalias *I, noalias *const I.JitState) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias interpret: *I, noalias jit_state: *const I.JitState) callconv(JitCallConv) void {
+            const target = interpret.stack.pop();
+            interpret.do_value_call(null, jit_state, target);
+        }
+    }.do;
 }
 
-fn do_method_call_jit(
-    noalias self: *JitInterpreter,
-    noalias jit_state: *const JitState,
-    method_idx: bc.ConstantIndex,
-) callconv(JitCallConv) void {
-    const target = self.stack.pop();
-    if (target.get_type() != ValueType.object) {
-        @panic("cannot call method on non object");
-    }
+fn do_method_call_jit(comptime I: type) fn (noalias *I, noalias jit_state: *const I.JitState, method_idx: bc.ConstantIndex) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias self: *I, noalias jit_state: *const I.JitState, method_idx: bc.ConstantIndex) callconv(JitCallConv) void {
+            const target = self.stack.pop();
+            if (target.get_type() != ValueType.object) {
+                @panic("cannot call method on non object");
+            }
 
-    const object = target.get_ptr(bc.Object);
-    const field: ?runtime.Value = self.get_field(object, method_idx);
-    if (field) |item| {
-        self.do_value_call(target, jit_state, item);
-    } else {
-        @panic("non existant field");
-    }
+            const object = target.get_ptr(bc.Object);
+            const field: ?runtime.Value = self.get_field(object, method_idx);
+            if (field) |item| {
+                self.do_value_call(target, jit_state, item);
+            } else {
+                @panic("non existant field");
+            }
+        }
+    }.do;
 }
 
-fn do_jit_print(noalias interpret: *JitInterpreter, arg_count: u64) callconv(JitCallConv) void {
-    interpret.do_print(arg_count);
+fn do_jit_print(comptime I: type) fn (noalias *I, u64) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias interpret: *I, arg_count: u64) callconv(JitCallConv) void {
+            interpret.do_print(arg_count);
+        }
+    }.do;
 }
 
-fn create_closure(noalias self: *JitInterpreter, constant_idx: u64, unbound_count: u64) callconv(JitCallConv) void {
-    self.do_closure(constant_idx, unbound_count);
+fn create_closure(comptime I: type) fn (noalias *I, u64, u64) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias self: *I, constant_idx: u64, unbound_count: u64) callconv(JitCallConv) void {
+            self.do_closure(constant_idx, unbound_count);
+        }
+    }.do;
 }
 
-fn create_object(noalias self: *JitInterpreter, class_idx: bc.ConstantIndex) callconv(JitCallConv) void {
-    self.do_object(class_idx);
+fn create_object(comptime I: type) fn (noalias *I, bc.ConstantIndex) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias self: *I, class_idx: bc.ConstantIndex) callconv(JitCallConv) void {
+            self.do_object(class_idx);
+        }
+    }.do;
 }
 
-fn do_get_field_jit(noalias self: *JitInterpreter, string_idx: bc.ConstantIndex) callconv(JitCallConv) void {
-    self.do_get_field(string_idx);
+fn do_get_field_jit(comptime I: type) fn (noalias *I, bc.ConstantIndex) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias self: *I, string_idx: bc.ConstantIndex) callconv(JitCallConv) void {
+            self.do_get_field(string_idx);
+        }
+    }.do;
 }
 
-fn do_set_field_jit(noalias self: *JitInterpreter, string_idx: bc.ConstantIndex) callconv(JitCallConv) void {
-    self.do_set_field(string_idx);
+fn do_set_field_jit(comptime I: type) fn (noalias *I, bc.ConstantIndex) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias self: *I, string_idx: bc.ConstantIndex) callconv(JitCallConv) void {
+            self.do_set_field(string_idx);
+        }
+    }.do;
 }
 
 const DBG_VALUE: bool = false;
@@ -1022,12 +1054,12 @@ fn dbg_raw(val: u64) callconv(JitCallConv) void {
 fn dbg_inst(inst_val: u64) callconv(JitCallConv) void {
     if (DBG_INST) {
         const inst: bc.Instruction = @enumFromInt(inst_val);
-        std.debug.print("INST: {}\n", .{inst});
+        std.debug.print("INST: {f}\n", .{inst});
     }
 }
 
 fn binop_panic(left: Value, right: Value) callconv(JitCallConv) void {
-    std.debug.print("left: {}, right: {}\n", .{ left, right });
+    std.debug.print("left: {f}, right: {f}\n", .{ left, right });
     @panic("Unimplemented dispatch");
 }
 

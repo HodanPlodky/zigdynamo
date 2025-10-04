@@ -26,12 +26,8 @@ const TestResult = struct {
 
     pub fn format(
         self: *const TestResult,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.Writer,
     ) !void {
-        _ = fmt; // autofix
-        _ = options; // autofix
         try writer.print("result: {x} ({})\n{s}\n", .{ self.result, self.result >> 32, self.output });
     }
 };
