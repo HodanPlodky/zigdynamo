@@ -183,7 +183,7 @@ fn test_helper(
     const function = &node.function;
     const metadata = runtime.FunctionMetadata{};
 
-    const res = try ir_compile(function, metadata, global_names, allocator);
+    const res = try ir_compile(function, &metadata, global_names, allocator);
 
     var interpret = try Interpreter.init(res, globals, &.{}, allocator);
     return interpret.run(args);

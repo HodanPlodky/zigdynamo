@@ -11,7 +11,7 @@ const PassBase = @import("passes/pass_base.zig").PassBase;
 const AnalysisBase = @import("analysis/analysis_base.zig").AnalysisBase;
 const SharedData = @import("analysis/analysis_base.zig").SharedData;
 
-pub fn ir_compile(input: *const ast.Function, metadata: *runtime.FunctionMetadata, globals: [][]const u8, alloc: std.mem.Allocator) !CompiledResult {
+pub fn ir_compile(input: *const ast.Function, metadata: *const runtime.FunctionMetadata, globals: [][]const u8, alloc: std.mem.Allocator) !CompiledResult {
     // it would be probably better to have this survive across the calls
     var scratch_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer scratch_arena.deinit();
@@ -244,7 +244,7 @@ pub const Compiler = struct {
         };
     }
 
-    pub fn compile(self: *Compiler, input: *const ast.Function, metadata: *runtime.FunctionMetadata) !void {
+    pub fn compile(self: *Compiler, input: *const ast.Function, metadata: *const runtime.FunctionMetadata) !void {
         self.entry_fn = try self.compile_fn(input, metadata);
     }
 
@@ -260,7 +260,7 @@ pub const Compiler = struct {
         return fn_idx;
     }
 
-    fn compile_fn(self: *Compiler, function: *const ast.Function, metadata: *runtime.FunctionMetadata) !ir.FunctionIdx {
+    fn compile_fn(self: *Compiler, function: *const ast.Function, metadata: *const runtime.FunctionMetadata) !ir.FunctionIdx {
         _ = metadata;
         const bb_idx = try self.create(ir.BasicBlock);
         self.set_basicblock(bb_idx);
@@ -614,7 +614,7 @@ test "basic" {
     const metadata = runtime.FunctionMetadata{};
 
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, metadata, globals, allocator);
+    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -661,7 +661,7 @@ test "let" {
     const metadata = runtime.FunctionMetadata{};
 
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, metadata, globals, allocator);
+    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -699,7 +699,7 @@ test "condition1" {
     const metadata = runtime.FunctionMetadata{};
 
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, metadata, globals, allocator);
+    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -747,7 +747,7 @@ test "condition2" {
     const metadata = runtime.FunctionMetadata{};
 
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, metadata, globals, allocator);
+    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -799,7 +799,7 @@ test "loop" {
     const metadata = runtime.FunctionMetadata{};
 
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, metadata, globals, allocator);
+    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -846,7 +846,7 @@ test "arg basic" {
     const metadata = runtime.FunctionMetadata{};
 
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, metadata, globals, allocator);
+    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -893,7 +893,7 @@ test "while fib opt compiler" {
     const metadata = runtime.FunctionMetadata{};
 
     const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, metadata, globals, allocator);
+    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -947,7 +947,7 @@ test "globals opt compile" {
     const metadata = runtime.FunctionMetadata{};
 
     var globals: [1][]const u8 = .{"g"};
-    const res = try ir_compile(function, metadata, globals[0..], allocator);
+    const res = try ir_compile(function, &metadata, globals[0..], allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -986,7 +986,7 @@ test "call opt compiler" {
     const metadata = runtime.FunctionMetadata{};
 
     var globals: [1][]const u8 = .{"g"};
-    const res = try ir_compile(function, metadata, globals[0..], allocator);
+    const res = try ir_compile(function, &metadata, globals[0..], allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -1038,7 +1038,7 @@ test "fib recursive opt compile" {
     const metadata = runtime.FunctionMetadata{};
 
     var globals: [1][]const u8 = .{"fib"};
-    const res = try ir_compile(function, metadata, globals[0..], allocator);
+    const res = try ir_compile(function, &metadata, globals[0..], allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
