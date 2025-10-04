@@ -32,7 +32,7 @@ const TestResult = struct {
     }
 };
 
-fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.Allocator, writer: std.io.Writer) !runtime.Value {
+fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.Allocator, writer: *std.io.Writer) !runtime.Value {
     var runtime_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer runtime_arena.deinit();
     const alloc = runtime_arena.allocator();
@@ -61,7 +61,7 @@ fn test_helper(code: []const u8) !TestResult {
         BcInterpreter,
         bytecode,
         allocator,
-        bc_writer.writer,
+        &bc_writer.writer,
     );
     var jit_writer = std.io.Writer.Allocating.init(std.testing.allocator);
     defer jit_writer.deinit();
@@ -69,7 +69,7 @@ fn test_helper(code: []const u8) !TestResult {
         JitInterpreter,
         bytecode,
         allocator,
-        jit_writer.writer,
+        &jit_writer.writer,
     );
     try std.testing.expectEqual(bc_val.data, jit_val.data);
 

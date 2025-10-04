@@ -36,7 +36,8 @@ pub fn main() !void {
     const program = try p.parse();
 
     var stdout_buffer: [1024]u8 = undefined;
-    var writer = std.fs.File.stdout().writer(&stdout_buffer).interface;
+    var stdout = std.fs.File.stdout().writer(&stdout_buffer);
+    var writer = &stdout.interface;
 
     if (std.mem.eql(u8, "--ast", kind)) {
         unreachable;

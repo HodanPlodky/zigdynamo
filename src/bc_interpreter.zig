@@ -397,11 +397,11 @@ pub fn Interpreter(comptime JitType: ?type) type {
         gc: GC,
         stack: Stack,
         env: Environment,
-        writer: std.io.Writer,
+        writer: *std.io.Writer,
         function_meta: []runtime.FunctionMetadata,
         jit_compiler: if (JitType) |Jit| Jit else struct {},
 
-        pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: std.io.Writer, heuristic: jit_utils.Heuristic) Self {
+        pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: *std.io.Writer, heuristic: jit_utils.Heuristic) Self {
             const meta = alloc.alloc(runtime.FunctionMetadata, bytecode.functions.count()) catch unreachable;
             @memset(meta, runtime.FunctionMetadata{ .call_counter = 0, .jit_state = 0 });
             return Self{
