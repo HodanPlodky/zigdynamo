@@ -19,14 +19,18 @@ const ValuePlace = RegAllocAnalysis.ValuePlace;
 
 const JitState = jit_utils.JitState(OptJitInterpreter);
 
+const DBG: bool = false;
+
 pub const JitCompiler = struct {
-    base: jit_utils.JitCompilerBase(JitState),
+    const Base = jit_utils.JitCompilerBase(JitState);
+
+    base: Base,
     ir_compiler: *const Compiler,
     register_alloc: RegAllocAnalysis,
     //globals: [][]const u8,
 
     pub fn init(code_buffer_size: usize, heuristic: jit_utils.Heuristic) JitCompiler {
-        const base = jit_utils.JitCompilerBase(JitState).init(code_buffer_size, heuristic);
+        const base = Base.init(code_buffer_size, heuristic);
         return JitCompiler{
             .base = base,
             .ir_compiler = undefined,
@@ -55,7 +59,6 @@ pub const JitCompiler = struct {
             return jit_utils.JitError.HeuristicNotMet;
         }
 
-        const start = self.base.code_ptr;
 
         const scratch = self.base.scratch_arena.allocator();
 
@@ -63,8 +66,9 @@ pub const JitCompiler = struct {
         try compiler.compile(function, metadata);
         const shared_data = try SharedData.init(&compiler, scratch);
         try run_passes(&compiler, scratch, shared_data);
-        self.base.start_compilation(compiler.stores.get_max_idx(ir.Instruction).get_usize());
 
+        self.base.start_compilation(compiler.stores.get_max_idx(ir.Instruction).get_usize());
+        const start = self.base.code_ptr;
         const analysis_base = AnalysisBase{
             .compiler = &compiler,
             .alloc = scratch,
@@ -92,6 +96,10 @@ pub const JitCompiler = struct {
 
     fn compile_ir_function(self: *JitCompiler, function_idx: ir.FunctionIdx, top_level: bool) !void {
         const function = self.ir_compiler.stores.get(ir.Function, function_idx);
+        if (DBG) {
+            try self.base.emit_break();
+        }
+        try self.emit_prolog();
         try self.compile_ir_basicblock(function.entry, top_level);
     }
 
@@ -137,12 +145,15 @@ pub const JitCompiler = struct {
             .gt => unreachable,
             .ret => |reg| {
                 const src = self.get_place(reg);
-                try self.mov_place_to_reg(src, GPR64.rax);
 
                 if (top_level) {
                     try self.stack_push(src);
+                    try self.emit_epilog();
+                    try self.base.emit_byte(0xc3);
                 } else {
                     //ret
+                    try self.mov_place_to_reg(src, GPR64.rax);
+                    try self.emit_epilog();
                     try self.base.emit_byte(0xc3);
                 }
             },
@@ -242,5 +253,19 @@ pub const JitCompiler = struct {
         // mov QWORD PTR [rax+rcx*8-0x8],rdi
         // 48 89 7c c8 f8
         try self.base.emit_slice(&.{ 0x48, 0x89, 0x7c, 0xc8, 0xf8 });
+    }
+
+    fn emit_prolog(self: *JitCompiler) !void {
+        // push rbx
+        try self.base.emit_byte(0x53);
+
+        // mov rbx, rdi
+        // rbx will store address to state
+        try self.base.mov_reg_reg(Base.state_addr, GPR64.rdi);
+    }
+
+    fn emit_epilog(self: *JitCompiler) !void {
+        // pop rbx
+        try self.base.emit_byte(0x5b);
     }
 };

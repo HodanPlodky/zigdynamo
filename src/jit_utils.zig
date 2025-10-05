@@ -155,6 +155,20 @@ pub fn JitCompilerBase(comptime StateType: type) type {
             return res;
         }
 
+        fn init_slice(slice: []u8) Self {
+            const builtin = @import("builtin");
+            std.debug.assert(builtin.is_test);
+            return Self{
+                .code_slice = slice,
+                .code_ptr = 0,
+                .panic_table = .{},
+                .scratch_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
+                .heuristic = .{},
+                .jumps = undefined,
+                .offsets = undefined,
+            };
+        }
+
         /// set up memory so you can write the compiled data
         pub fn start_compilation(self: *Self, src_inst_bound: usize) void {
             _ = std.os.linux.mprotect(
@@ -517,7 +531,7 @@ pub fn JitCompilerBase(comptime StateType: type) type {
 
             const rex = create_rex(src, base);
             const opcode = 0x89;
-            const modrm = create_modrm_sib(src, offset);
+            const modrm = create_modrm_reg_rm64(src, base, offset);
 
             const data = get_modrm_data(modrm);
 
@@ -536,7 +550,7 @@ pub fn JitCompilerBase(comptime StateType: type) type {
 
             const rex = create_rex(dst, base);
             const opcode = 0x8b;
-            const modrm = create_modrm_sib(dst, offset);
+            const modrm = create_modrm_reg_rm64(dst, base, offset);
 
             const data = get_modrm_data(modrm);
 
@@ -638,7 +652,31 @@ pub fn create_modrm_regs(reg: GPR64, rm64: GPR64) u8 {
     return 0b11_000_000 | ((reg_val & 0x7) << 3) | (rm64_val & 0x7);
 }
 
-/// creates basic MODrm assuming only regs
+/// creates basic MODrm for reg and rm64
+pub fn create_modrm_reg_rm64(reg: GPR64, rm64: GPR64, offset: u32) u8 {
+    const reg_val: u8 = @intFromEnum(reg);
+    const rm64_val: u8 = @intFromEnum(rm64);
+
+    // ModRM
+    // | mode | reg | r/m |
+    // mode = 00/01/10 =>
+    //      this depends on size of the
+    //      offset 0 => 00, 1-255 => 01
+    //      otherwise 10
+    // reg = bottom 3 bits of to_reg_val
+    // rm = 100 => the sib follows
+    const mod: u8 = if (offset >= 256)
+        0b1000_0000
+    else if (offset != 0)
+        0b0100_0000
+    else
+        0;
+
+    const to_reg_lower: u8 = (reg_val & 0x7) << 3;
+    return mod | to_reg_lower | rm64_val;
+}
+
+/// creates basic MODrm with sib
 pub fn create_modrm_sib(reg: GPR64, offset: u32) u8 {
     const reg_val: u8 = @intFromEnum(reg);
 
@@ -658,8 +696,8 @@ pub fn create_modrm_sib(reg: GPR64, offset: u32) u8 {
         0;
 
     const to_reg_lower: u8 = (reg_val & 0x7) << 3;
-    const rm_sib: u8 = 0b100;
-    return mod | to_reg_lower | rm_sib;
+    const sib = 0b100;
+    return mod | to_reg_lower | sib;
 }
 
 pub fn get_modrm_data(value: u8) struct {
@@ -702,4 +740,18 @@ pub fn create_sib_base(base: GPR64) u8 {
     scale_val <<= 6;
     index_val <<= 3;
     return scale_val | index_val | base_val;
+}
+
+test "mov to offset" {
+    var slice: [4]u8 = undefined;
+    var jit = JitCompilerBase(void).init_slice(&slice);
+    try jit.mov_to_offset(GPR64.rdi, 0x8, GPR64.rsi);
+
+    // mov QWORD PTR [rdi + 0x8], rsi
+    // 48 89 77 08
+    // 48 = rex.w
+    // 89 = opcode
+    // 77 = modrm = 01_110_111
+    // 08 = offset
+    try std.testing.expectEqualSlices(u8, &.{ 0x48, 0x89, 0x77, 0x08 }, &slice);
 }
