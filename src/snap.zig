@@ -246,7 +246,7 @@ pub const Snap = struct {
 
         const start = offset;
 
-        try new_text.appendSlice(file_text[0..start]);
+        try new_text.appendSlice(alloc, file_text[0..start]);
 
         // check for multiline string
         {
@@ -283,13 +283,13 @@ pub const Snap = struct {
 
         const end = offset;
 
-        var new_writer = new_text.writer();
+        var new_writer = new_text.writer(alloc);
         var out_data_lines = std.mem.splitScalar(u8, output, '\n');
         while (out_data_lines.next()) |line| {
             try new_writer.print("{s}\\\\{s}\n", .{ indent, line });
         }
 
-        try new_text.appendSlice(file_text[end..]);
+        try new_text.appendSlice(alloc, file_text[end..]);
 
         try mod_dir.writeFile(.{
             .sub_path = self.location.file,
