@@ -71,7 +71,7 @@ pub fn main() !void {
             bytecode,
             try allocator.allocWithOptions(u8, HEAP_SIZE, std.mem.Alignment.@"16", null),
             writer,
-            .{ .call_count = 0},
+            .{},
         );
         _ = inter.run();
     } else if (std.mem.eql(u8, "--optjit", kind)) {
