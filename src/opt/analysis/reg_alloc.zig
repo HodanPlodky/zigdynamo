@@ -10,6 +10,7 @@ pub const RegAllocAnalysis = struct {
         reg: GPR64,
         memory: usize,
         value: Value,
+        none,
     };
 
     base: Base,
@@ -71,7 +72,10 @@ pub const RegAllocAnalysis = struct {
         // if the inst does not returns anything
         // then dont set arch reg for it
         switch (inst_type) {
-            .Void => return,
+            .Void => {
+                self.translates[inst_idx.get_usize()] = .none;
+                return;
+            },
             .Bottom => unreachable,
             else => {},
         }
@@ -117,3 +121,51 @@ pub const RegAllocAnalysis = struct {
         }
     }
 };
+
+const Compiler = @import("../compile.zig").Compiler;
+
+fn test_run_analysis(compiler: *const Compiler, alloc: std.mem.Allocator, free_regs: []GPR64) !RegAllocAnalysis {
+    const SharedData = @import("analysis_base.zig").SharedData;
+    const AnalysisBase = @import("analysis_base.zig").AnalysisBase;
+
+    const shared_data = try SharedData.init(compiler, alloc);
+    const analysis_base = AnalysisBase{
+        .compiler = compiler,
+        .alloc = alloc,
+        .shared_data = shared_data,
+    };
+
+    var reg_alloc = try RegAllocAnalysis.init(analysis_base, free_regs);
+    try reg_alloc.analyze();
+    return reg_alloc;
+}
+
+test "basic reg alloc" {
+    //const snap = @import("../../snap.zig");
+
+    // this is how to use it
+    var permanent_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer permanent_arena.deinit();
+    var scratch_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer scratch_arena.deinit();
+
+    const permanent_alloc = permanent_arena.allocator();
+    const scratch_alloc = scratch_arena.allocator();
+    var compiler = try Compiler.init(&.{}, permanent_alloc, scratch_alloc);
+    _ = try compiler.create_empty();
+
+    const ldi = try compiler.append_inst(.{ .ldi = 1 });
+    try compiler.append_terminator(.{ .ret = ldi });
+
+    {
+        var free_regs: [4]GPR64 = .{ GPR64.rax, GPR64.rbx, GPR64.rcx, GPR64.rdx };
+        const regs = try test_run_analysis(&compiler, scratch_alloc, &free_regs);
+        
+        try std.testing.expectEqual(regs.translates.len, 2);
+        try std.testing.expectEqualSlices(
+            RegAllocAnalysis.ValuePlace,
+            &.{RegAllocAnalysis.ValuePlace{.value = Value.new_num(1)}, RegAllocAnalysis.ValuePlace.none},
+            regs.translates,
+        );
+    }
+}
