@@ -89,7 +89,7 @@ pub fn main() !void {
     } else if (std.mem.eql(u8, "--cmp", kind)) {
         const bytecode = compiler.compile(program, allocator) catch @panic("error");
         std.debug.print("{f}\n", .{bytecode});
-    } else if (std.mem.eql(u8, "--optir-cmp", kind)) {
+    } else if (std.mem.eql(u8, "--ir", kind)) {
         var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         const alloc = runtime_arena.allocator();
         const bytecode = compiler.compile(program, allocator) catch @panic("error");
