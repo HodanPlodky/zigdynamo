@@ -166,8 +166,8 @@ pub const JitCompiler = struct {
             .reg => |reg| try self.mov_place_to_reg(src, reg),
             .memory => |offset| try self.mov_place_to_mem(src, offset),
 
-            // value cannot be destination
-            .value => unreachable,
+            // value or none cannot be destination
+            .value, .none => unreachable,
         }
     }
 
@@ -179,6 +179,7 @@ pub const JitCompiler = struct {
             else
                 try self.base.mov_from_offset(GPR64.rsp, (~@as(u32, @intCast(offset)) + 1), dst),
             .value => |value| try self.base.set_reg_64(dst, value.data),
+            .none => unreachable,
         }
     }
 
@@ -188,8 +189,7 @@ pub const JitCompiler = struct {
                 try self.base.mov_to_offset(GPR64.rsp, 0, reg)
             else
                 try self.base.mov_to_offset(GPR64.rsp, (~@as(u32, @intCast(dst_offset)) + 1), reg),
-            .memory => unreachable,
-            .value => unreachable,
+            .memory, .none, .value => unreachable,
         }
     }
 

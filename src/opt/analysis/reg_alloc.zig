@@ -50,7 +50,11 @@ pub const RegAllocAnalysis = struct {
             item.clearRetainingCapacity();
         }
         var curr_idx: u32 = 0;
-        for (self.base.shared_data.get_emitorder(function_idx)) |bb_idx| {
+        const post_order = self.base.shared_data.get_postorder(function_idx);
+        var index: usize = post_order.len;
+        while(index > 0) {
+            index -= 1;
+            const bb_idx = post_order[index];
             const bb = self.base.compiler.stores.get(ir.BasicBlock, bb_idx);
 
             for (bb.instructions.items) |inst_idx| {
@@ -106,9 +110,12 @@ pub const RegAllocAnalysis = struct {
         if (self.free_regs.pop()) |arch_reg| {
             self.translates[inst_idx.get_usize()] = .{ .reg = arch_reg };
             try self.release[@intCast(range.end)].append(self.base.alloc, inst_idx);
+            return;
         } else {
             self.translates[inst_idx.get_usize()] = .{ .memory = self.curr_max_mem };
+            return;
         }
+        unreachable;
     }
 
     fn do_release(self: *RegAllocAnalysis, curr_idx: u32) void {
@@ -134,6 +141,7 @@ fn test_run_analysis(compiler: *const Compiler, alloc: std.mem.Allocator, free_r
         .alloc = alloc,
         .shared_data = shared_data,
     };
+
 
     var reg_alloc = try RegAllocAnalysis.init(analysis_base, free_regs);
     try reg_alloc.analyze();

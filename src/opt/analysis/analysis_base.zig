@@ -57,7 +57,7 @@ pub const SharedData = struct {
     }
 
     pub fn get_postorder(self: *const SharedData, function_idx: ir.FunctionIdx) []ir.BasicBlockIdx {
-        return self.post_orders[function_idx.get_usize()];
+        return self.post_orders[function_idx.get_usize()].items;
     }
 
     pub fn get_emitorder(self: *const SharedData, function_idx: ir.FunctionIdx) []ir.BasicBlockIdx {
