@@ -59,7 +59,6 @@ pub const JitCompiler = struct {
             return jit_utils.JitError.HeuristicNotMet;
         }
 
-
         const scratch = self.base.scratch_arena.allocator();
 
         var compiler = try Compiler.init(&.{}, scratch, scratch);
@@ -125,19 +124,21 @@ pub const JitCompiler = struct {
                 // where this register
                 // is set as value reg
             },
+            .nil, .true, .false => {
+                // same as ldi
+            },
+            .nop => {},
             .mov => |reg| {
                 const src = self.get_place(reg);
                 const dst = self.get_place(inst_idx);
                 try self.mov_places(src, dst);
             },
-            .nil => unreachable,
-            .true => unreachable,
-            .false => unreachable,
+
             .load_global => unreachable,
             .store_global => unreachable,
             .load_env => unreachable,
             .store_env => unreachable,
-            .add => unreachable,
+            .add => |binop_idx| try self.handle_binop_simple(0x1, inst_idx, binop_idx),
             .sub => unreachable,
             .mul => unreachable,
             .div => unreachable,
@@ -160,12 +161,62 @@ pub const JitCompiler = struct {
             .branch => unreachable,
             .jmp => unreachable,
             .arg => unreachable,
-            .nop => unreachable,
             .phony => unreachable,
             .call => unreachable,
-            .get_local => unreachable,
-            .set_local => unreachable,
+
+            // should not be in code when generating
+            // machine code
+            .get_local, .set_local => unreachable,
         }
+    }
+
+    fn handle_binop_simple(self: *JitCompiler, comptime opcode: u8, reg: ir.Reg, binop_idx: ir.BinOpIdx) !void {
+        const binop = self.ir_compiler.get(ir.BinOpData, binop_idx);
+        const left = self.get_place(binop.left);
+        const right = self.get_place(binop.right);
+        const out_place = self.get_place(reg);
+        try self.handle_binop(struct {
+            fn f(comp: *JitCompiler, output: ValuePlace) !void {
+                switch (output) {
+                    .reg => |out_reg| try comp.emit_basic_reg(opcode, out_reg, GPR64.rsi),
+                    //TODO
+                    else => {
+                        std.debug.print("{}\n", .{output});
+                        unreachable;
+                    },
+                }
+            }
+        }.f, out_place, left, right);
+    }
+
+    fn handle_binop(self: *JitCompiler, comptime oper: fn (*JitCompiler, ValuePlace) jit_utils.JitError!void, output: ValuePlace, left: ValuePlace, right: ValuePlace) !void {
+        // check lower bits
+        try self.mov_place_to_reg(left, GPR64.rdi);
+        try self.mov_place_to_reg(right, GPR64.rsi);
+
+        try self.mov_places(.{ .reg = GPR64.rdi }, output);
+        // or rdi, rsi
+        // or r/m64 reg
+        try self.emit_basic_reg(0x09, GPR64.rsi, GPR64.rdi);
+        // test dil,0x7 (dil lowest 8 bit of rdi)
+        // 40 f6 c7 07
+        const test_slice: [4]u8 = .{ 0x40, 0xf6, 0xc7, 0x07 };
+        try self.base.emit_slice(test_slice[0..]);
+
+        // handle cond
+        try self.base.emit_panic("binop_panic");
+
+        try oper(self, output);
+    }
+
+    fn emit_basic_reg(self: *JitCompiler, opcode: u8, reg: GPR64, rm64: GPR64) !void {
+        const inst_slice: [3]u8 = .{
+            jit_utils.create_rex(reg, rm64),
+            opcode,
+            jit_utils.create_modrm_regs(reg, rm64),
+        };
+
+        try self.base.emit_slice(inst_slice[0..]);
     }
 
     fn get_place(self: *const JitCompiler, inst_idx: ir.InstructionIdx) ValuePlace {

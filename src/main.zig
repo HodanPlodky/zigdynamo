@@ -85,7 +85,8 @@ pub fn main() !void {
             writer,
             .{ .call_count = 0 },
         );
-        _ = inter.run();
+        const res = inter.run();
+        std.debug.print("{f}\n", .{res});
     } else if (std.mem.eql(u8, "--cmp", kind)) {
         const bytecode = compiler.compile(program, allocator) catch @panic("error");
         std.debug.print("{f}\n", .{bytecode});

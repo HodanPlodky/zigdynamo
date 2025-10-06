@@ -23,7 +23,7 @@ pub const RegAllocAnalysis = struct {
 
     pub fn init(base: Base, free_regs: []GPR64) !RegAllocAnalysis {
         const inst_count = base.compiler.stores.get_max_idx(ir.Instruction);
-        return RegAllocAnalysis{
+        var res = RegAllocAnalysis{
             .base = base,
             .translates = try base.alloc.alloc(ValuePlace, inst_count.get_usize()),
             .free_regs = std.ArrayList(GPR64).initBuffer(free_regs),
@@ -32,6 +32,8 @@ pub const RegAllocAnalysis = struct {
             // TODO: try to bound it to max size of the function
             .release = try base.alloc.alloc(std.ArrayList(ir.Reg), inst_count.get_usize()),
         };
+        res.free_regs.items.len = free_regs.len;
+        return res;
     }
 
     pub fn analyze(self: *RegAllocAnalysis) !void {
@@ -52,7 +54,7 @@ pub const RegAllocAnalysis = struct {
         var curr_idx: u32 = 0;
         const post_order = self.base.shared_data.get_postorder(function_idx);
         var index: usize = post_order.len;
-        while(index > 0) {
+        while (index > 0) {
             index -= 1;
             const bb_idx = post_order[index];
             const bb = self.base.compiler.stores.get(ir.BasicBlock, bb_idx);
@@ -106,7 +108,7 @@ pub const RegAllocAnalysis = struct {
             },
             else => {},
         }
-
+        
         if (self.free_regs.pop()) |arch_reg| {
             self.translates[inst_idx.get_usize()] = .{ .reg = arch_reg };
             try self.release[@intCast(range.end)].append(self.base.alloc, inst_idx);
@@ -142,7 +144,6 @@ fn test_run_analysis(compiler: *const Compiler, alloc: std.mem.Allocator, free_r
         .shared_data = shared_data,
     };
 
-
     var reg_alloc = try RegAllocAnalysis.init(analysis_base, free_regs);
     try reg_alloc.analyze();
     return reg_alloc;
@@ -168,11 +169,49 @@ test "basic reg alloc" {
     {
         var free_regs: [4]GPR64 = .{ GPR64.rax, GPR64.rbx, GPR64.rcx, GPR64.rdx };
         const regs = try test_run_analysis(&compiler, scratch_alloc, &free_regs);
-        
+
         try std.testing.expectEqual(regs.translates.len, 2);
         try std.testing.expectEqualSlices(
             RegAllocAnalysis.ValuePlace,
-            &.{RegAllocAnalysis.ValuePlace{.value = Value.new_num(1)}, RegAllocAnalysis.ValuePlace.none},
+            &.{ RegAllocAnalysis.ValuePlace{ .value = Value.new_num(1) }, RegAllocAnalysis.ValuePlace.none },
+            regs.translates,
+        );
+    }
+}
+
+test "basic reg alloc add" {
+    //const snap = @import("../../snap.zig");
+
+    // this is how to use it
+    var permanent_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer permanent_arena.deinit();
+    var scratch_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer scratch_arena.deinit();
+
+    const permanent_alloc = permanent_arena.allocator();
+    const scratch_alloc = scratch_arena.allocator();
+    var compiler = try Compiler.init(&.{}, permanent_alloc, scratch_alloc);
+    _ = try compiler.create_empty();
+
+    const ldi_1 = try compiler.append_inst(.{ .ldi = 1 });
+    const ldi_2 = try compiler.append_inst(.{ .ldi = 2 });
+    const binop = try compiler.create_with(ir.BinOpData, .{ .left = ldi_1, .right = ldi_2 });
+    const add = try compiler.append_inst(.{ .add = binop });
+    try compiler.append_terminator(.{ .ret = add });
+
+    {
+        var free_regs: [4]GPR64 = .{ GPR64.rax, GPR64.rbx, GPR64.rcx, GPR64.rdx };
+        const regs = try test_run_analysis(&compiler, scratch_alloc, &free_regs);
+
+        try std.testing.expectEqual(regs.translates.len, 4);
+        try std.testing.expectEqualSlices(
+            RegAllocAnalysis.ValuePlace,
+            &.{
+                RegAllocAnalysis.ValuePlace{ .value = Value.new_num(1) },
+                RegAllocAnalysis.ValuePlace{ .value = Value.new_num(2) },
+                RegAllocAnalysis.ValuePlace{ .reg = GPR64.rdx },
+                RegAllocAnalysis.ValuePlace.none,
+            },
             regs.translates,
         );
     }
