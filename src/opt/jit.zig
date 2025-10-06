@@ -178,7 +178,7 @@ pub const JitCompiler = struct {
         try self.handle_binop(struct {
             fn f(comp: *JitCompiler, output: ValuePlace) !void {
                 switch (output) {
-                    .reg => |out_reg| try comp.emit_basic_reg(opcode, out_reg, GPR64.rsi),
+                    .reg => |out_reg| try comp.emit_basic_reg(opcode, GPR64.rsi, out_reg),
                     //TODO
                     else => {
                         std.debug.print("{}\n", .{output});
