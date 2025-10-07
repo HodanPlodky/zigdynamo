@@ -61,7 +61,8 @@ pub fn main() !void {
             writer,
             .{},
         );
-        _ = inter.run();
+        const res = inter.run();
+        std.debug.print("{f}\n", .{res});
     } else if (std.mem.eql(u8, "--jit", kind)) {
         var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         const alloc = runtime_arena.allocator();
@@ -73,7 +74,8 @@ pub fn main() !void {
             writer,
             .{},
         );
-        _ = inter.run();
+        const res = inter.run();
+        std.debug.print("{f}\n", .{res});
     } else if (std.mem.eql(u8, "--optjit", kind)) {
         var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         const alloc = runtime_arena.allocator();

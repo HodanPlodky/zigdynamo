@@ -567,7 +567,7 @@ pub const Compiler = struct {
         self.current = bb_idx;
     }
 
-    fn create_result(self: *const Compiler) CompiledResult {
+    pub fn create_result(self: *const Compiler) CompiledResult {
         return CompiledResult{
             .entry_fn = self.entry_fn,
             .stores = self.stores,

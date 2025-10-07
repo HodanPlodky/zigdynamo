@@ -108,13 +108,14 @@ pub const RegAllocAnalysis = struct {
             },
             else => {},
         }
-        
+
         if (self.free_regs.pop()) |arch_reg| {
             self.translates[inst_idx.get_usize()] = .{ .reg = arch_reg };
             try self.release[@intCast(range.end)].append(self.base.alloc, inst_idx);
             return;
         } else {
             self.translates[inst_idx.get_usize()] = .{ .memory = self.curr_max_mem };
+            self.curr_max_mem += 8;
             return;
         }
         unreachable;
@@ -191,25 +192,107 @@ test "basic reg alloc add" {
     const permanent_alloc = permanent_arena.allocator();
     const scratch_alloc = scratch_arena.allocator();
     var compiler = try Compiler.init(&.{}, permanent_alloc, scratch_alloc);
-    _ = try compiler.create_empty();
+    compiler.entry_fn = try compiler.create_empty();
 
     const ldi_1 = try compiler.append_inst(.{ .ldi = 1 });
     const ldi_2 = try compiler.append_inst(.{ .ldi = 2 });
-    const binop = try compiler.create_with(ir.BinOpData, .{ .left = ldi_1, .right = ldi_2 });
-    const add = try compiler.append_inst(.{ .add = binop });
-    try compiler.append_terminator(.{ .ret = add });
+    const binop_1 = try compiler.create_with(ir.BinOpData, .{ .left = ldi_1, .right = ldi_2 });
+    const add_1 = try compiler.append_inst(.{ .add = binop_1 });
+    const binop_2 = try compiler.create_with(ir.BinOpData, .{ .left = ldi_1, .right = add_1 });
+    const add_2 = try compiler.append_inst(.{ .add = binop_2 });
+    const binop_3 = try compiler.create_with(ir.BinOpData, .{ .left = add_2, .right = add_1 });
+    const add_3 = try compiler.append_inst(.{ .add = binop_3 });
+
+    // not used but should not be removed
+    const binop_4 = try compiler.create_with(ir.BinOpData, .{ .left = ldi_1, .right = ldi_2 });
+    _ = try compiler.append_inst(.{ .add = binop_4 });
+    try compiler.append_terminator(.{ .ret = add_3 });
 
     {
         var free_regs: [4]GPR64 = .{ GPR64.rax, GPR64.rbx, GPR64.rcx, GPR64.rdx };
         const regs = try test_run_analysis(&compiler, scratch_alloc, &free_regs);
 
-        try std.testing.expectEqual(regs.translates.len, 4);
+        try std.testing.expectEqual(regs.translates.len, 7);
         try std.testing.expectEqualSlices(
             RegAllocAnalysis.ValuePlace,
             &.{
                 RegAllocAnalysis.ValuePlace{ .value = Value.new_num(1) },
                 RegAllocAnalysis.ValuePlace{ .value = Value.new_num(2) },
                 RegAllocAnalysis.ValuePlace{ .reg = GPR64.rdx },
+                RegAllocAnalysis.ValuePlace{ .reg = GPR64.rcx },
+                // this could be both rcx or rdx but because of the
+                // order of the release the rcx is at the top
+                // but both of them should be free
+                RegAllocAnalysis.ValuePlace{ .reg = GPR64.rcx },
+                // then this would be also switched
+                RegAllocAnalysis.ValuePlace{ .reg = GPR64.rdx },
+                RegAllocAnalysis.ValuePlace.none,
+            },
+            regs.translates,
+        );
+    }
+
+    {
+        // still should be ok
+        var free_regs: [2]GPR64 = .{ GPR64.rcx, GPR64.rdx };
+        const regs = try test_run_analysis(&compiler, scratch_alloc, &free_regs);
+
+        try std.testing.expectEqual(regs.translates.len, 7);
+        try std.testing.expectEqualSlices(
+            RegAllocAnalysis.ValuePlace,
+            &.{
+                RegAllocAnalysis.ValuePlace{ .value = Value.new_num(1) },
+                RegAllocAnalysis.ValuePlace{ .value = Value.new_num(2) },
+                RegAllocAnalysis.ValuePlace{ .reg = GPR64.rdx },
+                RegAllocAnalysis.ValuePlace{ .reg = GPR64.rcx },
+                // this could be both rcx or rdx but because of the
+                // order of the release the rcx is at the top
+                // but both of them should be free
+                RegAllocAnalysis.ValuePlace{ .reg = GPR64.rcx },
+                // then this would be also switched
+                RegAllocAnalysis.ValuePlace{ .reg = GPR64.rdx },
+                RegAllocAnalysis.ValuePlace.none,
+            },
+            regs.translates,
+        );
+    }
+
+    {
+        // first spill
+        var free_regs: [1]GPR64 = .{GPR64.rdx};
+        const regs = try test_run_analysis(&compiler, scratch_alloc, &free_regs);
+
+        try std.testing.expectEqual(regs.translates.len, 7);
+        try std.testing.expectEqualSlices(
+            RegAllocAnalysis.ValuePlace,
+            &.{
+                RegAllocAnalysis.ValuePlace{ .value = Value.new_num(1) },
+                RegAllocAnalysis.ValuePlace{ .value = Value.new_num(2) },
+                RegAllocAnalysis.ValuePlace{ .reg = GPR64.rdx },
+                RegAllocAnalysis.ValuePlace{ .memory = 0 },
+                RegAllocAnalysis.ValuePlace{ .reg = GPR64.rdx },
+                RegAllocAnalysis.ValuePlace{ .memory = 8 },
+                RegAllocAnalysis.ValuePlace.none,
+            },
+            regs.translates,
+        );
+    }
+
+    {
+        // spill all
+        var free_regs: [0]GPR64 = .{};
+        const regs = try test_run_analysis(&compiler, scratch_alloc, &free_regs);
+
+        try std.testing.expectEqual(regs.translates.len, 7);
+        try std.testing.expectEqualSlices(
+            RegAllocAnalysis.ValuePlace,
+            &.{
+                RegAllocAnalysis.ValuePlace{ .value = Value.new_num(1) },
+                RegAllocAnalysis.ValuePlace{ .value = Value.new_num(2) },
+                RegAllocAnalysis.ValuePlace{ .memory = 0},
+                RegAllocAnalysis.ValuePlace{ .memory = 8 },
+                RegAllocAnalysis.ValuePlace{ .memory = 16 },
+                RegAllocAnalysis.ValuePlace{ .memory = 24 },
                 RegAllocAnalysis.ValuePlace.none,
             },
             regs.translates,
