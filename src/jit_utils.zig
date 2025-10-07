@@ -708,7 +708,7 @@ pub fn get_modrm_data(value: u8) struct {
     return .{
         .mod = @intCast((value & 0b1100_0000) >> 6),
         .reg = @intCast((value & 0b0011_1000) >> 3),
-        .rm64 = @intCast((value & 0b0000_0111) >> 3),
+        .rm64 = @intCast((value & 0b0000_0111)),
     };
 }
 
@@ -716,8 +716,8 @@ pub fn get_modrm_data(value: u8) struct {
 /// used for instruction line
 /// mov QWORD PTR [rax + r8*8 + 0x8], r9
 pub fn create_sib(scale: Scale, base: GPR64, index: GPR64) u8 {
-    const base_val = @intFromEnum(base);
-    var index_val = @intFromEnum(index);
+    const base_val: u8 = @intFromEnum(base);
+    var index_val: u8 = @intFromEnum(index);
 
     // SIB
     // | scale : 2b | index : 3b | base : 3b |
@@ -754,4 +754,23 @@ test "mov to offset" {
     // 77 = modrm = 01_110_111
     // 08 = offset
     try std.testing.expectEqualSlices(u8, &.{ 0x48, 0x89, 0x77, 0x08 }, &slice);
+}
+
+test "mov to offset rsp" {
+    var slice: [5]u8 = undefined;
+    var jit = JitCompilerBase(void).init_slice(&slice);
+    try jit.mov_to_offset(GPR64.rsp, 0x8, GPR64.rsi);
+
+    try std.testing.expectEqualSlices(u8, &.{ 0x48, 0x89, 0x74, 0x24, 0x08 }, &slice);
+}
+
+test "mov index access64" {
+    var slice: [5]u8 = undefined;
+    var jit = JitCompilerBase(void).init_slice(&slice);
+    try jit.mov_index_access64(GPR64.rdi, Scale.scale8, GPR64.rcx, GPR64.rsi, 8);
+
+    // f1 = 11_110_001
+    // c1 = 11_000_001
+
+    try std.testing.expectEqualSlices(u8, &.{0x48, 0x8b, 0x7c, 0xf1, 0x08 }, &slice);
 }

@@ -96,7 +96,7 @@ pub fn main() !void {
         var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         const alloc = runtime_arena.allocator();
         const bytecode = compiler.compile(program, allocator) catch @panic("error");
-        var inter = bc.JitInterpreter.init(
+        const inter = bc.JitInterpreter.init(
             alloc,
             bytecode,
             try allocator.allocWithOptions(u8, HEAP_SIZE, std.mem.Alignment.@"16", null),
@@ -104,7 +104,7 @@ pub fn main() !void {
             .{},
         );
 
-        _ = inter.run();
+        //_ = inter.run();
 
         // to  run this you need atleast one compilable function
         // since this is only for debug just blowup

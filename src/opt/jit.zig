@@ -14,6 +14,8 @@ const AnalysisBase = @import("analysis/analysis_base.zig").AnalysisBase;
 const SharedData = @import("analysis/analysis_base.zig").SharedData;
 const run_passes = @import("compile.zig").run_passes;
 const OptJitInterpreter = @import("../bc_interpreter.zig").OptJitInterpreter;
+const Environment = @import("../bc_interpreter.zig").Environment;
+const LocalEnv = @import("../bc_interpreter.zig").LocalEnv;
 
 const ValuePlace = RegAllocAnalysis.ValuePlace;
 
@@ -74,11 +76,10 @@ pub const JitCompiler = struct {
             .shared_data = shared_data,
         };
 
-        var free_regs: [4]GPR64 = .{
-            GPR64.rbp,
+        var free_regs: [3]GPR64 = .{
             GPR64.r8,
             GPR64.r9,
-            GPR64.r10,
+            GPR64.r12,
         };
         self.register_alloc = try RegAllocAnalysis.init(analysis_base, &free_regs);
         try self.register_alloc.analyze();
@@ -160,7 +161,21 @@ pub const JitCompiler = struct {
             },
             .branch => unreachable,
             .jmp => unreachable,
-            .arg => unreachable,
+            .arg => |index| {
+                try self.base.mov_from_jit_state(GPR64.rdi, "env");
+
+                // load current ptr into the rax
+                try self.base.mov_from_struct_64(GPR64.rsi, GPR64.rdi, @offsetOf(Environment, "local") + @offsetOf(LocalEnv, "current_ptr"));
+
+                // load local.buffer ptr
+                try self.base.mov_from_struct_64(GPR64.rcx, GPR64.rdi, @offsetOf(Environment, "local") + @offsetOf(LocalEnv, "buffer"));
+
+                // load val from index
+                try self.base.mov_index_access64(GPR64.rdi, Scale.scale8, GPR64.rcx, GPR64.rsi, index * 8);
+
+                const out = self.get_place(inst_idx);
+                try self.mov_places(.{ .reg = GPR64.rdi }, out);
+            },
             .phony => unreachable,
             .call => unreachable,
 
@@ -177,12 +192,14 @@ pub const JitCompiler = struct {
         const out_place = self.get_place(reg);
         try self.handle_binop(struct {
             fn f(comp: *JitCompiler, output: ValuePlace) !void {
+                //std.debug.print("yo {}\n", .{output});
                 switch (output) {
                     .reg => |out_reg| try comp.emit_basic_reg(opcode, GPR64.rsi, out_reg),
                     //TODO
                     else => {
-                        std.debug.print("{}\n", .{output});
-                        unreachable;
+                        try comp.mov_places(output, .{ .reg = GPR64.rdi });
+                        try comp.emit_basic_reg(opcode, GPR64.rsi, GPR64.rdi);
+                        try comp.mov_places(.{ .reg = GPR64.rdi }, output);
                     },
                 }
             }
@@ -310,12 +327,32 @@ pub const JitCompiler = struct {
         // push rbx
         try self.base.emit_byte(0x53);
 
+        // sub rsp, <stacksize>https://www.youtube.com/watch?v=xKH3Hj4lqLs
+        // 48 83 ec 7f = sub rsp, 0x7f
+        if (self.register_alloc.curr_max_mem <= 0x7f) {
+            const stack_size: u8 = @intCast(self.register_alloc.curr_max_mem);
+            try self.base.emit_slice(&.{ 0x48, 0x83, 0xec, stack_size });
+        } else {
+            // future fucker got it
+            unreachable;
+        }
+
         // mov rbx, rdi
         // rbx will store address to state
         try self.base.mov_reg_reg(Base.state_addr, GPR64.rdi);
     }
 
     fn emit_epilog(self: *JitCompiler) !void {
+        // add rsp, <stacksize>
+        // 48 83 c4 7f = add rsp, 0x7f
+        if (self.register_alloc.curr_max_mem <= 0x7f) {
+            const stack_size: u8 = @intCast(self.register_alloc.curr_max_mem);
+            try self.base.emit_slice(&.{ 0x48, 0x83, 0xc4, stack_size });
+        } else {
+            // future fucker got it
+            unreachable;
+        }
+
         // pop rbx
         try self.base.emit_byte(0x5b);
     }
