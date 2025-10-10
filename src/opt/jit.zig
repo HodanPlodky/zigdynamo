@@ -256,7 +256,7 @@ pub const JitCompiler = struct {
             .memory => |offset| if (offset == 0)
                 try self.base.mov_from_offset(GPR64.rsp, 0, dst)
             else
-                try self.base.mov_from_offset(GPR64.rsp, (~@as(u32, @intCast(offset)) + 1), dst),
+                try self.base.mov_from_offset(GPR64.rsp, @intCast(offset), dst),
             .value => |value| try self.base.set_reg_64(dst, value.data),
             .none => unreachable,
         }
@@ -267,7 +267,7 @@ pub const JitCompiler = struct {
             .reg => |reg| if (dst_offset == 0)
                 try self.base.mov_to_offset(GPR64.rsp, 0, reg)
             else
-                try self.base.mov_to_offset(GPR64.rsp, (~@as(u32, @intCast(dst_offset)) + 1), reg),
+                try self.base.mov_to_offset(GPR64.rsp, @intCast(dst_offset), reg),
             .memory, .none, .value => unreachable,
         }
     }

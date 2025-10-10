@@ -756,11 +756,16 @@ pub fn Interpreter(comptime JitType: ?type) type {
             }
             self.stack.pop_n(param_count);
 
-            if (JitType) |_| {
+            if (JitType) |Compiler| {
                 const function = self.bytecode.get_function(closure.function_idx);
                 const function_source = self.bytecode.get_function_source(closure.function_idx);
                 const meta = &self.function_meta[closure.function_idx.index];
-                const compiled = self.jit_compiler.compile_fn(function, function_source, meta);
+                if (meta.is_jitted()) {
+                    meta.get_code(Compiler, &self.jit_compiler).run(JitState, jit_state);
+                    return;
+                }
+                const compiled = @call(.never_inline, Compiler.compile_fn, .{&self.jit_compiler, function, function_source, meta});
+                //const compiled = self.jit_compiler.compile_fn(function, function_source, meta);
                 if (compiled) |jitted| {
                     jitted.run(JitState, jit_state);
                 } else |err| {

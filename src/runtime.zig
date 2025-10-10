@@ -223,6 +223,16 @@ pub const Value = packed struct {
 };
 
 pub const FunctionMetadata = struct {
+    const JitFunction = @import("jit_utils.zig").JitFunction;
     jit_state: u32 = 0,
     call_counter: u32 = 0,
+
+    pub fn is_jitted(self: *const FunctionMetadata) bool {
+        return self.jit_state != 0;
+    }
+
+    pub fn get_code(self: *const FunctionMetadata, comptime C: type, compiler: *const C) JitFunction {
+        std.debug.assert(self.is_jitted());
+        return JitFunction{ .code = @ptrCast(&compiler.base.code_slice[self.jit_state]) };
+    }
 };
