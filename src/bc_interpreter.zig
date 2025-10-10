@@ -762,12 +762,14 @@ pub fn Interpreter(comptime JitType: ?type) type {
                 const meta = &self.function_meta[closure.function_idx.index];
                 if (meta.is_jitted()) {
                     meta.get_code(Compiler, &self.jit_compiler).run(JitState, jit_state);
+                    self.env.local.pop_locals();
                     return;
                 }
                 const compiled = @call(.never_inline, Compiler.compile_fn, .{&self.jit_compiler, function, function_source, meta});
                 //const compiled = self.jit_compiler.compile_fn(function, function_source, meta);
                 if (compiled) |jitted| {
                     jitted.run(JitState, jit_state);
+                    self.env.local.pop_locals();
                 } else |err| {
                     switch (err) {
                         jit_utils.JitError.HeuristicNotMet => {},

@@ -92,7 +92,6 @@ pub const JitCompiler = struct {
                 try self.stack_pop();
             },
             bytecode.Instruction.ret => {
-                try self.env_pop_locals();
                 try self.emit_epilog();
 
                 // return
