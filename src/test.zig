@@ -7,6 +7,7 @@ comptime {
     _ = @import("jit_utils.zig");
     _ = @import("test_snap.zig");
     _ = @import("opt/compile.zig");
+    _ = @import("opt/passes/make_cssa.zig");
     _ = @import("opt/analysis/dominator.zig");
     _ = @import("opt/analysis/reg_alloc.zig");
     _ = @import("opt/interpreter.zig");
