@@ -5,6 +5,7 @@ const ir = @import("ir.zig");
 const Stores = @import("stores.zig").Stores;
 const runtime = @import("../runtime.zig");
 const MakeSSA = @import("passes/make_ssa.zig").MakeSSA;
+const MakeCSSA = @import("passes/make_cssa.zig").MakeCSSA;
 const MovElim = @import("passes/mov_elim.zig").MovElim;
 const UnusedElim = @import("passes/unused_elim.zig").UnusedElim;
 const PassBase = @import("passes/pass_base.zig").PassBase;
@@ -26,10 +27,11 @@ pub fn ir_compile(input: *const ast.Function, metadata: *const runtime.FunctionM
 }
 
 pub fn run_passes(compiler: *Compiler, alloc: std.mem.Allocator, shared_data: SharedData) !void {
-    const passes: [3]type = .{
+    const passes: [4]type = .{
         MakeSSA,
         MovElim,
         UnusedElim,
+        MakeCSSA,
     };
 
     const analysis_base = AnalysisBase{
@@ -114,7 +116,7 @@ pub const CompiledResult = struct {
             .nil, .true, .false, .nop => {},
 
             // one reg ops
-            .ret, .mov => |reg| try writer.print(" %{}", .{reg.index}),
+            .ret, .mov, .parallel_copy => |reg| try writer.print(" %{}", .{reg.index}),
 
             //  binop ops
             .add, .sub, .mul, .div, .lt, .gt => |binop_idx| {

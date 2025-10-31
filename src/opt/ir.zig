@@ -100,6 +100,7 @@ pub const Instruction = union(enum) {
 
     arg: u32,
     phony: PhonyIdx,
+    parallel_copy: Reg,
     nop,
 
     // calls
@@ -109,6 +110,7 @@ pub const Instruction = union(enum) {
     // before jit
     get_local: u32,
     set_local: SetLocalIdx,
+
 
     pub fn opcode(self: Instruction) []const u8 {
         return switch (self) {
@@ -133,6 +135,7 @@ pub const Instruction = union(enum) {
             .arg => "arg",
             .nop => "nop",
             .phony => "phony",
+            .parallel_copy => "parallel_copy",
             .call => "call",
             .get_local => "get_local",
             .set_local => "set_local",

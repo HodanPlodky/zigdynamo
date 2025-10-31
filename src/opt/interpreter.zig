@@ -54,7 +54,9 @@ const Interpreter = struct {
 
                 switch (inst) {
                     .ldi => |num| self.regs[reg] = runtime.Value.new_num(num),
-                    .mov => |src_reg| self.regs[reg] = self.regs[src_reg.get_usize()],
+
+                    // bit different semantics but oh well
+                    .mov, .parallel_copy => |src_reg| self.regs[reg] = self.regs[src_reg.get_usize()],
                     .nil => self.regs[reg] = runtime.Value.new_nil(),
                     .true => self.regs[reg] = runtime.Value.new_bool(true),
                     .false => self.regs[reg] = runtime.Value.new_bool(false),
