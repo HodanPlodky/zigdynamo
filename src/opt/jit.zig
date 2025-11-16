@@ -13,6 +13,7 @@ const ir = @import("ir.zig");
 const AnalysisBase = @import("analysis/analysis_base.zig").AnalysisBase;
 const SharedData = @import("analysis/analysis_base.zig").SharedData;
 const run_passes = @import("compile.zig").run_passes;
+const outofssa = @import("compile.zig").outofssa;
 const OptJitInterpreter = @import("../bc_interpreter.zig").OptJitInterpreter;
 const Environment = @import("../bc_interpreter.zig").Environment;
 const LocalEnv = @import("../bc_interpreter.zig").LocalEnv;
@@ -67,6 +68,8 @@ pub const JitCompiler = struct {
         try compiler.compile(function, metadata);
         const shared_data = try SharedData.init(&compiler, scratch);
         try run_passes(&compiler, scratch, shared_data);
+        _ = self.base.scratch_arena.reset(.retain_capacity);
+        try outofssa(&compiler, scratch, shared_data);
 
         self.base.start_compilation(compiler.stores.get_max_idx(ir.Instruction).get_usize());
         const start = self.base.code_ptr;

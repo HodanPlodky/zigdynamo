@@ -23,14 +23,51 @@ pub fn ir_compile(input: *const ast.Function, metadata: *const runtime.FunctionM
     try compiler.compile(input, metadata);
     const shared_data = try SharedData.init(&compiler, alloc);
     try run_passes(&compiler, scratch, shared_data);
+    _ = scratch_arena.reset(.retain_capacity);
+    try outofssa(&compiler, scratch, shared_data);
+    return compiler.create_result();
+}
+
+pub fn ir_compile_ssa(input: *const ast.Function, metadata: *const runtime.FunctionMetadata, globals: [][]const u8, alloc: std.mem.Allocator) !CompiledResult {
+    // it would be probably better to have this survive across the calls
+    var scratch_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer scratch_arena.deinit();
+
+    const scratch = scratch_arena.allocator();
+
+    var compiler = try Compiler.init(globals, alloc, scratch);
+    try compiler.compile(input, metadata);
+    const shared_data = try SharedData.init(&compiler, alloc);
+    try run_passes(&compiler, scratch, shared_data);
     return compiler.create_result();
 }
 
 pub fn run_passes(compiler: *Compiler, alloc: std.mem.Allocator, shared_data: SharedData) !void {
-    const passes: [4]type = .{
+    const passes: [3]type = .{
         MakeSSA,
         MovElim,
         UnusedElim,
+    };
+
+    const analysis_base = AnalysisBase{
+        .compiler = compiler,
+        .alloc = alloc,
+        .shared_data = shared_data,
+    };
+    const pass_base = PassBase{
+        .compiler = compiler,
+        .alloc = alloc,
+        .analysis_base = analysis_base,
+    };
+
+    inline for (passes) |pass_type| {
+        var pass = try pass_type.init(pass_base);
+        try pass.run();
+    }
+}
+
+pub fn outofssa(compiler: *Compiler, alloc: std.mem.Allocator, shared_data: SharedData) !void {
+    const passes: [1]type = .{
         MakeCSSA,
     };
 
@@ -615,8 +652,6 @@ test "basic" {
     const function = &node.function;
     const metadata = runtime.FunctionMetadata{};
 
-    const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -634,7 +669,26 @@ test "basic" {
         \\    ret %10
         \\}
         \\
-    ).equal_fmt(res);
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, &.{}, allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = ldi 1
+        \\    %1 = ldi 2
+        \\    %2 = add %0, %1
+        \\    %3 = ldi 3
+        \\    %4 = ldi 4
+        \\    %5 = mul %3, %4
+        \\    %6 = sub %2, %5
+        \\    %7 = ldi 4
+        \\    %8 = ldi 2
+        \\    %9 = div %7, %8
+        \\    %10 = add %6, %9
+        \\    ret %10
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
 }
 
 test "let" {
@@ -662,8 +716,6 @@ test "let" {
     const function = &node.function;
     const metadata = runtime.FunctionMetadata{};
 
-    const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -675,7 +727,20 @@ test "let" {
         \\    ret %10
         \\}
         \\
-    ).equal_fmt(res);
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, &.{}, allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = ldi 1
+        \\    %3 = ldi 2
+        \\    %8 = add %0, %3
+        \\    %9 = load_env 0
+        \\    %10 = add %8, %9
+        \\    ret %10
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
 }
 
 test "condition1" {
@@ -700,8 +765,6 @@ test "condition1" {
     const function = &node.function;
     const metadata = runtime.FunctionMetadata{};
 
-    const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -720,7 +783,27 @@ test "condition1" {
         \\    ret %8
         \\}
         \\
-    ).equal_fmt(res);
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, &.{}, allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = true
+        \\    branch %0, basicblock1, basicblock2
+        \\basicblock1: [0]
+        \\    %2 = ldi 1
+        \\    jmp 3
+        \\basicblock2: [0]
+        \\    %4 = ldi 1
+        \\    %5 = ldi 2
+        \\    %6 = add %4, %5
+        \\    jmp 3
+        \\basicblock3: [1, 2]
+        \\    %8 = phony 1 -> %2, 2 -> %6
+        \\    ret %8
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
 }
 
 test "condition2" {
@@ -748,8 +831,6 @@ test "condition2" {
     const function = &node.function;
     const metadata = runtime.FunctionMetadata{};
 
-    const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -768,7 +849,27 @@ test "condition2" {
         \\    ret %20
         \\}
         \\
-    ).equal_fmt(res);
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, &.{}, allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %5 = true
+        \\    branch %5, basicblock1, basicblock2
+        \\basicblock1: [0]
+        \\    %7 = ldi 1
+        \\    jmp 3
+        \\basicblock2: [0]
+        \\    %11 = ldi 1
+        \\    %12 = ldi 2
+        \\    %13 = add %11, %12
+        \\    jmp 3
+        \\basicblock3: [1, 2]
+        \\    %20 = phony 1 -> %7, 2 -> %13
+        \\    ret %20
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
 }
 
 test "loop" {
@@ -800,8 +901,6 @@ test "loop" {
     const function = &node.function;
     const metadata = runtime.FunctionMetadata{};
 
-    const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -823,7 +922,30 @@ test "loop" {
         \\    ret %25
         \\}
         \\
-    ).equal_fmt(res);
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, &.{}, allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = ldi 0
+        \\    %3 = ldi 0
+        \\    jmp 1
+        \\basicblock1: [0, 2]
+        \\    %25 = phony 0 -> %3, 2 -> %10
+        \\    %24 = phony 0 -> %0, 2 -> %14
+        \\    %19 = ldi 10
+        \\    %20 = lt %24, %19
+        \\    branch %20, basicblock2, basicblock3
+        \\basicblock2: [1]
+        \\    %10 = add %25, %24
+        \\    %13 = ldi 1
+        \\    %14 = add %24, %13
+        \\    jmp 1
+        \\basicblock3: [1]
+        \\    ret %25
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
 }
 
 test "arg basic" {
@@ -847,8 +969,6 @@ test "arg basic" {
     const function = &node.function;
     const metadata = runtime.FunctionMetadata{};
 
-    const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -860,7 +980,20 @@ test "arg basic" {
         \\    ret %8
         \\}
         \\
-    ).equal_fmt(res);
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, &.{}, allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %2 = arg 1
+        \\    %5 = ldi 2
+        \\    %7 = mul %5, %2
+        \\    %8 = add %0, %7
+        \\    ret %8
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
 }
 
 test "while fib opt compiler" {
@@ -894,8 +1027,6 @@ test "while fib opt compiler" {
     const function = &node.function;
     const metadata = runtime.FunctionMetadata{};
 
-    const globals: [][]const u8 = try allocator.alloc([]const u8, 0);
-    const res = try ir_compile(function, &metadata, globals, allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -920,7 +1051,33 @@ test "while fib opt compiler" {
         \\    ret %32
         \\}
         \\
-    ).equal_fmt(res);
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, &.{}, allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %2 = ldi 0
+        \\    %5 = ldi 1
+        \\    jmp 1
+        \\basicblock1: [0, 2]
+        \\    %33 = phony 0 -> %5, 2 -> %12
+        \\    %32 = phony 0 -> %2, 2 -> %15
+        \\    %31 = phony 0 -> %0, 2 -> %21
+        \\    %26 = ldi 0
+        \\    %27 = gt %31, %26
+        \\    branch %27, basicblock2, basicblock3
+        \\basicblock2: [1]
+        \\    %12 = add %32, %33
+        \\    %15 = mov %33
+        \\    %20 = ldi 1
+        \\    %21 = sub %31, %20
+        \\    jmp 1
+        \\basicblock3: [1]
+        \\    ret %32
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
 }
 
 test "globals opt compile" {
@@ -949,7 +1106,6 @@ test "globals opt compile" {
     const metadata = runtime.FunctionMetadata{};
 
     var globals: [1][]const u8 = .{"g"};
-    const res = try ir_compile(function, &metadata, globals[0..], allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -959,7 +1115,18 @@ test "globals opt compile" {
         \\    ret %2
         \\}
         \\
-    ).equal_fmt(res);
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, globals[0..], allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %2 = load_global 0
+        \\    store_global 0, %0
+        \\    ret %2
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, globals[0..], allocator));
 }
 
 test "call opt compiler" {
@@ -988,7 +1155,6 @@ test "call opt compiler" {
     const metadata = runtime.FunctionMetadata{};
 
     var globals: [1][]const u8 = .{"g"};
-    const res = try ir_compile(function, &metadata, globals[0..], allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -1012,7 +1178,32 @@ test "call opt compiler" {
         \\    ret %20
         \\}
         \\
-    ).equal_fmt(res);
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, globals[0..], allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %2 = load_global 0
+        \\    %4 = ldi 1
+        \\    %5 = add %0, %4
+        \\    %6 = ldi 2
+        \\    %7 = call %2(%5, %6)
+        \\    %8 = load_global 0
+        \\    %9 = load_global 0
+        \\    %11 = ldi 2
+        \\    %12 = mul %0, %11
+        \\    %13 = ldi 1
+        \\    %14 = call %9(%12, %13)
+        \\    %15 = ldi 1
+        \\    %16 = call %8(%14, %15)
+        \\    %17 = load_global 0
+        \\    %18 = ldi 1
+        \\    %20 = call %17(%18, %0)
+        \\    ret %20
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, globals[0..], allocator));
 }
 
 test "fib recursive opt compile" {
@@ -1040,7 +1231,6 @@ test "fib recursive opt compile" {
     const metadata = runtime.FunctionMetadata{};
 
     var globals: [1][]const u8 = .{"fib"};
-    const res = try ir_compile(function, &metadata, globals[0..], allocator);
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
@@ -1066,5 +1256,32 @@ test "fib recursive opt compile" {
         \\    ret %20
         \\}
         \\
-    ).equal_fmt(res);
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, globals[0..], allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %3 = ldi 2
+        \\    %4 = lt %0, %3
+        \\    branch %4, basicblock1, basicblock2
+        \\basicblock1: [0]
+        \\    jmp 3
+        \\basicblock2: [0]
+        \\    %8 = load_global 0
+        \\    %10 = ldi 1
+        \\    %11 = sub %0, %10
+        \\    %12 = call %8(%11)
+        \\    %13 = load_global 0
+        \\    %15 = ldi 2
+        \\    %16 = sub %0, %15
+        \\    %17 = call %13(%16)
+        \\    %18 = add %12, %17
+        \\    jmp 3
+        \\basicblock3: [1, 2]
+        \\    %20 = phony 1 -> %0, 2 -> %18
+        \\    ret %20
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, globals[0..], allocator));
 }
