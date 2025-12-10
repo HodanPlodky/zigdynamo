@@ -14,7 +14,7 @@ pub const UnusedElim = struct {
 
     pub fn run(self: *UnusedElim) !void {
         const inst_count = self.base.compiler.stores.get_max_idx(ir.Instruction);
-        var used = try BitSet.initEmpty(self.base.alloc, inst_count.index);
+        var used = try BitSet.initEmpty(self.base.alloc, inst_count.get_usize());
 
         while (self.do_run(&used)) {
             used.unsetAll();
@@ -27,7 +27,7 @@ pub const UnusedElim = struct {
             for (bb.instructions.items) |inst_idx| {
                 var iter = self.base.compiler.stores.get_reg_iter(inst_idx);
                 while (iter.next()) |reg| {
-                    used.set(reg.index);
+                    used.set(reg.get_usize());
                 }
             }
         }

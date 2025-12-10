@@ -13,6 +13,7 @@ pub const Stores = struct {
     store_data: ir.StoreDataDistinct.Multi = .{},
     phony: ir.PhonyDistinct.Multi = .{},
     call: ir.CallDataDistinct.Multi = .{},
+    copies: ir.CopyDataDistinct.Multi = .{},
     alloc: std.mem.Allocator,
 
     const Self = @This();
@@ -156,6 +157,9 @@ pub const Stores = struct {
                 const src_inst = self.get(ir.Instruction, reg);
                 return self.get_type(src_inst);
             },
+            // I should not do any more analyses after
+            // I insert copy soooo fuck that
+            .copy => ir.Type.Top,
             .nil => ir.Type.Nil,
             .true => ir.Type.True,
             .false => ir.Type.False,
@@ -197,6 +201,10 @@ pub const Stores = struct {
                 const res = self.curr;
                 self.curr += 1;
                 return Index.new(@intCast(res));
+            }
+
+            pub fn reset(self: *IterType) void {
+                self.curr = 0;
             }
         };
     }
@@ -316,6 +324,7 @@ pub const Stores = struct {
                 const set_local = self.get(ir.SetLocalData, set_local_idx);
                 return RegIter.create_one(set_local.value);
             },
+            .copy => unreachable,
         }
     }
 
@@ -426,8 +435,12 @@ pub const Stores = struct {
                 const reg = &self.instructions.data.items(.data)[inst_idx.get_usize()].ret;
                 return RegIterPtr.create_one(reg);
             },
-            .mov, .parallel_copy => {
+            .mov => {
                 const reg = &self.instructions.data.items(.data)[inst_idx.get_usize()].mov;
+                return RegIterPtr.create_one(reg);
+            },
+            .parallel_copy => {
+                const reg = &self.instructions.data.items(.data)[inst_idx.get_usize()].parallel_copy;
                 return RegIterPtr.create_one(reg);
             },
 
@@ -455,6 +468,18 @@ pub const Stores = struct {
                 const value = self.get_field_reg_ptr(ir.SetLocalData, .value, set_local_idx);
                 return RegIterPtr.create_one(value);
             },
+            .copy => unreachable,
+        }
+    }
+
+    pub fn get_output(self: *const Stores, inst_idx: ir.InstructionIdx) ir.Reg {
+        const inst = self.get(ir.Instruction, inst_idx);
+        switch (inst) {
+            .copy => |copy_idx| {
+                const copy = self.get(ir.CopyData, copy_idx);
+                return copy.dst;
+            },
+            else => return inst_idx,
         }
     }
 };

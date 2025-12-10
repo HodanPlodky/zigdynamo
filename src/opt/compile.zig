@@ -6,13 +6,21 @@ const Stores = @import("stores.zig").Stores;
 const runtime = @import("../runtime.zig");
 const MakeSSA = @import("passes/make_ssa.zig").MakeSSA;
 const MakeCSSA = @import("passes/make_cssa.zig").MakeCSSA;
+const CopyElimPass = @import("passes/copy_elim.zig").CopyElimination;
 const MovElim = @import("passes/mov_elim.zig").MovElim;
 const UnusedElim = @import("passes/unused_elim.zig").UnusedElim;
 const PassBase = @import("passes/pass_base.zig").PassBase;
 const AnalysisBase = @import("analysis/analysis_base.zig").AnalysisBase;
 const SharedData = @import("analysis/analysis_base.zig").SharedData;
+const SerializationPass = @import("passes/parcopy_serialization.zig").SerializationPass;
+const OutOfSSAPass = @import("passes/outofssa.zig").OutOfSSAPass;
 
-pub fn ir_compile(input: *const ast.Function, metadata: *const runtime.FunctionMetadata, globals: [][]const u8, alloc: std.mem.Allocator) !CompiledResult {
+pub fn ir_compile(
+    input: *const ast.Function,
+    metadata: *const runtime.FunctionMetadata,
+    globals: [][]const u8,
+    alloc: std.mem.Allocator,
+) !CompiledResult {
     // it would be probably better to have this survive across the calls
     var scratch_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer scratch_arena.deinit();
@@ -24,11 +32,16 @@ pub fn ir_compile(input: *const ast.Function, metadata: *const runtime.FunctionM
     const shared_data = try SharedData.init(&compiler, alloc);
     try run_passes(&compiler, scratch, shared_data);
     _ = scratch_arena.reset(.retain_capacity);
-    try outofssa(&compiler, scratch, shared_data);
+    try outofssa(&compiler, alloc, scratch, shared_data);
     return compiler.create_result();
 }
 
-pub fn ir_compile_ssa(input: *const ast.Function, metadata: *const runtime.FunctionMetadata, globals: [][]const u8, alloc: std.mem.Allocator) !CompiledResult {
+pub fn ir_compile_ssa(
+    input: *const ast.Function,
+    metadata: *const runtime.FunctionMetadata,
+    globals: [][]const u8,
+    alloc: std.mem.Allocator,
+) !CompiledResult {
     // it would be probably better to have this survive across the calls
     var scratch_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer scratch_arena.deinit();
@@ -39,7 +52,7 @@ pub fn ir_compile_ssa(input: *const ast.Function, metadata: *const runtime.Funct
     try compiler.compile(input, metadata);
     const shared_data = try SharedData.init(&compiler, alloc);
     try run_passes(&compiler, scratch, shared_data);
-    return compiler.create_result();
+    return try compiler.create_result_ssa();
 }
 
 pub fn run_passes(compiler: *Compiler, alloc: std.mem.Allocator, shared_data: SharedData) !void {
@@ -66,37 +79,55 @@ pub fn run_passes(compiler: *Compiler, alloc: std.mem.Allocator, shared_data: Sh
     }
 }
 
-pub fn outofssa(compiler: *Compiler, alloc: std.mem.Allocator, shared_data: SharedData) !void {
-    const passes: [1]type = .{
+pub fn outofssa(compiler: *Compiler, perma_alloc: std.mem.Allocator, scratch_alloc: std.mem.Allocator, shared_data: SharedData) !void {
+    const passes: [4]type = .{
         MakeCSSA,
+        CopyElimPass,
+        UnusedElim,
+        SerializationPass,
     };
 
     const analysis_base = AnalysisBase{
         .compiler = compiler,
-        .alloc = alloc,
+        .alloc = scratch_alloc,
         .shared_data = shared_data,
     };
     const pass_base = PassBase{
         .compiler = compiler,
-        .alloc = alloc,
+        .alloc = scratch_alloc,
         .analysis_base = analysis_base,
     };
 
     inline for (passes) |pass_type| {
+        std.debug.print("pass: {s}\n", .{@typeName(pass_type)});
         var pass = try pass_type.init(pass_base);
         try pass.run();
+        try compiler.dump_state();
+        std.debug.print("\n", .{});
     }
+    var out_pass = try OutOfSSAPass.init(pass_base, perma_alloc);
+    try out_pass.run();
+    compiler.canonical_regs = out_pass.canonical_regs;
 }
 
 pub const CompiledResult = struct {
     entry_fn: ir.FunctionDistinct.Index,
     stores: Stores,
+    canonical_regs: []ir.Reg,
 
     pub fn format(
         self: *const CompiledResult,
         writer: *std.io.Writer,
     ) !void {
         try self.write_fn(self.entry_fn, writer);
+    }
+
+    pub fn write_all_insts(self: *const CompiledResult, writer: anytype) !void {
+        var iter = self.stores.idx_iter(ir.Instruction);
+        while (iter.next()) |inst_idx| {
+            try self.write_inst(inst_idx, writer);
+        }
+        try writer.print("\n", .{});
     }
 
     pub fn write_fn(self: *const CompiledResult, idx: ir.FunctionDistinct.Index, writer: anytype) !void {
@@ -132,7 +163,10 @@ pub const CompiledResult = struct {
         if (inst_type == ir.Type.Void) {
             try writer.print("    {s}", .{inst.opcode()});
         } else {
-            try writer.print("    %{} = {s}", .{ idx.index, inst.opcode() });
+            try writer.print("    %{} = {s}", .{
+                self.canonical_regs[idx.get_usize()].get_usize(),
+                inst.opcode(),
+            });
         }
         try self.write_payload(inst, writer);
         try writer.print("\n", .{});
@@ -193,6 +227,10 @@ pub const CompiledResult = struct {
                     }
                 }
                 try writer.print(")", .{});
+            },
+            .copy => |copy_idx| {
+                const copy = self.stores.get(ir.CopyData, copy_idx);
+                try writer.print(" {} <- {}", .{ copy.dst, copy.src });
             },
         }
     }
@@ -272,6 +310,10 @@ pub const Compiler = struct {
     globals: [][]const u8,
     fn_idx: ir.FunctionDistinct.Index = undefined,
 
+    // this is set after the out of ssa transformation
+    // and is not used before that
+    canonical_regs: []ir.Reg,
+
     pub fn init(globals: [][]const u8, permanent_alloc: std.mem.Allocator, scratch_alloc: std.mem.Allocator) !Compiler {
         return Compiler{
             .permanent_alloc = permanent_alloc,
@@ -280,6 +322,7 @@ pub const Compiler = struct {
             .stores = .{ .alloc = permanent_alloc },
             .locals = try Locals.init(scratch_alloc),
             .globals = globals,
+            .canonical_regs = undefined,
         };
     }
 
@@ -610,6 +653,22 @@ pub const Compiler = struct {
         return CompiledResult{
             .entry_fn = self.entry_fn,
             .stores = self.stores,
+            .canonical_regs = self.canonical_regs,
+        };
+    }
+
+    pub fn create_result_ssa(self: *const Compiler) !CompiledResult {
+        const inst_count = self.stores.get_max_idx(ir.Instruction);
+        const canonical = try self.permanent_alloc.alloc(ir.Reg, inst_count.get_usize());
+
+        var inst_iter = self.stores.idx_iter(ir.Instruction);
+        while (inst_iter.next()) |inst_idx| {
+            canonical[inst_idx.get_usize()] = inst_idx;
+        }
+        return CompiledResult{
+            .entry_fn = self.entry_fn,
+            .stores = self.stores,
+            .canonical_regs = canonical,
         };
     }
 
@@ -628,6 +687,24 @@ pub const Compiler = struct {
             .ret => |_| return LabelIter.create_zero(),
             else => unreachable,
         }
+    }
+
+    pub fn dump_insts(self: *const Compiler) !void {
+        var buffer: [1024]u8 = undefined;
+        const tmp = try self.create_result_ssa();
+        var stdout = std.fs.File.stderr().writer(&buffer);
+        const writer = &stdout.interface;
+        try tmp.write_all_insts(writer);
+        try writer.flush();
+    }
+
+    pub fn dump_state(self: *const Compiler) !void {
+        var buffer: [1024]u8 = undefined;
+        const tmp = try self.create_result_ssa();
+        var stdout = std.fs.File.stderr().writer(&buffer);
+        const writer = &stdout.interface;
+        try tmp.format(writer);
+        try writer.flush();
     }
 };
 
@@ -791,16 +868,15 @@ test "condition1" {
         \\    %0 = true
         \\    branch %0, basicblock1, basicblock2
         \\basicblock1: [0]
-        \\    %2 = ldi 1
+        \\    %12 = ldi 1
         \\    jmp 3
         \\basicblock2: [0]
         \\    %4 = ldi 1
         \\    %5 = ldi 2
-        \\    %6 = add %4, %5
+        \\    %12 = add %4, %5
         \\    jmp 3
         \\basicblock3: [1, 2]
-        \\    %8 = phony 1 -> %2, 2 -> %6
-        \\    ret %8
+        \\    ret %12
         \\}
         \\
     ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
@@ -857,16 +933,15 @@ test "condition2" {
         \\    %5 = true
         \\    branch %5, basicblock1, basicblock2
         \\basicblock1: [0]
-        \\    %7 = ldi 1
+        \\    %23 = ldi 1
         \\    jmp 3
         \\basicblock2: [0]
         \\    %11 = ldi 1
         \\    %12 = ldi 2
-        \\    %13 = add %11, %12
+        \\    %23 = add %11, %12
         \\    jmp 3
         \\basicblock3: [1, 2]
-        \\    %20 = phony 1 -> %7, 2 -> %13
-        \\    ret %20
+        \\    ret %23
         \\}
         \\
     ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
@@ -927,22 +1002,20 @@ test "loop" {
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
-        \\    %0 = ldi 0
-        \\    %3 = ldi 0
+        \\    %31 = ldi 0
+        \\    %28 = ldi 0
         \\    jmp 1
         \\basicblock1: [0, 2]
-        \\    %25 = phony 0 -> %3, 2 -> %10
-        \\    %24 = phony 0 -> %0, 2 -> %14
         \\    %19 = ldi 10
-        \\    %20 = lt %24, %19
+        \\    %20 = lt %31, %19
         \\    branch %20, basicblock2, basicblock3
         \\basicblock2: [1]
-        \\    %10 = add %25, %24
+        \\    %28 = add %28, %31
         \\    %13 = ldi 1
-        \\    %14 = add %24, %13
+        \\    %31 = add %31, %13
         \\    jmp 1
         \\basicblock3: [1]
-        \\    ret %25
+        \\    ret %28
         \\}
         \\
     ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
@@ -1261,27 +1334,100 @@ test "fib recursive opt compile" {
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
-        \\    %0 = arg 0
+        \\    %24 = arg 0
         \\    %3 = ldi 2
-        \\    %4 = lt %0, %3
+        \\    %4 = lt %24, %3
         \\    branch %4, basicblock1, basicblock2
         \\basicblock1: [0]
         \\    jmp 3
         \\basicblock2: [0]
         \\    %8 = load_global 0
         \\    %10 = ldi 1
-        \\    %11 = sub %0, %10
+        \\    %11 = sub %24, %10
         \\    %12 = call %8(%11)
         \\    %13 = load_global 0
         \\    %15 = ldi 2
-        \\    %16 = sub %0, %15
+        \\    %16 = sub %24, %15
         \\    %17 = call %13(%16)
-        \\    %18 = add %12, %17
+        \\    %24 = add %12, %17
         \\    jmp 3
         \\basicblock3: [1, 2]
-        \\    %20 = phony 1 -> %0, 2 -> %18
-        \\    ret %20
+        \\    ret %24
         \\}
         \\
     ).equal_fmt(try ir_compile(function, &metadata, globals[0..], allocator));
+}
+
+test "conditions vars overlaps more" {
+    const Parser = @import("../parser.zig").Parser;
+    const snap = @import("../snap.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ fn(n) = {
+        \\     let x = 1;
+        \\     let y = if (n) {
+        \\         x + 1;
+        \\     }
+        \\     else { 
+        \\         x + 2;
+        \\     };
+        \\     y + x;
+        \\ };
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+
+    // get first function
+    const node = parse_res.data[0];
+
+    // first should be function
+    const function = &node.function;
+    const metadata = runtime.FunctionMetadata{};
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %2 = ldi 1
+        \\    branch %0, basicblock1, basicblock2
+        \\basicblock1: [0]
+        \\    %8 = ldi 1
+        \\    %9 = add %2, %8
+        \\    jmp 3
+        \\basicblock2: [0]
+        \\    %12 = ldi 2
+        \\    %13 = add %2, %12
+        \\    jmp 3
+        \\basicblock3: [1, 2]
+        \\    %15 = phony 1 -> %9, 2 -> %13
+        \\    %20 = add %15, %2
+        \\    ret %20
+        \\}
+        \\
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, &.{}, allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %2 = ldi 1
+        \\    branch %0, basicblock1, basicblock2
+        \\basicblock1: [0]
+        \\    %8 = ldi 1
+        \\    %24 = add %2, %8
+        \\    jmp 3
+        \\basicblock2: [0]
+        \\    %12 = ldi 2
+        \\    %24 = add %2, %12
+        \\    jmp 3
+        \\basicblock3: [1, 2]
+        \\    %20 = add %24, %2
+        \\    ret %20
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
 }

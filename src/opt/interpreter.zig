@@ -57,6 +57,12 @@ const Interpreter = struct {
 
                     // bit different semantics but oh well
                     .mov, .parallel_copy => |src_reg| self.regs[reg] = self.regs[src_reg.get_usize()],
+
+                    // should not be in ssa but good to test eitherway
+                    .copy => |copy_idx| {
+                        const copy = self.code.stores.get(ir.CopyData, copy_idx);
+                        self.regs[copy.dst.get_usize()] = self.regs[copy.src.get_usize()];
+                    },
                     .nil => self.regs[reg] = runtime.Value.new_nil(),
                     .true => self.regs[reg] = runtime.Value.new_bool(true),
                     .false => self.regs[reg] = runtime.Value.new_bool(false),

@@ -1,11 +1,16 @@
 const Compiler = @import("../compile.zig").Compiler;
 const std = @import("std");
 const ir = @import("../ir.zig");
+const Stores = @import("../stores.zig").Stores;
 
 pub const AnalysisBase = struct {
     compiler: *const Compiler,
     alloc: std.mem.Allocator,
     shared_data: SharedData,
+
+    pub fn get(self: *const AnalysisBase, comptime T: type, idx: Stores.get_index_type(T)) T {
+        return self.compiler.get(T, idx);
+    }
 };
 
 /// Data that would be used in a lot of the

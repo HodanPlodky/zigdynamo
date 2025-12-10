@@ -77,7 +77,7 @@ pub const Snap = struct {
         var out_writer = try std.io.Writer.Allocating.initCapacity(alloc, self.expected.len);
         defer out_writer.deinit();
         if (fmt) {
-            try out_writer.print("{f}", .{value});
+            try out_writer.writer.print("{f}", .{value});
         } else {
             try pretty_print(T, value, &out_writer.writer, 0);
         }

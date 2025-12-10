@@ -13,15 +13,15 @@ pub const ValueAnalysis = struct {
         const inst_count = base.compiler.stores.get_max_idx(ir.Instruction);
         return ValueAnalysis{
             .base = base,
-            .values = base.alloc.alloc(ir.Reg, inst_count.get_usize()),
+            .values = try base.alloc.alloc(ir.Reg, inst_count.get_usize()),
             .dom = try DominatorAnalysis.init(base),
         };
     }
 
     pub fn analyze(self: *ValueAnalysis) !void {
-        self.dom.analyze();
+        try self.dom.analyze();
         for (self.base.compiler.stores.function.data.items) |function| {
-            self.process_bb(function.entry);
+            try self.process_bb(function.entry);
         }
     }
 
@@ -32,13 +32,19 @@ pub const ValueAnalysis = struct {
         for (bb.instructions.items) |inst_idx| {
             const inst = self.base.compiler.get(ir.Instruction, inst_idx);
             switch (inst) {
-                .mov, .parallel_mov => |reg| self.values[inst_idx] = self.values[reg],
-                else => self.values[inst_idx] = inst_idx,
+                .mov, .parallel_copy => |reg| {
+                    self.values[inst_idx.get_usize()] = self.values[reg.get_usize()];
+                },
+                else => self.values[inst_idx.get_usize()] = inst_idx,
             }
         }
 
-        for (self.dom.domtree_edges[bb_idx].items) |succ_idx| {
-            self.process_bb(succ_idx);
+        for (self.dom.domtree_edges[bb_idx.get_usize()].items) |succ_idx| {
+            try self.process_bb(succ_idx);
         }
+    }
+
+    pub fn get(self: *const ValueAnalysis, reg: ir.Reg) ir.Reg {
+        return self.values[reg.get_usize()];
     }
 };

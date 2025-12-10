@@ -64,6 +64,10 @@ pub fn DistinctData(comptime I: type, comptime T: type) type {
             pub fn get_usize(self: Self) usize {
                 return @intCast(self.index);
             }
+
+            pub fn eql(self: Self, other: Self) bool {
+                return self.index == other.index;
+            }
         };
 
         pub const ArrayList = struct {

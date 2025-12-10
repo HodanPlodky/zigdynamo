@@ -8,10 +8,18 @@ pub const DominatorAnalysis = struct {
     const BitSet = std.DynamicBitSetUnmanaged;
 
     base: Base,
+
+    /// set of all dominators for basic block
     dominators: []BitSet,
     frontiers: []BitSet,
+
+    /// immediate dominator for each basic block
     idoms: []?ir.BasicBlockIdx,
+
+    /// edges of dom tree for each basic block
     domtree_edges: []std.ArrayListUnmanaged(ir.BasicBlockIdx),
+
+    // TODO: should be removed and replaced by post orde in shared data
     post_order: std.ArrayListUnmanaged(ir.BasicBlockIdx),
 
     // temp set to not allocate

@@ -71,6 +71,22 @@ pub const CallData = struct {
 pub const CallDataDistinct = utils.DistinctData(u32, CallData);
 pub const CallDataIdx = CallDataDistinct.Index;
 
+pub const ParallelCopy = struct {
+    reg: Reg,
+    
+    /// from which phony inst it originates
+    origin: Reg,
+};
+pub const ParallelCopyDistinct = utils.DistinctData(u32, CopyData);
+pub const ParallelCopyIdx = ParallelCopyDistinct.Index;
+
+pub const CopyData = struct {
+    src: Reg,
+    dst: Reg,
+};
+pub const CopyDataDistinct = utils.DistinctData(u32, CopyData);
+pub const CopyIdx = CopyDataDistinct.Index;
+
 // taged union with max payload
 // of size 4 bytes (u32)
 pub const Instruction = union(enum) {
@@ -111,6 +127,11 @@ pub const Instruction = union(enum) {
     get_local: u32,
     set_local: SetLocalIdx,
 
+    // not ssa instruction
+    // should be inserted only
+    // at the end of the compilation
+    copy: CopyIdx,
+
 
     pub fn opcode(self: Instruction) []const u8 {
         return switch (self) {
@@ -139,6 +160,7 @@ pub const Instruction = union(enum) {
             .call => "call",
             .get_local => "get_local",
             .set_local => "set_local",
+            .copy => "copy",
         };
     }
 
