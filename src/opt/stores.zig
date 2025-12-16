@@ -293,7 +293,6 @@ pub const Stores = struct {
             // no regs
             .ldi, .load_global, .arg, .load_env, .nil, .true, .false, .nop, .jmp => return RegIter.create_empty(),
 
-            // TODO
             .store_env, .store_global => |store_idx| {
                 const data = self.get(ir.StoreData, store_idx);
                 return RegIter.create_one(data.value);
@@ -424,7 +423,6 @@ pub const Stores = struct {
             .jmp,
             => return RegIterPtr.create_empty(),
 
-            // TODO
             .store_env, .store_global => |store_idx| {
                 const data = self.get_field_reg_ptr(ir.StoreData, .value, store_idx);
                 return RegIterPtr.create_one(data);
