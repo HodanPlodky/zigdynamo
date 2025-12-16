@@ -4,6 +4,7 @@ const Base = @import("pass_base.zig").PassBase;
 const LivenessAnalysis = @import("../analysis/liveness.zig").LivenessAnalysis;
 const ValueAnalysis = @import("../analysis/value_analysis.zig").ValueAnalysis;
 const DominatorAnalysis = @import("../analysis/dominator.zig").DominatorAnalysis;
+const Canonical = @import("../analysis/canonical_regs_analysis.zig").CanonicalRegsAnalysis;
 
 pub const CopyElimination = struct {
     const BitSet = std.DynamicBitSetUnmanaged;
@@ -18,11 +19,11 @@ pub const CopyElimination = struct {
     canonical_regs: []ir.Reg,
     to_remove: BitSet,
 
-    pub fn init(base: Base) !CopyElimination {
+    pub fn init(base: Base, canon: Canonical) !CopyElimination {
         const inst_count = base.compiler.stores.get_max_idx(ir.Instruction);
         return CopyElimination{
             .base = base,
-            .liveness = try LivenessAnalysis.init(base.analysis_base),
+            .liveness = try LivenessAnalysis.init(base.analysis_base, canon),
             .values = try ValueAnalysis.init(base.analysis_base),
             .dom = try DominatorAnalysis.init(base.analysis_base),
             .canonical_regs = try base.alloc.alloc(ir.Reg, inst_count.get_usize()),
@@ -32,7 +33,6 @@ pub const CopyElimination = struct {
 
     pub fn run(self: *CopyElimination) !void {
         try self.liveness.analyze();
-        try self.liveness.dump();
         try self.values.analyze();
         try self.dom.analyze();
 
@@ -69,26 +69,28 @@ pub const CopyElimination = struct {
     fn process_inst(self: *CopyElimination, inst_idx: ir.InstructionIdx) void {
         self.canonical_regs[inst_idx.get_usize()] = inst_idx;
         if (self.get_copy_data(inst_idx)) |data| {
-            const src_val = self.values.get(data.src);
-            const dst_val = self.values.get(data.dst);
-            const src_liveset = self.liveness.get_live_at(data.src);
-            const dst_liveset = self.liveness.get_live_at(data.dst);
+            const src_canon = self.liveness.canonical.find_canonical(data.src);
+            const dst_canon = self.liveness.canonical.find_canonical(data.dst);
+            const src_val = self.values.get(src_canon);
+            const dst_val = self.values.get(dst_canon);
 
             // if they either have a same value of their liveness set are distincted
             // then you can technically have them in same register so it is ok to
             // remove this copy in this case set cannonical to same reg and mark it to remove
-            const liveness_overlaps = src_liveset.isSet(dst_val.get_usize()) or dst_liveset.isSet(src_val.get_usize());
+            const dst_is_live_at_src = self.liveness.is_live_at(data.src, data.dst);
+            const src_is_live_at_dst = self.liveness.is_live_at(data.dst, data.src);
+            const liveness_overlaps = dst_is_live_at_src or src_is_live_at_dst;
+
+            // TODO figure out whats up with value there
             if (src_val.eql(dst_val) or !liveness_overlaps) {
-                std.debug.print("{} = {}\n", .{data.src, data.dst});
-                const src_cannonical = self.canonical_regs[data.src.get_usize()];
-                self.canonical_regs[data.dst.get_usize()] = src_cannonical;
+
                 self.to_remove.set(inst_idx.get_usize());
-                self.liveness.combine_liveness_to(data.dst, data.src);
-                self.liveness.combine_liveness_to(data.src, data.dst);
-                
+                self.liveness.combine_regs(data.src, data.dst);
+                self.canonical_regs[data.dst.get_usize()] = data.src;
+                self.liveness.canonical.union_regs(data.dst, data.src);
+
                 // tmp
                 self.fix_insts_regs();
-                self.base.compiler.dump_state() catch unreachable;
             }
         }
     }

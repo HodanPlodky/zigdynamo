@@ -56,7 +56,7 @@ pub const MovElim = struct {
 
     fn process_phony(self: *MovElim, phony_data: ir.PhonyData) void {
         for (phony_data.data) |*pair| {
-            const orig = self.get_origin_phony(pair.reg);
+            const orig = self.get_origin(pair.reg);
             pair.reg = orig;
         }
     }

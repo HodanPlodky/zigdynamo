@@ -69,7 +69,7 @@ pub const JitCompiler = struct {
         const shared_data = try SharedData.init(&compiler, scratch);
         try run_passes(&compiler, scratch, shared_data);
         _ = self.base.scratch_arena.reset(.retain_capacity);
-        try outofssa(&compiler, scratch, shared_data);
+        try outofssa(&compiler, scratch, scratch, shared_data);
 
         self.base.start_compilation(compiler.stores.get_max_idx(ir.Instruction).get_usize());
         const start = self.base.code_ptr;
@@ -185,6 +185,8 @@ pub const JitCompiler = struct {
             // should not be in code when generating
             // machine code
             .get_local, .set_local => unreachable,
+            .parallel_copy => unreachable,
+            .copy => unreachable,
         }
     }
 

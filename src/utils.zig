@@ -235,6 +235,21 @@ pub fn bit_set_move(noalias src: *const std.DynamicBitSetUnmanaged, noalias dst:
     @memcpy(dst.masks[0..len], src.masks[0..len]);
 }
 
+pub fn dump_set(set: std.DynamicBitSetUnmanaged) void {
+    if (set.count() == 0) {
+        std.debug.print("{{}}", .{});
+        return;
+    }
+
+    std.debug.print("{{", .{});
+    var iter = set.iterator(.{});
+    std.debug.print("{}", .{iter.next().?});
+    while (iter.next()) |item| {
+        std.debug.print(", {}", .{item});
+    }
+    std.debug.print("}}", .{});
+}
+
 test "distinct arrays 1" {
     const Small = DistinctData(u8, i32);
     const SmallIndex = Small.Index;

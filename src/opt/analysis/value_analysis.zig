@@ -33,7 +33,7 @@ pub const ValueAnalysis = struct {
             const inst = self.base.compiler.get(ir.Instruction, inst_idx);
             switch (inst) {
                 .mov, .parallel_copy => |reg| {
-                    self.values[inst_idx.get_usize()] = self.values[reg.get_usize()];
+                    self.set(inst_idx, reg);
                 },
                 else => self.values[inst_idx.get_usize()] = inst_idx,
             }
@@ -42,6 +42,10 @@ pub const ValueAnalysis = struct {
         for (self.dom.domtree_edges[bb_idx.get_usize()].items) |succ_idx| {
             try self.process_bb(succ_idx);
         }
+    }
+
+    pub fn set(self: *ValueAnalysis, dst: ir.Reg, src: ir.Reg) void {
+        self.values[dst.get_usize()] = self.values[src.get_usize()];
     }
 
     pub fn get(self: *const ValueAnalysis, reg: ir.Reg) ir.Reg {

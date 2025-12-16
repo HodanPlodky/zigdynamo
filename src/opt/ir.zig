@@ -73,7 +73,7 @@ pub const CallDataIdx = CallDataDistinct.Index;
 
 pub const ParallelCopy = struct {
     reg: Reg,
-    
+
     /// from which phony inst it originates
     origin: Reg,
 };
@@ -131,7 +131,6 @@ pub const Instruction = union(enum) {
     // should be inserted only
     // at the end of the compilation
     copy: CopyIdx,
-
 
     pub fn opcode(self: Instruction) []const u8 {
         return switch (self) {
@@ -218,6 +217,16 @@ pub const Instruction = union(enum) {
             return res;
         }
     };
+
+    pub fn has_output(self: Instruction) bool {
+        if (self.is_terminator()) {
+            return false;
+        }
+        return switch (self) {
+            .store_global, .nop, .set_local, .store_env => false,
+            else => true,
+        };
+    }
 };
 
 comptime {

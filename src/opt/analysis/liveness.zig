@@ -2,6 +2,7 @@ const std = @import("std");
 const Base = @import("analysis_base.zig").AnalysisBase;
 const ir = @import("../ir.zig");
 const rev = @import("../../utils.zig").ReversedSlice;
+const dump_set = @import("../../utils.zig").dump_set;
 const bit_set_move = @import("../../utils.zig").bit_set_move;
 const Canonical = @import("../analysis/canonical_regs_analysis.zig").CanonicalRegsAnalysis;
 
@@ -12,29 +13,35 @@ pub const LivenessAnalysis = struct {
     canonical: Canonical,
 
     liveness_at: []BitSet,
+    out_live: []BitSet,
     live_at: []BitSet,
 
     curr: BitSet,
 
-    pub fn init(base: Base) !LivenessAnalysis {
+    pub fn init(base: Base, canonical: Canonical) !LivenessAnalysis {
         const inst_idx = base.compiler.stores.get_max_idx(ir.Instruction);
+        const bb_idx = base.compiler.stores.get_max_idx(ir.BasicBlock);
         return LivenessAnalysis{
             .base = base,
-            .canonical = try Canonical.init(base),
+            .canonical = canonical,
             .liveness_at = try base.alloc.alloc(BitSet, inst_idx.get_usize()),
+            .out_live = try base.alloc.alloc(BitSet, bb_idx.get_usize()),
             .live_at = try base.alloc.alloc(BitSet, inst_idx.get_usize()),
             .curr = try BitSet.initEmpty(base.alloc, inst_idx.get_usize()),
         };
     }
 
     pub fn analyze(self: *LivenessAnalysis) !void {
-        try self.canonical.analyze();
         const inst_count = self.liveness_at.len;
         for (self.liveness_at) |*live| {
             live.* = try BitSet.initEmpty(self.base.alloc, inst_count);
         }
 
         for (self.live_at) |*live| {
+            live.* = try BitSet.initEmpty(self.base.alloc, inst_count);
+        }
+
+        for (self.out_live) |*live| {
             live.* = try BitSet.initEmpty(self.base.alloc, inst_count);
         }
 
@@ -69,18 +76,22 @@ pub const LivenessAnalysis = struct {
         self.curr.unsetAll();
         var succ_iter = self.base.compiler.get_succesors(bb_idx);
         while (succ_iter.next()) |succ_idx| {
-            const succ = self.base.compiler.get(ir.BasicBlock, succ_idx);
-            const first = succ.instructions.items[0];
-            const first_liveness = self.liveness_at[first.get_usize()];
+            const first_liveness = self.out_live[succ_idx.get_usize()];
             self.curr.setUnion(first_liveness);
         }
 
         const bb = self.base.compiler.get(ir.BasicBlock, bb_idx);
         var inst_iter = rev(ir.InstructionIdx).init(bb.instructions.items);
         while (inst_iter.next()) |inst_idx| {
+            change |= !self.curr.eql(self.liveness_at[inst_idx.get_usize()]);
+            bit_set_move(&self.curr, &self.liveness_at[inst_idx.get_usize()]);
+
+            const inst = self.base.get(ir.Instruction, inst_idx);
             // remove output
-            const out_canon = self.canonical.find_canonical(inst_idx);
-            self.curr.unset(out_canon.get_usize());
+            if (inst.has_output()) {
+                const out_canon = self.canonical.find_canonical(inst_idx);
+                self.curr.unset(out_canon.get_usize());
+            }
 
             // add inputs
             var iter = self.base.compiler.stores.get_reg_iter(inst_idx);
@@ -88,15 +99,21 @@ pub const LivenessAnalysis = struct {
                 const canon_reg = self.canonical.find_canonical(reg);
                 self.curr.set(canon_reg.get_usize());
             }
-            change |= !self.curr.eql(self.liveness_at[inst_idx.get_usize()]);
-            bit_set_move(&self.curr, &self.liveness_at[inst_idx.get_usize()]);
         }
+
+        bit_set_move(&self.curr, &self.out_live[bb_idx.get_usize()]);
 
         return change;
     }
 
-    pub fn get_live_at(self: *const LivenessAnalysis, place: ir.InstructionIdx) BitSet {
+    pub fn get_liveness_at(self: *const LivenessAnalysis, place: ir.InstructionIdx) BitSet {
         return self.liveness_at[place.get_usize()];
+    }
+
+    pub fn is_live_at(self: *LivenessAnalysis, place: ir.InstructionIdx, reg: ir.Reg) bool {
+        const liveness = self.get_liveness_at(place);
+        const canon = self.canonical.find_canonical(reg);
+        return liveness.isSet(canon.get_usize());
     }
 
     pub fn combine_liveness_to(self: *LivenessAnalysis, dst: ir.Reg, src: ir.Reg) void {
@@ -106,8 +123,13 @@ pub const LivenessAnalysis = struct {
         self.live_at[dst.get_usize()].setUnion(live_at_src);
     }
 
+    pub fn combine_regs(self: *LivenessAnalysis, dst: ir.Reg, src: ir.Reg) void {
+        self.combine_liveness_to(dst, src);
+        self.combine_liveness_to(src, dst);
+    }
+
     pub fn dump(self: *const LivenessAnalysis) !void {
-        std.debug.print("live_at\n", .{});
+        std.debug.print("live at\n", .{});
         for (0.., self.live_at) |inst_idx, set| {
             if (set.count() == 0) {
                 continue;
@@ -119,5 +141,27 @@ pub const LivenessAnalysis = struct {
             }
             std.debug.print("\n", .{});
         }
+
+        std.debug.print("\nliveness at\n", .{});
+        for (0.., self.liveness_at) |inst_idx, set| {
+            if (set.count() == 0) {
+                continue;
+            }
+            std.debug.print("  {}: ", .{inst_idx});
+            var iter = set.iterator(.{});
+            while (iter.next()) |reg| {
+                std.debug.print("{} ", .{reg});
+            }
+            std.debug.print("\n", .{});
+        }
+    }
+
+    pub fn dump_liveset(self: *const LivenessAnalysis, place: ir.InstructionIdx) !void {
+        const set = self.liveness_at[place.get_usize()];
+        var iter = set.iterator(.{});
+        while (iter.next()) |reg| {
+            std.debug.print("{} ", .{reg});
+        }
+        std.debug.print("\n", .{});
     }
 };

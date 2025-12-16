@@ -29,8 +29,7 @@ pub fn main() !void {
     var reader = file.reader(&buffer);
 
     const input = try allocator.alloc(u8, try reader.getSize());
-    const res_len = try reader.read(input);
-    std.debug.assert(res_len == input.len);
+    try reader.interface.readSliceAll(input);
 
     var p = parser.Parser.new(input, allocator);
     const program = try p.parse();

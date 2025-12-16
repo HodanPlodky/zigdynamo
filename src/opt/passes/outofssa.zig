@@ -13,18 +13,16 @@ pub const OutOfSSAPass = struct {
     canonical_regs: []ir.Reg,
     canonical_analysis: Canonical,
 
-    pub fn init(base: Base, perma_alloc: std.mem.Allocator) !OutOfSSAPass {
+    pub fn init(base: Base, perma_alloc: std.mem.Allocator, canon: Canonical) !OutOfSSAPass {
         const inst_count = base.compiler.stores.get_max_idx(ir.Instruction);
         return OutOfSSAPass{
             .base = base,
             .canonical_regs = try perma_alloc.alloc(ir.Reg, inst_count.get_usize()),
-            .canonical_analysis = try Canonical.init(base.analysis_base),
+            .canonical_analysis = canon,
         };
     }
 
     pub fn run(self: *OutOfSSAPass) !void {
-        try self.canonical_analysis.analyze();
-
         // store result for output since the result from analysis
         // is stored in the scratch allocator
 

@@ -14,6 +14,7 @@ const AnalysisBase = @import("analysis/analysis_base.zig").AnalysisBase;
 const SharedData = @import("analysis/analysis_base.zig").SharedData;
 const SerializationPass = @import("passes/parcopy_serialization.zig").SerializationPass;
 const OutOfSSAPass = @import("passes/outofssa.zig").OutOfSSAPass;
+const CanonicalAnalysis = @import("analysis/canonical_regs_analysis.zig").CanonicalRegsAnalysis;
 
 pub fn ir_compile(
     input: *const ast.Function,
@@ -80,13 +81,6 @@ pub fn run_passes(compiler: *Compiler, alloc: std.mem.Allocator, shared_data: Sh
 }
 
 pub fn outofssa(compiler: *Compiler, perma_alloc: std.mem.Allocator, scratch_alloc: std.mem.Allocator, shared_data: SharedData) !void {
-    const passes: [4]type = .{
-        MakeCSSA,
-        CopyElimPass,
-        UnusedElim,
-        SerializationPass,
-    };
-
     const analysis_base = AnalysisBase{
         .compiler = compiler,
         .alloc = scratch_alloc,
@@ -98,15 +92,27 @@ pub fn outofssa(compiler: *Compiler, perma_alloc: std.mem.Allocator, scratch_all
         .analysis_base = analysis_base,
     };
 
-    inline for (passes) |pass_type| {
-        std.debug.print("pass: {s}\n", .{@typeName(pass_type)});
-        var pass = try pass_type.init(pass_base);
+    var make_cssa = try MakeCSSA.init(pass_base);
+    try make_cssa.run();
+    var canon = try CanonicalAnalysis.init(pass_base.analysis_base);
+    canon.analyze();
+
+    {
+        var pass = try CopyElimPass.init(pass_base, canon);
         try pass.run();
-        try compiler.dump_state();
-        std.debug.print("\n", .{});
     }
-    var out_pass = try OutOfSSAPass.init(pass_base, perma_alloc);
+    {
+        var pass = try UnusedElim.init(pass_base);
+        try pass.run();
+    }
+    {
+        var pass = try SerializationPass.init(pass_base, canon);
+        try pass.run();
+    }
+
+    var out_pass = try OutOfSSAPass.init(pass_base, perma_alloc, canon);
     try out_pass.run();
+
     compiler.canonical_regs = out_pass.canonical_regs;
 }
 
@@ -1109,14 +1115,13 @@ test "while fib opt compiler" {
         \\    jmp 1
         \\basicblock1: [0, 2]
         \\    %33 = phony 0 -> %5, 2 -> %12
-        \\    %32 = phony 0 -> %2, 2 -> %15
+        \\    %32 = phony 0 -> %2, 2 -> %33
         \\    %31 = phony 0 -> %0, 2 -> %21
         \\    %26 = ldi 0
         \\    %27 = gt %31, %26
         \\    branch %27, basicblock2, basicblock3
         \\basicblock2: [1]
         \\    %12 = add %32, %33
-        \\    %15 = mov %33
         \\    %20 = ldi 1
         \\    %21 = sub %31, %20
         \\    jmp 1
