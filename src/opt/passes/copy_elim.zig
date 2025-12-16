@@ -81,9 +81,7 @@ pub const CopyElimination = struct {
             const src_is_live_at_dst = self.liveness.is_live_at(data.dst, data.src);
             const liveness_overlaps = dst_is_live_at_src or src_is_live_at_dst;
 
-            // TODO figure out whats up with value there
             if (src_val.eql(dst_val) or !liveness_overlaps) {
-
                 self.to_remove.set(inst_idx.get_usize());
                 self.liveness.combine_regs(data.src, data.dst);
                 self.canonical_regs[data.dst.get_usize()] = data.src;
