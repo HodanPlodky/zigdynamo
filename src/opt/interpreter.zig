@@ -36,6 +36,7 @@ const Interpreter = struct {
     }
 
     pub fn run(self: *Interpreter, args: []runtime.Value) runtime.Value {
+        std.debug.print("{f}\n", .{self.code});
         const start = self.code.entry_fn;
         const function = self.code.stores.get(ir.Function, start);
         self.args = args;
@@ -50,34 +51,34 @@ const Interpreter = struct {
             const curr_bb = self.code.stores.get(ir.BasicBlock, curr_idx);
             for (curr_bb.instructions.items, 0..) |inst_idx, idx| {
                 const inst = self.code.stores.get(ir.Instruction, inst_idx);
-                const reg = inst_idx.get_usize();
+                const reg = inst_idx;
 
                 switch (inst) {
-                    .ldi => |num| self.regs[reg] = runtime.Value.new_num(num),
+                    .ldi => |num| self.set_reg(reg, runtime.Value.new_num(num)),
 
                     // bit different semantics but oh well
-                    .mov, .parallel_copy => |src_reg| self.regs[reg] = self.regs[src_reg.get_usize()],
+                    .mov, .parallel_copy => |src_reg| self.set_reg(reg, self.get_reg(src_reg)),
 
                     // should not be in ssa but good to test eitherway
                     .copy => |copy_idx| {
                         const copy = self.code.stores.get(ir.CopyData, copy_idx);
-                        self.regs[copy.dst.get_usize()] = self.regs[copy.src.get_usize()];
+                        self.set_reg(copy.dst, self.get_reg(copy.src));
                     },
-                    .nil => self.regs[reg] = runtime.Value.new_nil(),
-                    .true => self.regs[reg] = runtime.Value.new_bool(true),
-                    .false => self.regs[reg] = runtime.Value.new_bool(false),
+                    .nil => self.set_reg(reg, runtime.Value.new_nil()),
+                    .true => self.set_reg(reg, runtime.Value.new_bool(true)),
+                    .false => self.set_reg(reg, runtime.Value.new_bool(false)),
                     .load_global => |num| {
-                        self.regs[reg] = self.globals[@intCast(num)];
+                        self.set_reg(reg, self.globals[@intCast(num)]);
                     },
                     .store_global => |store_idx| {
                         const store = self.code.stores.get(ir.StoreData, store_idx);
-                        const val = self.regs[store.value.get_usize()];
+                        const val = self.get_reg(store.value);
                         self.globals[@intCast(store.idx)] = val;
                     },
-                    .load_env => |num| self.regs[reg] = self.env[@intCast(num)],
+                    .load_env => |num| self.set_reg(reg, self.env[@intCast(num)]),
                     .store_env => |store_idx| {
                         const store = self.code.stores.get(ir.StoreData, store_idx);
-                        const val = self.regs[store.value.get_usize()];
+                        const val = self.get_reg(store.value);
                         self.env[@intCast(store.idx)] = val;
                     },
                     .add => |binop_idx| self.run_binop(
@@ -112,13 +113,13 @@ const Interpreter = struct {
                     ),
                     .ret => |ret_reg| {
                         std.debug.assert(idx == curr_bb.instructions.items.len - 1);
-                        return self.regs[ret_reg.get_usize()];
+                        return self.get_reg(ret_reg);
                     },
                     .branch => |branch_idx| {
                         std.debug.assert(idx == curr_bb.instructions.items.len - 1);
                         before = curr_idx;
                         const branch = self.code.stores.get(ir.BranchData, branch_idx);
-                        const cond = self.regs[branch.cond.get_usize()];
+                        const cond = self.get_reg(branch.cond);
                         switch (cond.get_type()) {
                             runtime.ValueType.true => curr_idx = branch.true_branch,
                             runtime.ValueType.false => curr_idx = branch.false_branch,
@@ -132,7 +133,7 @@ const Interpreter = struct {
                         curr_idx = label;
                         break;
                     },
-                    .arg => |num| self.regs[reg] = self.args[@intCast(num)],
+                    .arg => |num| self.set_reg(reg, self.args[@intCast(num)]),
                     .nop => {},
                     .phony => |phony_idx| {
                         const phony = self.code.stores.get(ir.PhonyData, phony_idx);
@@ -143,7 +144,7 @@ const Interpreter = struct {
                             }
                         }
 
-                        self.regs[reg] = self.regs[res.?.get_usize()];
+                        self.set_reg(reg, self.get_reg(res.?));
                     },
                     .call => unreachable,
                     .get_local, .set_local => @panic("after passes this should not be here"),
@@ -158,14 +159,24 @@ const Interpreter = struct {
         binop: ir.BinOpData,
         comptime oper: fn (runtime.Value, runtime.Value) runtime.Value,
     ) void {
-        const left = self.regs[binop.left.get_usize()];
-        const right = self.regs[binop.right.get_usize()];
+        const left = self.get_reg(binop.left);
+        const right = self.get_reg(binop.right);
         if (left.get_type() == runtime.ValueType.number and right.get_type() == runtime.ValueType.number) {
-            self.regs[inst_idx.get_usize()] = oper(left, right);
+            self.set_reg(inst_idx, oper(left, right));
         } else {
             std.debug.print("left: {f}, right: {f}\n", .{ left, right });
             @panic("Unimplemented dispatch");
         }
+    }
+
+    fn get_reg(self: *const Interpreter, reg: ir.Reg) runtime.Value {
+        const canon = self.code.canonical_regs[reg.get_usize()];
+        return self.regs[canon.get_usize()];
+    }
+
+    fn set_reg(self: *const Interpreter, reg: ir.Reg, value: runtime.Value) void {
+        const canon = self.code.canonical_regs[reg.get_usize()];
+        self.regs[canon.get_usize()] = value;
     }
 };
 
@@ -177,6 +188,7 @@ fn test_helper(
 ) !runtime.Value {
     const Parser = @import("../parser.zig").Parser;
     const ir_compile = @import("compile.zig").ir_compile;
+    const ir_compile_ssa = @import("compile.zig").ir_compile_ssa;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -191,10 +203,19 @@ fn test_helper(
     const function = &node.function;
     const metadata = runtime.FunctionMetadata{};
 
-    const res = try ir_compile(function, &metadata, global_names, allocator);
+    const ssa_code = try ir_compile_ssa(function, &metadata, global_names, allocator);
 
-    var interpret = try Interpreter.init(res, globals, &.{}, allocator);
-    return interpret.run(args);
+    var interpret_ssa = try Interpreter.init(ssa_code, globals, &.{}, allocator);
+    const ssa_result = interpret_ssa.run(args);
+
+    const final_ir_code = try ir_compile(function, &metadata, global_names, allocator);
+
+    var interpret = try Interpreter.init(final_ir_code, globals, &.{}, allocator);
+
+    const final_result =  interpret.run(args);
+    try std.testing.expectEqualDeep(ssa_result, final_result);
+
+    return final_result;
 }
 
 test "basic" {

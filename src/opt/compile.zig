@@ -97,6 +97,8 @@ pub fn outofssa(compiler: *Compiler, perma_alloc: std.mem.Allocator, scratch_all
     var canon = try CanonicalAnalysis.init(pass_base.analysis_base);
     canon.analyze();
 
+    try compiler.dump_state();
+
     {
         var pass = try CopyElimPass.init(pass_base, canon);
         try pass.run();
@@ -105,15 +107,16 @@ pub fn outofssa(compiler: *Compiler, perma_alloc: std.mem.Allocator, scratch_all
         var pass = try UnusedElim.init(pass_base);
         try pass.run();
     }
+
+    // after this pass the ir should not be considered in SSA form
+    var out_pass = try OutOfSSAPass.init(pass_base, perma_alloc, canon);
+    try out_pass.run();
+    compiler.canonical_regs = out_pass.canonical_regs;
+
     {
         var pass = try SerializationPass.init(pass_base, canon);
         try pass.run();
     }
-
-    var out_pass = try OutOfSSAPass.init(pass_base, perma_alloc, canon);
-    try out_pass.run();
-
-    compiler.canonical_regs = out_pass.canonical_regs;
 }
 
 pub const CompiledResult = struct {
@@ -166,7 +169,7 @@ pub const CompiledResult = struct {
     pub fn write_inst(self: *const CompiledResult, idx: ir.InstructionIdx, writer: anytype) !void {
         const inst = self.stores.get(ir.Instruction, idx);
         const inst_type = self.stores.get_type(inst);
-        if (inst_type == ir.Type.Void) {
+        if (inst_type == ir.Type.Void or std.meta.activeTag(inst) == .copy) {
             try writer.print("    {s}", .{inst.opcode()});
         } else {
             try writer.print("    %{} = {s}", .{
@@ -236,7 +239,7 @@ pub const CompiledResult = struct {
             },
             .copy => |copy_idx| {
                 const copy = self.stores.get(ir.CopyData, copy_idx);
-                try writer.print(" {} <- {}", .{ copy.dst, copy.src });
+                try writer.print(" %{} <- %{}", .{ copy.dst.get_usize(), copy.src.get_usize() });
             },
         }
     }
@@ -695,6 +698,12 @@ pub const Compiler = struct {
         }
     }
 
+    /// Returns canonical register that is selected as a name for the register after
+    /// out of ssa translation (so this function assumes it is already after that)
+    pub fn get_canonical_output(self: *const Compiler, inst_idx: ir.InstructionIdx) ir.Reg {
+        return self.canonical_regs[inst_idx.get_usize()];
+    }
+
     pub fn dump_insts(self: *const Compiler) !void {
         var buffer: [1024]u8 = undefined;
         const tmp = try self.create_result_ssa();
@@ -1134,25 +1143,22 @@ test "while fib opt compiler" {
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
-        \\    %0 = arg 0
-        \\    %2 = ldi 0
-        \\    %5 = ldi 1
+        \\    %43 = arg 0
+        \\    %40 = ldi 0
+        \\    %37 = ldi 1
         \\    jmp 1
         \\basicblock1: [0, 2]
-        \\    %33 = phony 0 -> %5, 2 -> %12
-        \\    %32 = phony 0 -> %2, 2 -> %15
-        \\    %31 = phony 0 -> %0, 2 -> %21
         \\    %26 = ldi 0
-        \\    %27 = gt %31, %26
+        \\    %27 = gt %43, %26
         \\    branch %27, basicblock2, basicblock3
         \\basicblock2: [1]
-        \\    %12 = add %32, %33
-        \\    %15 = mov %33
+        \\    %37 = add %40, %37
         \\    %20 = ldi 1
-        \\    %21 = sub %31, %20
+        \\    %43 = sub %43, %20
+        \\    copy %40 <- %37
         \\    jmp 1
         \\basicblock3: [1]
-        \\    ret %32
+        \\    ret %40
         \\}
         \\
     ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));

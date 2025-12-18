@@ -469,15 +469,4 @@ pub const Stores = struct {
             .copy => unreachable,
         }
     }
-
-    pub fn get_output(self: *const Stores, inst_idx: ir.InstructionIdx) ir.Reg {
-        const inst = self.get(ir.Instruction, inst_idx);
-        switch (inst) {
-            .copy => |copy_idx| {
-                const copy = self.get(ir.CopyData, copy_idx);
-                return copy.dst;
-            },
-            else => return inst_idx,
-        }
-    }
 };
