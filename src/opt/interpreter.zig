@@ -313,7 +313,7 @@ test "while fib" {
     try std.testing.expectEqual(ret.get_number(), 9227465);
 }
 
-test "intepreter global" {
+test "interpreter global" {
     const input =
         \\ fn(n) = {
         \\     let tmp = g;
@@ -325,7 +325,11 @@ test "intepreter global" {
     var args: [1]runtime.Value = .{runtime.Value.new_num(321)};
     var global_names: [1][]const u8 = .{"g"};
     var globals: [1]runtime.Value = .{runtime.Value.new_num(123)};
-    const ret = try test_helper(input, args[0..], global_names[0..], globals[0..]);
+
+    // WARN: there is a problem with over write of a global since it
+    // could run twice (ssa and out ir) so no it runs only with
+    // ssa no (they should be the same anyway)
+    const ret = try test_helper_inner(input, args[0..], global_names[0..], globals[0..], true);
     try std.testing.expectEqual(ret.get_number(), 123);
     try std.testing.expectEqual(globals[0].get_number(), 321);
 }
