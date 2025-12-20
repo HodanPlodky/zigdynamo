@@ -46,12 +46,6 @@ pub const CanonicalRegsAnalysis = struct {
                         self.union_regs(inst_idx, pair.reg);
                     }
                 },
-                .parallel_copy => |reg| {
-                    const before_inst = self.base.get(ir.Instruction, reg);
-                    if (std.meta.activeTag(before_inst) == .phony) {
-                        self.union_regs(reg, inst_idx);
-                    }
-                },
                 else => {},
             }
         }

@@ -960,7 +960,7 @@ test "condition2" {
     ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
 }
 
-test "loop" {
+test "optimized loop" {
     const Parser = @import("../parser.zig").Parser;
     const snap = @import("../snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -1141,22 +1141,23 @@ test "while fib opt compiler" {
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
-        \\    %43 = arg 0
-        \\    %40 = ldi 0
-        \\    %37 = ldi 1
+        \\    %31 = arg 0
+        \\    %32 = ldi 0
+        \\    %33 = ldi 1
         \\    jmp 1
         \\basicblock1: [0, 2]
         \\    %26 = ldi 0
-        \\    %27 = gt %43, %26
+        \\    %27 = gt %31, %26
         \\    branch %27, basicblock2, basicblock3
         \\basicblock2: [1]
-        \\    %37 = add %40, %37
+        \\    %12 = add %32, %33
         \\    %20 = ldi 1
-        \\    %43 = sub %43, %20
-        \\    copy %40 <- %37
+        \\    %31 = sub %31, %20
+        \\    copy %32 <- %33
+        \\    copy %33 <- %12
         \\    jmp 1
         \\basicblock3: [1]
-        \\    ret %40
+        \\    ret %32
         \\}
         \\
     ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
@@ -1343,25 +1344,25 @@ test "fib recursive opt compile" {
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
-        \\    %24 = arg 0
+        \\    %20 = arg 0
         \\    %3 = ldi 2
-        \\    %4 = lt %24, %3
+        \\    %4 = lt %20, %3
         \\    branch %4, basicblock1, basicblock2
         \\basicblock1: [0]
         \\    jmp 3
         \\basicblock2: [0]
         \\    %8 = load_global 0
         \\    %10 = ldi 1
-        \\    %11 = sub %24, %10
+        \\    %11 = sub %20, %10
         \\    %12 = call %8(%11)
         \\    %13 = load_global 0
         \\    %15 = ldi 2
-        \\    %16 = sub %24, %15
+        \\    %16 = sub %20, %15
         \\    %17 = call %13(%16)
-        \\    %24 = add %12, %17
+        \\    %20 = add %12, %17
         \\    jmp 3
         \\basicblock3: [1, 2]
-        \\    ret %24
+        \\    ret %20
         \\}
         \\
     ).equal_fmt(try ir_compile(function, &metadata, globals[0..], allocator));
@@ -1427,14 +1428,14 @@ test "conditions vars overlaps more" {
         \\    branch %0, basicblock1, basicblock2
         \\basicblock1: [0]
         \\    %8 = ldi 1
-        \\    %24 = add %2, %8
+        \\    %15 = add %2, %8
         \\    jmp 3
         \\basicblock2: [0]
         \\    %12 = ldi 2
-        \\    %24 = add %2, %12
+        \\    %15 = add %2, %12
         \\    jmp 3
         \\basicblock3: [1, 2]
-        \\    %20 = add %24, %2
+        \\    %20 = add %15, %2
         \\    ret %20
         \\}
         \\

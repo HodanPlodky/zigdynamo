@@ -185,6 +185,16 @@ fn test_helper(
     global_names: [][]const u8,
     globals: []runtime.Value,
 ) !runtime.Value {
+    return try test_helper_inner(input, args, global_names, globals, false);
+}
+
+fn test_helper_inner(
+    input: []const u8,
+    args: []runtime.Value,
+    global_names: [][]const u8,
+    globals: []runtime.Value,
+    comptime ignore_ssa: bool,
+) !runtime.Value {
     const Parser = @import("../parser.zig").Parser;
     const ir_compile = @import("compile.zig").ir_compile;
     const ir_compile_ssa = @import("compile.zig").ir_compile_ssa;
@@ -202,19 +212,29 @@ fn test_helper(
     const function = &node.function;
     const metadata = runtime.FunctionMetadata{};
 
-    const ssa_code = try ir_compile_ssa(function, &metadata, global_names, allocator);
+    if (!ignore_ssa) {
+        const ssa_code = try ir_compile_ssa(function, &metadata, global_names, allocator);
 
-    var interpret_ssa = try Interpreter.init(ssa_code, globals, &.{}, allocator);
-    const ssa_result = interpret_ssa.run(args);
+        var interpret_ssa = try Interpreter.init(ssa_code, globals, &.{}, allocator);
+        const ssa_result = interpret_ssa.run(args);
 
-    const final_ir_code = try ir_compile(function, &metadata, global_names, allocator);
+        const final_ir_code = try ir_compile(function, &metadata, global_names, allocator);
 
-    var interpret = try Interpreter.init(final_ir_code, globals, &.{}, allocator);
+        var interpret = try Interpreter.init(final_ir_code, globals, &.{}, allocator);
 
-    const final_result =  interpret.run(args);
-    try std.testing.expectEqualDeep(ssa_result, final_result);
+        const final_result = interpret.run(args);
+        try std.testing.expectEqualDeep(ssa_result, final_result);
 
-    return final_result;
+        return final_result;
+    } else {
+        const final_ir_code = try ir_compile(function, &metadata, global_names, allocator);
+
+        var interpret = try Interpreter.init(final_ir_code, globals, &.{}, allocator);
+
+        const final_result = interpret.run(args);
+
+        return final_result;
+    }
 }
 
 test "basic" {
@@ -289,7 +309,7 @@ test "while fib" {
     ;
 
     var args: [1]runtime.Value = .{runtime.Value.new_num(35)};
-    const ret = try test_helper(input, args[0..], &.{}, &.{});
+    const ret = try test_helper_inner(input, args[0..], &.{}, &.{}, true);
     try std.testing.expectEqual(ret.get_number(), 9227465);
 }
 
