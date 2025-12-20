@@ -77,15 +77,15 @@ pub const CopyElimination = struct {
             // if they either have a same value of their liveness set are distincted
             // then you can technically have them in same register so it is ok to
             // remove this copy in this case set cannonical to same reg and mark it to remove
-            const dst_is_live_at_src = self.liveness.is_live_at(data.src, data.dst);
-            const src_is_live_at_dst = self.liveness.is_live_at(data.dst, data.src);
-            const liveness_overlaps = dst_is_live_at_src or src_is_live_at_dst;
+            //const dst_is_live_at_src = self.liveness.is_live_at(data.src, dst_canon);
+            //const src_is_live_at_dst = self.liveness.is_live_at(data.dst, src_canon);
+            const liveness_overlaps = self.liveness.liveness_overlaps(dst_canon, src_canon);
 
             if (src_val.eql(dst_val) or !liveness_overlaps) {
                 self.to_remove.set(inst_idx.get_usize());
-                self.liveness.combine_regs(data.src, data.dst);
-                self.canonical_regs[data.dst.get_usize()] = data.src;
                 self.liveness.canonical.union_regs(data.dst, data.src);
+                self.liveness.combine_regs(src_canon, dst_canon);
+                self.canonical_regs[data.dst.get_usize()] = data.src;
 
                 // tmp
                 self.fix_insts_regs();

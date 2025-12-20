@@ -97,8 +97,6 @@ pub fn outofssa(compiler: *Compiler, perma_alloc: std.mem.Allocator, scratch_all
     var canon = try CanonicalAnalysis.init(pass_base.analysis_base);
     canon.analyze();
 
-    try compiler.dump_state();
-
     {
         var pass = try CopyElimPass.init(pass_base, canon);
         try pass.run();

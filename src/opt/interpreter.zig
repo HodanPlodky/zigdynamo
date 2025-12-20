@@ -36,7 +36,6 @@ const Interpreter = struct {
     }
 
     pub fn run(self: *Interpreter, args: []runtime.Value) runtime.Value {
-        std.debug.print("{f}\n", .{self.code});
         const start = self.code.entry_fn;
         const function = self.code.stores.get(ir.Function, start);
         self.args = args;

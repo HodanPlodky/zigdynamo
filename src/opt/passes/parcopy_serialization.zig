@@ -135,6 +135,8 @@ pub const SerializationPass = struct {
         @memset(self.loc, TOP);
         @memset(self.pred, TOP);
 
+        var emit_count: usize = 0;
+
         // initialization
         for (self.group.items) |inst_idx| {
             const inst = self.base.get(ir.Instruction, inst_idx);
@@ -167,7 +169,7 @@ pub const SerializationPass = struct {
                 const b = self.ready.pop().?;
                 const a = self.pred[b.get_usize()];
                 const c = self.loc[a.get_usize()];
-                try self.emit_copy(bb_idx, place, b, c);
+                try self.emit_copy(bb_idx, place, b, c, &emit_count);
                 self.loc[a.get_usize()] = b;
                 if (a.eql(c) and !self.pred[a.get_usize()].eql(BOTTOM)) {
                     // just popped so I can assume there is enough
@@ -178,7 +180,7 @@ pub const SerializationPass = struct {
 
             const b = self.todo.pop().?;
             if (b.eql(self.loc[b.get_usize()])) {
-                try self.emit_copy(bb_idx, place, self.reserved_reg, b);
+                try self.emit_copy(bb_idx, place, self.reserved_reg, b, &emit_count);
                 self.loc[b.get_usize()] = self.reserved_reg;
                 try self.ready.append(self.base.alloc, b);
             }
@@ -191,6 +193,7 @@ pub const SerializationPass = struct {
         comptime place: Place,
         dst: ir.Reg,
         src: ir.Reg,
+        count: *usize,
     ) !void {
         const bb = self.base.get(ir.BasicBlock, bb_idx);
         const copy_idx = try self.base.compiler.create_with(
@@ -199,11 +202,14 @@ pub const SerializationPass = struct {
         );
 
         switch (place) {
-            .top => unreachable,
+            .top => {
+                _ = try self.base.compiler.insert_inst(bb_idx, .{ .copy = copy_idx }, count.*);
+            },
             .bottom => {
                 const second_to_last = bb.instructions.items.len - 1;
                 _ = try self.base.compiler.insert_inst(bb_idx, .{ .copy = copy_idx }, second_to_last);
             },
         }
+        count.* += 1;
     }
 };

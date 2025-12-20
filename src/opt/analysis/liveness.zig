@@ -115,12 +115,25 @@ pub const LivenessAnalysis = struct {
         const canon = self.canonical.find_canonical(reg);
         return liveness.isSet(canon.get_usize());
     }
+    
+    pub fn liveness_overlaps(self: *LivenessAnalysis, a: ir.Reg, b: ir.Reg) bool {
+        const a_liveness = self.live_at[a.get_usize()];
+        const b_liveness = self.live_at[b.get_usize()];
+        
+        // used curr as temporaly set
+        bit_set_move(&a_liveness, &self.curr);
+        self.curr.setIntersection(b_liveness);
+        return self.curr.count() != 0;
+    }
 
     pub fn combine_liveness_to(self: *LivenessAnalysis, dst: ir.Reg, src: ir.Reg) void {
-        const liveness_src = self.liveness_at[src.get_usize()];
         const live_at_src = self.live_at[src.get_usize()];
-        self.liveness_at[dst.get_usize()].setUnion(liveness_src);
         self.live_at[dst.get_usize()].setUnion(live_at_src);
+
+        var iter = self.live_at[dst.get_usize()].iterator(.{});
+        while (iter.next()) |place| {
+            self.liveness_at[place].set(dst.get_usize());
+        }
     }
 
     pub fn combine_regs(self: *LivenessAnalysis, dst: ir.Reg, src: ir.Reg) void {
