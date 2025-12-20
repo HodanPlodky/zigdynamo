@@ -1015,20 +1015,20 @@ test "optimized loop" {
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
-        \\    %31 = ldi 0
-        \\    %28 = ldi 0
+        \\    %24 = ldi 0
+        \\    %25 = ldi 0
         \\    jmp 1
         \\basicblock1: [0, 2]
         \\    %19 = ldi 10
-        \\    %20 = lt %31, %19
+        \\    %20 = lt %24, %19
         \\    branch %20, basicblock2, basicblock3
         \\basicblock2: [1]
-        \\    %28 = add %28, %31
+        \\    %25 = add %25, %24
         \\    %13 = ldi 1
-        \\    %31 = add %31, %13
+        \\    %24 = add %24, %13
         \\    jmp 1
         \\basicblock3: [1]
-        \\    ret %28
+        \\    ret %25
         \\}
         \\
     ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
