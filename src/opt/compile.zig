@@ -881,15 +881,15 @@ test "condition1" {
         \\    %0 = true
         \\    branch %0, basicblock1, basicblock2
         \\basicblock1: [0]
-        \\    %12 = ldi 1
+        \\    %8 = ldi 1
         \\    jmp 3
         \\basicblock2: [0]
         \\    %4 = ldi 1
         \\    %5 = ldi 2
-        \\    %12 = add %4, %5
+        \\    %8 = add %4, %5
         \\    jmp 3
         \\basicblock3: [1, 2]
-        \\    ret %12
+        \\    ret %8
         \\}
         \\
     ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
