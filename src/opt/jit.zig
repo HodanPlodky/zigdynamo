@@ -68,7 +68,6 @@ pub const JitCompiler = struct {
         try compiler.compile(function, metadata);
         const shared_data = try SharedData.init(&compiler, scratch);
         try run_passes(&compiler, scratch, shared_data);
-        _ = self.base.scratch_arena.reset(.retain_capacity);
         try outofssa(&compiler, scratch, scratch, shared_data);
 
         self.base.start_compilation(compiler.stores.get_max_idx(ir.Instruction).get_usize());
@@ -179,14 +178,19 @@ pub const JitCompiler = struct {
                 const out = self.get_place(inst_idx);
                 try self.mov_places(.{ .reg = GPR64.rdi }, out);
             },
-            .phony => unreachable,
             .call => unreachable,
+            .copy => |copy_idx| {
+                const copy = self.ir_compiler.get(ir.CopyData, copy_idx);
+                const src = self.get_place(copy.src);
+                const dst = self.get_place(copy.dst);
+                try self.mov_places(src, dst);
+            },
 
             // should not be in code when generating
             // machine code
             .get_local, .set_local => unreachable,
             .parallel_copy => unreachable,
-            .copy => unreachable,
+            .phony => unreachable, // at this point the code should be out of ssa
         }
     }
 

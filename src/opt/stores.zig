@@ -323,7 +323,11 @@ pub const Stores = struct {
                 const set_local = self.get(ir.SetLocalData, set_local_idx);
                 return RegIter.create_one(set_local.value);
             },
-            .copy => unreachable,
+            // this method goes just over input registers
+            .copy => |copy_idx| {
+                const copy = self.get(ir.CopyData, copy_idx);
+                return RegIter.create_one(copy.src);
+            },
         }
     }
 
@@ -466,7 +470,10 @@ pub const Stores = struct {
                 const value = self.get_field_reg_ptr(ir.SetLocalData, .value, set_local_idx);
                 return RegIterPtr.create_one(value);
             },
-            .copy => unreachable,
+            .copy => |copy_idx| {
+                const src = self.get_field_reg_ptr(ir.CopyData, .src, copy_idx);
+                return RegIterPtr.create_one(src);
+            },
         }
     }
 };
