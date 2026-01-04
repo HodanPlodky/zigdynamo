@@ -3,6 +3,7 @@ const Parser = @import("parser.zig").Parser;
 const compile = @import("compiler.zig").compile;
 const BcInterpreter = @import("bc_interpreter.zig").BcInterpreter;
 const JitInterpreter = @import("bc_interpreter.zig").JitInterpreter;
+const OptJitInterpreter = @import("bc_interpreter.zig").OptJitInterpreter;
 const Bytecode = @import("bytecode.zig").Bytecode;
 const runtime = @import("runtime.zig");
 const snap = @import("snap.zig");
@@ -46,6 +47,15 @@ fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.All
 }
 
 fn test_helper(code: []const u8) !TestResult {
+    return test_helper_inner(code, &.{JitInterpreter});
+}
+
+fn test_helper_all(code: []const u8) !TestResult {
+    return test_helper_inner(code, &.{JitInterpreter, OptJitInterpreter});
+}
+
+fn test_helper_inner(code: []const u8, comptime jits: []const type) !TestResult {
+
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -62,21 +72,25 @@ fn test_helper(code: []const u8) !TestResult {
         allocator,
         &bc_writer.writer,
     );
-    var jit_writer = std.io.Writer.Allocating.init(std.testing.allocator);
-    defer jit_writer.deinit();
-    const jit_val = try run_with(
-        JitInterpreter,
-        bytecode,
-        allocator,
-        &jit_writer.writer,
-    );
-    try std.testing.expectEqual(bc_val.data, jit_val.data);
 
     const bc_data = bc_writer.toArrayList();
-    var jit_data = jit_writer.toArrayList();
-    defer jit_data.deinit(std.testing.allocator);
 
-    try std.testing.expectEqualStrings(bc_data.items, jit_data.items);
+    inline for (jits) |jit_type| {
+        var jit_writer = std.io.Writer.Allocating.init(std.testing.allocator);
+        defer jit_writer.deinit();
+        const jit_val = try run_with(
+            jit_type,
+            bytecode,
+            allocator,
+            &jit_writer.writer,
+        );
+        try std.testing.expectEqual(bc_val.data, jit_val.data);
+
+        var jit_data = jit_writer.toArrayList();
+        defer jit_data.deinit(std.testing.allocator);
+
+        try std.testing.expectEqualStrings(bc_data.items, jit_data.items);
+    }
 
     return try TestResult.new(bc_val.data, bc_data);
 }
@@ -86,7 +100,7 @@ test "basic" {
         \\ let f = fn() = 1;
         \\ f();
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
@@ -168,7 +182,7 @@ test "basic_function" {
         \\ let f = fn(n) = n + 1;
         \\ f(1);
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 200000000 (2)
         \\
@@ -513,7 +527,7 @@ test "ret1" {
         \\ let f = fn() = 1;
         \\ f();
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
@@ -527,7 +541,7 @@ test "retadd" {
         \\ let f = fn() = 1 + 2 + 3;
         \\ f();
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 600000000 (6)
         \\
@@ -541,7 +555,7 @@ test "retbignum" {
         \\ let f = fn() = 12345;
         \\ f();
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 303900000000 (12345)
         \\
@@ -635,7 +649,7 @@ test "retset" {
         \\ 
         \\ f(1);
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 400000000 (4)
         \\
@@ -663,7 +677,7 @@ test "retsub" {
         \\ let f = fn() = 10 - 1;
         \\ f();
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 900000000 (9)
         \\

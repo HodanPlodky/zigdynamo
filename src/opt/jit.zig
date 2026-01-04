@@ -146,7 +146,11 @@ pub const JitCompiler = struct {
             .mul => unreachable,
             .div => unreachable,
             .lt => unreachable,
-            .gt => unreachable,
+            .gt => |binop_idx| {
+                const binop = self.ir_compiler.get(ir.BinOpData, binop_idx);
+                _ = binop;
+                unreachable;
+            },
             .ret => |reg| {
                 const src = self.get_place(reg);
 
