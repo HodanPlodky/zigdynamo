@@ -51,11 +51,10 @@ fn test_helper(code: []const u8) !TestResult {
 }
 
 fn test_helper_all(code: []const u8) !TestResult {
-    return test_helper_inner(code, &.{JitInterpreter, OptJitInterpreter});
+    return test_helper_inner(code, &.{ JitInterpreter, OptJitInterpreter });
 }
 
 fn test_helper_inner(code: []const u8, comptime jits: []const type) !TestResult {
-
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -803,6 +802,28 @@ test "print multiple" {
         \\x is a y is 1 
         \\2 1 hello 
         \\x is 1 y is 2 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
+
+test "test runtime max" {
+    const code =
+        \\ let max = fn(a, b) = if (a > b) a else b;
+        \\ print(max(1, 2));
+        \\ print(max(2, 1));
+        \\ print(max(2, 2));
+        \\ print(max(0, 200));
+        \\ max(123, 123);
+    ;
+    var res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 7b00000000 (123)
+        \\2 
+        \\2 
+        \\2 
+        \\200 
         \\
         \\
     ).equal_fmt(res);

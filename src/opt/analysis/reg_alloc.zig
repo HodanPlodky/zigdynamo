@@ -289,7 +289,7 @@ test "basic reg alloc add" {
             &.{
                 RegAllocAnalysis.ValuePlace{ .value = Value.new_num(1) },
                 RegAllocAnalysis.ValuePlace{ .value = Value.new_num(2) },
-                RegAllocAnalysis.ValuePlace{ .memory = 0},
+                RegAllocAnalysis.ValuePlace{ .memory = 0 },
                 RegAllocAnalysis.ValuePlace{ .memory = 8 },
                 RegAllocAnalysis.ValuePlace{ .memory = 16 },
                 RegAllocAnalysis.ValuePlace{ .memory = 24 },

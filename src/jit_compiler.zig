@@ -619,7 +619,7 @@ pub const JitCompiler = struct {
         // 48 39 ce
         const cmp_slice: [3]u8 = .{ 0x48, 0x39, 0xce };
         try self.base.emit_slice(cmp_slice[0..]);
-        
+
         // jle <after_alloc_stack>
         // 7e 0c
         const jump_slice: [2]u8 = .{ 0x7e, 0x0c };

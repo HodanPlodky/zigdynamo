@@ -765,7 +765,7 @@ pub fn Interpreter(comptime JitType: ?type) type {
                     self.env.local.pop_locals();
                     return;
                 }
-                const compiled = @call(.never_inline, Compiler.compile_fn, .{&self.jit_compiler, function, function_source, meta});
+                const compiled = @call(.never_inline, Compiler.compile_fn, .{ &self.jit_compiler, function, function_source, meta });
                 //const compiled = self.jit_compiler.compile_fn(function, function_source, meta);
                 if (compiled) |jitted| {
                     jitted.run(JitState, jit_state);

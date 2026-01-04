@@ -43,8 +43,8 @@ pub fn main() !void {
         //var gpa = std.heap.GeneralPurposeAllocator(.{}){};
         //defer _ = gpa.deinit();
         //var ast_inter = ast_intepret.Interpret.init(
-            //try allocator.allocWithOptions(u8, HEAP_SIZE, std.mem.Alignment.@"16", null),
-            //gpa.allocator(),
+        //try allocator.allocWithOptions(u8, HEAP_SIZE, std.mem.Alignment.@"16", null),
+        //gpa.allocator(),
         //);
         //defer ast_inter.deinit();
         //const val = ast_inter.run(program);

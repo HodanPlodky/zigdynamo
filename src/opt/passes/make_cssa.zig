@@ -67,10 +67,8 @@ pub const MakeCSSA = struct {
             const pair = phony_data.data[idx];
             const new_reg = try self.insert_parallel_end(pair.label, pair.reg);
             phony_data.data[idx].reg = new_reg;
-
-
         }
-        const new_phony = try self.base.compiler.insert_inst(bb_idx, .{ .phony = phony_idx}, 0);
+        const new_phony = try self.base.compiler.insert_inst(bb_idx, .{ .phony = phony_idx }, 0);
         self.base.compiler.set(ir.Instruction, inst_idx, .{ .parallel_copy = new_phony });
     }
 

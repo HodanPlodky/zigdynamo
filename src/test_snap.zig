@@ -58,7 +58,7 @@ test "union pretty" {
     ).equal(Result{ .ok = 1 });
 
     try snap.Snap.init(@src(),
-       \\.err
+        \\.err
     ).equal(Result.err);
 }
 

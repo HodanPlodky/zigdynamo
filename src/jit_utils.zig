@@ -772,5 +772,5 @@ test "mov index access64" {
     // f1 = 11_110_001
     // c1 = 11_000_001
 
-    try std.testing.expectEqualSlices(u8, &.{0x48, 0x8b, 0x7c, 0xf1, 0x08 }, &slice);
+    try std.testing.expectEqualSlices(u8, &.{ 0x48, 0x8b, 0x7c, 0xf1, 0x08 }, &slice);
 }
