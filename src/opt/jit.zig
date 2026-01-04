@@ -119,6 +119,7 @@ pub const JitCompiler = struct {
 
     fn compile_ir_instruction(self: *JitCompiler, inst_idx: ir.InstructionIdx, top_level: bool) !void {
         const inst = self.ir_compiler.stores.get(ir.Instruction, inst_idx);
+        const ir_reg = self.ir_compiler.get_canonical_output(inst_idx);
         switch (inst) {
             .ldi => |_| {
                 // nop
@@ -141,13 +142,13 @@ pub const JitCompiler = struct {
             .store_global => unreachable,
             .load_env => unreachable,
             .store_env => unreachable,
-            .add => |binop_idx| try self.handle_binop_simple(0x1, inst_idx, binop_idx),
-            .sub => |binop_idx| try self.handle_binop_simple(0x29, inst_idx, binop_idx),
+            .add => |binop_idx| try self.handle_binop_simple(0x1, ir_reg, binop_idx),
+            .sub => |binop_idx| try self.handle_binop_simple(0x29, ir_reg, binop_idx),
             .mul => |binop_idx| {
                 const binop = self.ir_compiler.get(ir.BinOpData, binop_idx);
                 const left = self.get_place(binop.left);
                 const right = self.get_place(binop.right);
-                const out_place = self.get_place(inst_idx);
+                const out_place = self.get_place(ir_reg);
                 try self.handle_binop(struct {
                     fn f(comp: *JitCompiler, output: ValuePlace) !void {
                         // shr rsi, 0x20
@@ -160,11 +161,50 @@ pub const JitCompiler = struct {
                 }.f, out_place, left, right);
             },
             .div => unreachable,
-            .lt => unreachable,
             .gt => |binop_idx| {
                 const binop = self.ir_compiler.get(ir.BinOpData, binop_idx);
-                _ = binop;
-                unreachable;
+                const left = self.get_place(binop.left);
+                const right = self.get_place(binop.right);
+                const out_place = self.get_place(ir_reg);
+                try self.handle_binop(struct {
+                    fn f(comp: *JitCompiler, output: ValuePlace) !void {
+                        // xor rax, rax
+                        try comp.emit_basic_reg(0x31, GPR64.rax, GPR64.rax);
+
+                        // cmp rdi, rsi
+                        try comp.emit_basic_reg(0x39, GPR64.rdi, GPR64.rsi);
+
+                        // adc rax,0x8
+                        // add with carry
+                        // 48 83 d0 05
+                        const adc_slice: [4]u8 = .{ 0x48, 0x83, 0xd0, 0x08 };
+                        try comp.base.emit_slice(adc_slice[0..]);
+                        try comp.mov_places(.{ .reg = GPR64.rax }, output);
+                    }
+                }.f, out_place, left, right);
+            },
+            .lt => |binop_idx| {
+                const binop = self.ir_compiler.get(ir.BinOpData, binop_idx);
+                const left = self.get_place(binop.left);
+                const right = self.get_place(binop.right);
+                const out_place = self.get_place(ir_reg);
+                try self.handle_binop(struct {
+                    fn f(comp: *JitCompiler, output: ValuePlace) !void {
+                        // xor rax, rax
+                        try comp.emit_basic_reg(0x31, GPR64.rax, GPR64.rax);
+
+                        // this is a change
+                        // cmp rsi, rdi
+                        try comp.emit_basic_reg(0x39, GPR64.rsi, GPR64.rdi);
+
+                        // adc rax,0x8
+                        // add with carry
+                        // 48 83 d0 05
+                        const adc_slice: [4]u8 = .{ 0x48, 0x83, 0xd0, 0x08 };
+                        try comp.base.emit_slice(adc_slice[0..]);
+                        try comp.mov_places(.{ .reg = GPR64.rax }, output);
+                    }
+                }.f, out_place, left, right);
             },
             .ret => |reg| {
                 const src = self.get_place(reg);

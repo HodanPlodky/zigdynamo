@@ -829,3 +829,26 @@ test "test runtime max" {
     ).equal_fmt(res);
     res.deinit();
 }
+
+test "test runtime isbigger/smaller" {
+    const code =
+        \\ let isbigger = fn(a, b) = a > b;
+        \\ let issmaller = fn(a, b) = a < b;
+        \\ print(isbigger(2, 1));
+        \\ print(isbigger(1, 2));
+        \\ print(issmaller(2, 1));
+        \\ print(issmaller(1, 2));
+        \\ isbigger(2, 2);
+    ;
+    var res = try test_helper_all(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 8 (0)
+        \\true 
+        \\false 
+        \\false 
+        \\true 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
