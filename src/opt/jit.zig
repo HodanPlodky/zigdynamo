@@ -145,8 +145,19 @@ pub const JitCompiler = struct {
             .sub => |binop_idx| try self.handle_binop_simple(0x29, inst_idx, binop_idx),
             .mul => |binop_idx| {
                 const binop = self.ir_compiler.get(ir.BinOpData, binop_idx);
-                _ = binop;
-                unreachable;
+                const left = self.get_place(binop.left);
+                const right = self.get_place(binop.right);
+                const out_place = self.get_place(inst_idx);
+                try self.handle_binop(struct {
+                    fn f(comp: *JitCompiler, output: ValuePlace) !void {
+                        // shr rsi, 0x20
+                        try comp.base.emit_slice(&.{ 0x48, 0xc1, 0xee, 0x20 });
+                        // imul rdi, rsi
+                        const imul_slice: [4]u8 = .{ 0x48, 0x0f, 0xaf, 0xfe };
+                        try comp.base.emit_slice(imul_slice[0..]);
+                        try comp.mov_places(.{ .reg = GPR64.rdi }, output);
+                    }
+                }.f, out_place, left, right);
             },
             .div => unreachable,
             .lt => unreachable,
@@ -209,16 +220,8 @@ pub const JitCompiler = struct {
         const out_place = self.get_place(reg);
         try self.handle_binop(struct {
             fn f(comp: *JitCompiler, output: ValuePlace) !void {
-                //std.debug.print("yo {}\n", .{output});
-                switch (output) {
-                    .reg => |out_reg| try comp.emit_basic_reg(opcode, GPR64.rsi, out_reg),
-                    //TODO
-                    else => {
-                        try comp.mov_places(output, .{ .reg = GPR64.rdi });
-                        try comp.emit_basic_reg(opcode, GPR64.rsi, GPR64.rdi);
-                        try comp.mov_places(.{ .reg = GPR64.rdi }, output);
-                    },
-                }
+                try comp.emit_basic_reg(opcode, GPR64.rsi, GPR64.rdi);
+                try comp.mov_places(.{ .reg = GPR64.rdi }, output);
             }
         }.f, out_place, left, right);
     }
@@ -228,7 +231,6 @@ pub const JitCompiler = struct {
         try self.mov_place_to_reg(left, GPR64.rdi);
         try self.mov_place_to_reg(right, GPR64.rsi);
 
-        try self.mov_places(.{ .reg = GPR64.rdi }, output);
         // or rdi, rsi
         // or r/m64 reg
         try self.emit_basic_reg(0x09, GPR64.rsi, GPR64.rdi);
@@ -239,6 +241,9 @@ pub const JitCompiler = struct {
 
         // handle cond
         try self.base.emit_panic("binop_panic");
+
+        // the rdi was rewritten
+        try self.mov_place_to_reg(left, GPR64.rdi);
 
         try oper(self, output);
     }
