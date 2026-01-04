@@ -612,7 +612,7 @@ test "retmul" {
         \\ let f = fn() = 2 * 3 * 4;
         \\ f();
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1800000000 (24)
         \\
