@@ -656,6 +656,16 @@ pub const Compiler = struct {
         self.current = bb_idx;
     }
 
+    pub fn create_ssa_cannonical(self: *Compiler) !void {
+        const inst_count = self.stores.get_max_idx(ir.Instruction);
+        self.canonical_regs = try self.permanent_alloc.alloc(ir.Reg, inst_count.get_usize());
+
+        var inst_iter = self.stores.idx_iter(ir.Instruction);
+        while (inst_iter.next()) |inst_idx| {
+            self.canonical_regs[inst_idx.get_usize()] = inst_idx;
+        }
+    }
+
     pub fn create_result(self: *const Compiler) CompiledResult {
         return CompiledResult{
             .entry_fn = self.entry_fn,
@@ -699,7 +709,11 @@ pub const Compiler = struct {
     /// Returns canonical register that is selected as a name for the register after
     /// out of ssa translation (so this function assumes it is already after that)
     pub fn get_canonical_output(self: *const Compiler, inst_idx: ir.InstructionIdx) ir.Reg {
-        return self.canonical_regs[inst_idx.get_usize()];
+        const inst = self.get(ir.Instruction, inst_idx);
+        return switch (inst) {
+            .copy => unreachable,
+            else => self.canonical_regs[inst_idx.get_usize()],
+        };
     }
 
     pub fn dump_insts(self: *const Compiler) !void {

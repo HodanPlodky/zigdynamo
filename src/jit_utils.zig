@@ -227,6 +227,7 @@ pub fn JitCompilerBase(comptime StateType: type) type {
                 orig_pc |= self.code_slice[jump_idx + 2];
                 orig_pc <<= 8;
                 orig_pc |= self.code_slice[jump_idx + 3];
+
                 // look up in offsets
                 const addr = offsets[orig_pc];
                 // compute rel
@@ -578,6 +579,16 @@ pub fn JitCompilerBase(comptime StateType: type) type {
                     try self.emit_slice(offset_bytes[0..]);
                 }
             }
+        }
+
+        pub fn emit_u32(self: *Self, value: u32) !void {
+            const value_bytes: [4]u8 = .{
+                @intCast((value >> 24) & 0xff),
+                @intCast((value >> 16) & 0xff),
+                @intCast((value >> 8) & 0xff),
+                @intCast(value & 0xff),
+            };
+            try self.emit_slice(value_bytes[0..]);
         }
 
         //

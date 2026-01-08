@@ -86,35 +86,37 @@ pub const RegAllocAnalysis = struct {
             else => {},
         }
 
+        const reg = self.base.compiler.get_canonical_output(inst_idx);
+
         // the constant instruction
         // should set the translation as
         // runtime value
         switch (inst) {
             .ldi => |num| {
-                self.translates[inst_idx.get_usize()] = .{ .value = Value.new_num(num) };
+                self.translates[reg.get_usize()] = .{ .value = Value.new_num(num) };
                 return;
             },
             .nil => {
-                self.translates[inst_idx.get_usize()] = .{ .value = Value.new_nil() };
+                self.translates[reg.get_usize()] = .{ .value = Value.new_nil() };
                 return;
             },
             .true => {
-                self.translates[inst_idx.get_usize()] = .{ .value = Value.new_true() };
+                self.translates[reg.get_usize()] = .{ .value = Value.new_true() };
                 return;
             },
             .false => {
-                self.translates[inst_idx.get_usize()] = .{ .value = Value.new_false() };
+                self.translates[reg.get_usize()] = .{ .value = Value.new_false() };
                 return;
             },
             else => {},
         }
 
         if (self.free_regs.pop()) |arch_reg| {
-            self.translates[inst_idx.get_usize()] = .{ .reg = arch_reg };
+            self.translates[reg.get_usize()] = .{ .reg = arch_reg };
             try self.release[@intCast(range.end)].append(self.base.alloc, inst_idx);
             return;
         } else {
-            self.translates[inst_idx.get_usize()] = .{ .memory = self.curr_max_mem };
+            self.translates[reg.get_usize()] = .{ .memory = self.curr_max_mem };
             self.curr_max_mem += 8;
             return;
         }
@@ -166,6 +168,7 @@ test "basic reg alloc" {
 
     const ldi = try compiler.append_inst(.{ .ldi = 1 });
     try compiler.append_terminator(.{ .ret = ldi });
+    try compiler.create_ssa_cannonical();
 
     {
         var free_regs: [4]GPR64 = .{ GPR64.rax, GPR64.rbx, GPR64.rcx, GPR64.rdx };
@@ -207,6 +210,7 @@ test "basic reg alloc add" {
     const binop_4 = try compiler.create_with(ir.BinOpData, .{ .left = ldi_1, .right = ldi_2 });
     _ = try compiler.append_inst(.{ .add = binop_4 });
     try compiler.append_terminator(.{ .ret = add_3 });
+    try compiler.create_ssa_cannonical();
 
     {
         var free_regs: [4]GPR64 = .{ GPR64.rax, GPR64.rbx, GPR64.rcx, GPR64.rdx };

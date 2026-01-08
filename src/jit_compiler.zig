@@ -304,7 +304,7 @@ pub const JitCompiler = struct {
                 const true_slice: [4]u8 = .{ true_byte, 0, 0, 0 };
                 try self.base.emit_slice(true_slice[0..]);
 
-                // opcode for jmp rel32
+                // opcode for je rel32
                 const jump_slice: [2]u8 = .{ 0x0f, 0x84 };
                 try self.base.emit_slice(jump_slice[0..]);
                 const jump_offset: u32 = @intCast(self.base.code_ptr);

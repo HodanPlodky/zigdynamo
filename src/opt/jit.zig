@@ -88,6 +88,12 @@ pub const JitCompiler = struct {
 
         self.ir_compiler = &compiler;
 
+        const bb_count = self.ir_compiler.stores.get_max_idx(ir.BasicBlock).get_usize();
+
+        for (0..bb_count) |_| {
+            self.base.append_offsets(std.math.maxInt(u32), 1);
+        }
+
         try self.compile_ir_function(self.ir_compiler.entry_fn, true);
 
         metadata.jit_state = @intCast(start);
@@ -106,6 +112,7 @@ pub const JitCompiler = struct {
     }
 
     fn compile_ir_basicblock(self: *JitCompiler, bb_idx: ir.BasicBlockIdx, top_level: bool) !void {
+        self.base.offsets.items[bb_idx.get_usize()] = @intCast(self.base.code_ptr);
         const bb = self.ir_compiler.stores.get(ir.BasicBlock, bb_idx);
         for (bb.instructions.items) |inst_idx| {
             try self.compile_ir_instruction(inst_idx, top_level);
@@ -220,8 +227,49 @@ pub const JitCompiler = struct {
                     try self.base.emit_byte(0xc3);
                 }
             },
-            .branch => unreachable,
-            .jmp => unreachable,
+            .branch => |branch_idx| {
+                const branch = self.ir_compiler.get(ir.BranchData, branch_idx);
+                const cond_place = self.get_place(branch.cond);
+                try self.mov_place_to_reg(cond_place, GPR64.rax);
+
+                // check if the value is even bool
+                // and al, 0x8 => 0x8 highest bit of tag only used by booleans
+                // 24 ib
+                // cmp al, 0x8
+                // 3c ib
+                const and_slice: [2]u8 = .{ 0x24, 0x8 };
+                try self.base.emit_slice(and_slice[0..]);
+                const cmp_slice: [2]u8 = .{ 0x3c, 0x8 };
+                try self.base.emit_slice(cmp_slice[0..]);
+                try self.base.emit_panic("if_condition_panic");
+
+                try self.mov_place_to_reg(cond_place, GPR64.rax);
+
+                const true_byte: u8 = @intFromEnum(runtime.ValueType.true);
+                // cmp eax, <true_byte>
+                try self.base.emit_byte(0x3d);
+                const true_slice: [4]u8 = .{ true_byte, 0, 0, 0 };
+                try self.base.emit_slice(true_slice[0..]);
+
+                // jne <false_idx>
+                // we are jumping to false and put true case
+                // right after
+                // the false_idx will be overwritten after
+                try self.base.emit_slice(&.{0x0f, 0x85});
+                // jumps will point to number it self
+                const jump_offset: u32 = @intCast(self.base.code_ptr);
+                self.base.append_jump(jump_offset);
+                try self.base.emit_u32(branch.false_branch.index);
+            },
+            .jmp => |target_idx| {
+                // opcode for jmp rel32
+                try self.base.emit_byte(0xe9);
+                // jumps will point to number it self
+                const jump_offset: u32 = @intCast(self.base.code_ptr);
+                self.base.append_jump(jump_offset);
+
+                try self.base.emit_u32(target_idx.index);
+            },
             .arg => |index| {
                 try self.base.mov_from_jit_state(GPR64.rdi, "env");
 
