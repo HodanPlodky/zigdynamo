@@ -711,7 +711,10 @@ pub const Compiler = struct {
     pub fn get_canonical_output(self: *const Compiler, inst_idx: ir.InstructionIdx) ir.Reg {
         const inst = self.get(ir.Instruction, inst_idx);
         return switch (inst) {
-            .copy => unreachable,
+            .copy => |copy_idx| {
+                const copy = self.get(ir.CopyData, copy_idx);
+                return copy.dst;
+            },
             else => self.canonical_regs[inst_idx.get_usize()],
         };
     }

@@ -569,7 +569,7 @@ test "retident" {
         \\ let f = fn(x, y) = x + 2 * y;
         \\ f(ident(2), ident(3));
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 800000000 (8)
         \\
