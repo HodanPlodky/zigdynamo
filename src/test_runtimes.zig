@@ -136,7 +136,7 @@ test "assign" {
         \\ a = 11;
         \\ a;
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: b00000000 (11)
         \\5 
@@ -152,7 +152,7 @@ test "basic arith" {
         \\  1 + 2;
         \\ 1 +   2 * 2 - 3;
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 200000000 (2)
         \\
@@ -228,7 +228,7 @@ test "basic_object" {
         \\ o.a = 2;
         \\ print(o.a + 1);
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\2 
@@ -292,7 +292,7 @@ test "if" {
         \\ let x = true;
         \\ if (x) 1 else 2;
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
@@ -314,7 +314,7 @@ test "let" {
         \\ let x = 1 + 2;
         \\ x + 2;
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 500000000 (5)
         \\
@@ -444,7 +444,7 @@ test "number" {
     const code =
         \\ 1;
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
