@@ -10,7 +10,7 @@ pub const LivenessAnalysis = struct {
     const BitSet = std.DynamicBitSetUnmanaged;
 
     base: Base,
-    canonical: Canonical,
+    canonical: []ir.Reg,
 
     liveness_at: []BitSet,
     out_live: []BitSet,
@@ -18,7 +18,7 @@ pub const LivenessAnalysis = struct {
 
     curr: BitSet,
 
-    pub fn init(base: Base, canonical: Canonical) !LivenessAnalysis {
+    pub fn init(base: Base, canonical: []ir.Reg) !LivenessAnalysis {
         const inst_idx = base.compiler.stores.get_max_idx(ir.Instruction);
         const bb_idx = base.compiler.stores.get_max_idx(ir.BasicBlock);
         return LivenessAnalysis{
@@ -89,14 +89,14 @@ pub const LivenessAnalysis = struct {
             const inst = self.base.get(ir.Instruction, inst_idx);
             // remove output
             if (inst.has_output()) {
-                const out_canon = self.canonical.find_canonical(inst_idx);
+                const out_canon = self.get_output(inst_idx);
                 self.curr.unset(out_canon.get_usize());
             }
 
             // add inputs
             var iter = self.base.compiler.stores.get_reg_iter(inst_idx);
             while (iter.next()) |reg| {
-                const canon_reg = self.canonical.find_canonical(reg);
+                const canon_reg = self.get_canon(reg);
                 self.curr.set(canon_reg.get_usize());
             }
         }
@@ -110,9 +110,24 @@ pub const LivenessAnalysis = struct {
         return self.liveness_at[place.get_usize()];
     }
 
+    fn get_output(self: *const LivenessAnalysis, inst_idx: ir.InstructionIdx) ir.Reg {
+        const inst = self.base.get(ir.Instruction, inst_idx);
+        return switch (inst) {
+            .copy => |copy_idx| {
+                const copy = self.base.get(ir.CopyData, copy_idx);
+                return copy.dst;
+            },
+            else => self.get_canon(inst_idx),
+        };
+    }
+
+    fn get_canon(self: *const LivenessAnalysis, reg: ir.Reg) ir.Reg {
+        return self.canonical[reg.get_usize()];
+    }
+
     pub fn is_live_at(self: *LivenessAnalysis, place: ir.InstructionIdx, reg: ir.Reg) bool {
         const liveness = self.get_liveness_at(place);
-        const canon = self.canonical.find_canonical(reg);
+        const canon = self.get_canon(reg);
         return liveness.isSet(canon.get_usize());
     }
 

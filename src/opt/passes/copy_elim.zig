@@ -11,6 +11,7 @@ pub const CopyElimination = struct {
 
     base: Base,
     liveness: LivenessAnalysis,
+    canon: Canonical,
     values: ValueAnalysis,
     dom: DominatorAnalysis,
 
@@ -23,7 +24,8 @@ pub const CopyElimination = struct {
         const inst_count = base.compiler.stores.get_max_idx(ir.Instruction);
         return CopyElimination{
             .base = base,
-            .liveness = try LivenessAnalysis.init(base.analysis_base, canon),
+            .liveness = try LivenessAnalysis.init(base.analysis_base, canon.canonical_regs),
+            .canon = canon,
             .values = try ValueAnalysis.init(base.analysis_base),
             .dom = try DominatorAnalysis.init(base.analysis_base),
             .canonical_regs = try base.alloc.alloc(ir.Reg, inst_count.get_usize()),
@@ -69,8 +71,8 @@ pub const CopyElimination = struct {
     fn process_inst(self: *CopyElimination, inst_idx: ir.InstructionIdx) void {
         self.canonical_regs[inst_idx.get_usize()] = inst_idx;
         if (self.get_copy_data(inst_idx)) |data| {
-            const src_canon = self.liveness.canonical.find_canonical(data.src);
-            const dst_canon = self.liveness.canonical.find_canonical(data.dst);
+            const src_canon = self.canon.find_canonical(data.src);
+            const dst_canon = self.canon.find_canonical(data.dst);
             const src_val = self.values.get(src_canon);
             const dst_val = self.values.get(dst_canon);
 
@@ -83,7 +85,7 @@ pub const CopyElimination = struct {
 
             if (src_val.eql(dst_val) or !liveness_overlaps) {
                 self.to_remove.set(inst_idx.get_usize());
-                self.liveness.canonical.union_regs(data.dst, data.src);
+                self.canon.union_regs(data.dst, data.src);
                 self.liveness.combine_regs(src_canon, dst_canon);
                 self.canonical_regs[data.dst.get_usize()] = data.src;
 
