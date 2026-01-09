@@ -153,7 +153,7 @@ pub const Stores = struct {
     pub fn get_type(self: *const Stores, inst: ir.Instruction) ir.Type {
         return switch (inst) {
             .ldi => ir.Type.Int,
-            .mov, .parallel_copy => |reg| {
+            .mov, .parallel_copy, .regify => |reg| {
                 const src_inst = self.get(ir.Instruction, reg);
                 return self.get_type(src_inst);
             },
@@ -299,7 +299,7 @@ pub const Stores = struct {
             },
 
             // one reg ops
-            .ret, .mov, .parallel_copy => |reg| return RegIter.create_one(reg),
+            .ret, .mov, .parallel_copy, .regify => |reg| return RegIter.create_one(reg),
 
             //  binop ops
             .add, .sub, .mul, .div, .lt, .gt => |binop_idx| {
@@ -439,6 +439,10 @@ pub const Stores = struct {
             },
             .mov => {
                 const reg = &self.instructions.data.items(.data)[inst_idx.get_usize()].mov;
+                return RegIterPtr.create_one(reg);
+            },
+            .regify => {
+                const reg = &self.instructions.data.items(.data)[inst_idx.get_usize()].regify;
                 return RegIterPtr.create_one(reg);
             },
             .parallel_copy => {

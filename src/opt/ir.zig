@@ -95,6 +95,13 @@ pub const Instruction = union(enum) {
     nil,
     true,
     false,
+    // forces constant to be in register
+    // this is usefull when moving out of ssa
+    // to use correct reg alloc and also
+    // allow to handle constant as constants
+    // if they dont have to be handled as assings
+    // to mutable reg/mem place
+    regify: Reg,
 
     load_global: u32,
     store_global: StoreDataIdx,
@@ -139,6 +146,7 @@ pub const Instruction = union(enum) {
             .nil => "nil",
             .true => "true",
             .false => "false",
+            .regify => "regify",
             .load_global => "load_global",
             .store_global => "store_global",
             .load_env => "load_env",
@@ -166,6 +174,13 @@ pub const Instruction = union(enum) {
     pub fn is_terminator(self: Instruction) bool {
         return switch (self) {
             .ret, .branch, .jmp => true,
+            else => false,
+        };
+    }
+
+    pub fn is_constant(self: Instruction) bool {
+        return switch (self) {
+            .ldi, .nil, .true, .false => true,
             else => false,
         };
     }

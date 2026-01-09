@@ -74,6 +74,7 @@ pub const SerializationPass = struct {
                     try self.group.append(self.base.alloc, inst_idx);
                     try self.group_positions.append(self.base.alloc, pos);
                 },
+                .regify => {},
                 // ignore phony as it is not in the group
                 else => break,
             }
@@ -98,6 +99,7 @@ pub const SerializationPass = struct {
                     try self.group.append(self.base.alloc, inst_idx);
                     try self.group_positions.append(self.base.alloc, iter.current);
                 },
+                .regify => {},
                 else => break,
             }
         }

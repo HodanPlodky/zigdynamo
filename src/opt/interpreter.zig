@@ -56,7 +56,7 @@ const Interpreter = struct {
                     .ldi => |num| self.set_reg(reg, runtime.Value.new_num(num)),
 
                     // bit different semantics but oh well
-                    .mov, .parallel_copy => |src_reg| self.set_reg(reg, self.get_reg(src_reg)),
+                    .mov, .parallel_copy, .regify => |src_reg| self.set_reg(reg, self.get_reg(src_reg)),
 
                     // should not be in ssa but good to test eitherway
                     .copy => |copy_idx| {

@@ -24,6 +24,7 @@ pub const LiveRangesAnalysis = struct {
 
     pub fn analyze(self: *LiveRangesAnalysis) void {
         var fn_iter = self.base.compiler.stores.idx_iter(ir.Function);
+        @memset(self.ranges, .{ .begin = std.math.maxInt(u32), .end = 0 });
         while (fn_iter.next()) |idx| {
             self.analyze_fn(idx);
         }
@@ -46,11 +47,15 @@ pub const LiveRangesAnalysis = struct {
         var new_idx = curr_idx;
 
         for (bb.instructions.items) |inst_idx| {
-            self.ranges[inst_idx.get_usize()].begin = new_idx;
-            self.ranges[inst_idx.get_usize()].end = new_idx;
+            const outreg = self.base.compiler.get_canonical_output(inst_idx);
+            if (self.ranges[outreg.get_usize()].begin >= new_idx) {
+                self.ranges[outreg.get_usize()].begin = new_idx;
+            }
+            self.ranges[outreg.get_usize()].end = new_idx;
             var reg_iter = self.base.compiler.stores.get_reg_iter(inst_idx);
             while (reg_iter.next()) |reg| {
-                self.ranges[reg.get_usize()].end = new_idx;
+                const canon_reg = self.base.compiler.get_canon(reg);
+                self.ranges[canon_reg.get_usize()].end = new_idx;
             }
             new_idx += 1;
         }

@@ -194,7 +194,7 @@ pub const CompiledResult = struct {
             .nil, .true, .false, .nop => {},
 
             // one reg ops
-            .ret, .mov, .parallel_copy => |reg| try writer.print(" %{}", .{reg.index}),
+            .ret, .mov, .parallel_copy, .regify => |reg| try writer.print(" %{}", .{reg.index}),
 
             //  binop ops
             .add, .sub, .mul, .div, .lt, .gt => |binop_idx| {
@@ -719,6 +719,10 @@ pub const Compiler = struct {
         };
     }
 
+    pub fn get_canon(self: *const Compiler, reg: ir.Reg) ir.Reg {
+        return self.canonical_regs[reg.get_usize()];
+    }
+
     pub fn dump_insts(self: *const Compiler) !void {
         var buffer: [1024]u8 = undefined;
         const tmp = try self.create_result_ssa();
@@ -898,7 +902,8 @@ test "condition1" {
         \\    %0 = true
         \\    branch %0, basicblock1, basicblock2
         \\basicblock1: [0]
-        \\    %8 = ldi 1
+        \\    %2 = ldi 1
+        \\    %8 = regify %2
         \\    jmp 3
         \\basicblock2: [0]
         \\    %4 = ldi 1
@@ -963,7 +968,8 @@ test "condition2" {
         \\    %5 = true
         \\    branch %5, basicblock1, basicblock2
         \\basicblock1: [0]
-        \\    %20 = ldi 1
+        \\    %7 = ldi 1
+        \\    %20 = regify %7
         \\    jmp 3
         \\basicblock2: [0]
         \\    %11 = ldi 1
@@ -1032,8 +1038,10 @@ test "optimized loop" {
     try snap.Snap.init(@src(),
         \\function {
         \\basicblock0: []
-        \\    %24 = ldi 0
-        \\    %25 = ldi 0
+        \\    %0 = ldi 0
+        \\    %3 = ldi 0
+        \\    %25 = regify %3
+        \\    %24 = regify %0
         \\    jmp 1
         \\basicblock1: [0, 2]
         \\    %19 = ldi 10
@@ -1159,8 +1167,10 @@ test "while fib opt compiler" {
         \\function {
         \\basicblock0: []
         \\    %31 = arg 0
-        \\    %32 = ldi 0
-        \\    %33 = ldi 1
+        \\    %2 = ldi 0
+        \\    %5 = ldi 1
+        \\    %33 = regify %5
+        \\    %32 = regify %2
         \\    jmp 1
         \\basicblock1: [0, 2]
         \\    %26 = ldi 0

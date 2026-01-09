@@ -74,9 +74,18 @@ pub const MakeCSSA = struct {
 
     fn insert_parallel_end(self: *MakeCSSA, to: ir.BasicBlockIdx, reg: ir.Reg) !ir.Reg {
         const bb = self.base.compiler.get(ir.BasicBlock, to);
+        const src_inst = self.base.get(ir.Instruction, reg);
+        var src_reg = reg;
+        if (src_inst.is_constant()) {
+            src_reg = try self.base.compiler.insert_inst(
+                to,
+                .{ .regify = reg },
+                bb.instructions.items.len - 1,
+            );
+        }
         return self.base.compiler.insert_inst(
             to,
-            .{ .parallel_copy = reg },
+            .{ .parallel_copy = src_reg },
             bb.instructions.items.len - 1,
         );
     }

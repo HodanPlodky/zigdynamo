@@ -67,9 +67,6 @@ pub const RegAllocAnalysis = struct {
     }
 
     fn process_inst(self: *RegAllocAnalysis, inst_idx: ir.InstructionIdx, curr_idx: u32) !void {
-        const range = self.ranges.get_range(inst_idx);
-        std.debug.assert(range.begin == curr_idx);
-
         self.do_release(curr_idx);
 
         const inst = self.base.compiler.get(ir.Instruction, inst_idx);
@@ -87,6 +84,15 @@ pub const RegAllocAnalysis = struct {
         }
 
         const reg = self.base.compiler.get_canonical_output(inst_idx);
+        const range = self.ranges.get_range(reg);
+
+        // this is not first assing
+        // so skip
+        if (range.begin < curr_idx) {
+            return;
+        }
+
+        std.debug.assert(range.begin == curr_idx);
 
         // the constant instruction
         // should set the translation as
@@ -113,7 +119,7 @@ pub const RegAllocAnalysis = struct {
 
         if (self.free_regs.pop()) |arch_reg| {
             self.translates[reg.get_usize()] = .{ .reg = arch_reg };
-            try self.release[@intCast(range.end)].append(self.base.alloc, inst_idx);
+            try self.release[@intCast(range.end)].append(self.base.alloc, reg);
             return;
         } else {
             self.translates[reg.get_usize()] = .{ .memory = self.curr_max_mem };

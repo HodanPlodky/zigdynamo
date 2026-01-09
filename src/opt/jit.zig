@@ -144,7 +144,7 @@ pub const JitCompiler = struct {
                 // same as ldi
             },
             .nop => {},
-            .mov => |reg| {
+            .mov, .regify => |reg| {
                 const src = self.get_place(reg);
                 const dst = self.get_place(ir_reg);
                 try self.mov_places(src, dst);
