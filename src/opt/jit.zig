@@ -127,6 +127,11 @@ pub const JitCompiler = struct {
     fn compile_ir_instruction(self: *JitCompiler, inst_idx: ir.InstructionIdx, top_level: bool) !void {
         const inst = self.ir_compiler.stores.get(ir.Instruction, inst_idx);
         const ir_reg = self.ir_compiler.get_canonical_output(inst_idx);
+        //if (self.ir_compiler.stores.get_type(inst) != .Void) {
+            //const place = self.get_place(ir_reg);
+            //std.debug.print("{} -> {} -> {}\n", .{inst_idx.get_usize(), ir_reg.get_usize(), place});
+        //}
+
         switch (inst) {
             .ldi => |_| {
                 // nop
@@ -141,7 +146,7 @@ pub const JitCompiler = struct {
             .nop => {},
             .mov => |reg| {
                 const src = self.get_place(reg);
-                const dst = self.get_place(inst_idx);
+                const dst = self.get_place(ir_reg);
                 try self.mov_places(src, dst);
             },
 
@@ -282,7 +287,7 @@ pub const JitCompiler = struct {
                 // load val from index
                 try self.base.mov_index_access64(GPR64.rdi, Scale.scale8, GPR64.rcx, GPR64.rsi, index * 8);
 
-                const out = self.get_place(inst_idx);
+                const out = self.get_place(ir_reg);
                 try self.mov_places(.{ .reg = GPR64.rdi }, out);
             },
             .call => unreachable,
