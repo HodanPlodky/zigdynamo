@@ -817,7 +817,7 @@ test "test runtime max" {
         \\ print(max(0, 200));
         \\ max(123, 123);
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 7b00000000 (123)
         \\2 
