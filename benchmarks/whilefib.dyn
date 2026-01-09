@@ -1,0 +1,17 @@
+let fib = fn(n) = {
+    let a = 0;
+    let b = 1;
+    while (n > 0) {
+        let tmp = a;
+        a = b;
+        b = tmp + b;
+        n = n - 1;
+    };
+    a;
+};
+
+let i = 0;
+while(i < 1000) {
+    fib(100000);
+    i = i + 1;
+};
