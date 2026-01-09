@@ -11,7 +11,9 @@ let fib = fn(n) = {
 };
 
 let i = 0;
+let res = 0;
 while(i < 1000) {
-    fib(100000);
+    res = fib(100000);
     i = i + 1;
 };
+res;
