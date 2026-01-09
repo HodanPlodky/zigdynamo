@@ -759,7 +759,7 @@ test "while" {
         \\ 
         \\ fib(40);
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 6197ecb00000000 (102334155)
         \\

@@ -26,11 +26,14 @@ const DBG: bool = false;
 
 pub const JitCompiler = struct {
     const Base = jit_utils.JitCompilerBase(JitState);
+    const BitSet = std.DynamicBitSetUnmanaged;
 
     base: Base,
     ir_compiler: *const Compiler,
     register_alloc: RegAllocAnalysis,
     //globals: [][]const u8,
+
+    bb_emited: BitSet,
 
     pub fn init(code_buffer_size: usize, heuristic: jit_utils.Heuristic) JitCompiler {
         const base = Base.init(code_buffer_size, heuristic);
@@ -38,6 +41,7 @@ pub const JitCompiler = struct {
             .base = base,
             .ir_compiler = undefined,
             .register_alloc = undefined,
+            .bb_emited = undefined,
         };
     }
 
@@ -94,6 +98,8 @@ pub const JitCompiler = struct {
             self.base.append_offsets(std.math.maxInt(u32), 1);
         }
 
+        self.bb_emited = try BitSet.initEmpty(scratch, bb_count);
+
         try self.compile_ir_function(self.ir_compiler.entry_fn, true);
 
         metadata.jit_state = @intCast(start);
@@ -112,6 +118,10 @@ pub const JitCompiler = struct {
     }
 
     fn compile_ir_basicblock(self: *JitCompiler, bb_idx: ir.BasicBlockIdx, top_level: bool) !void {
+        if (self.bb_emited.isSet(bb_idx.get_usize())) {
+            return;
+        }
+        self.bb_emited.set(bb_idx.get_usize());
         self.base.offsets.items[bb_idx.get_usize()] = @intCast(self.base.code_ptr);
         const bb = self.ir_compiler.stores.get(ir.BasicBlock, bb_idx);
         for (bb.instructions.items) |inst_idx| {
@@ -128,8 +138,8 @@ pub const JitCompiler = struct {
         const inst = self.ir_compiler.stores.get(ir.Instruction, inst_idx);
         const ir_reg = self.ir_compiler.get_canonical_output(inst_idx);
         //if (self.ir_compiler.stores.get_type(inst) != .Void) {
-            //const place = self.get_place(ir_reg);
-            //std.debug.print("{} -> {} -> {}\n", .{inst_idx.get_usize(), ir_reg.get_usize(), place});
+        //const place = self.get_place(ir_reg);
+        //std.debug.print("{} -> {} -> {}\n", .{inst_idx.get_usize(), ir_reg.get_usize(), place});
         //}
 
         switch (inst) {
@@ -260,7 +270,7 @@ pub const JitCompiler = struct {
                 // we are jumping to false and put true case
                 // right after
                 // the false_idx will be overwritten after
-                try self.base.emit_slice(&.{0x0f, 0x85});
+                try self.base.emit_slice(&.{ 0x0f, 0x85 });
                 // jumps will point to number it self
                 const jump_offset: u32 = @intCast(self.base.code_ptr);
                 self.base.append_jump(jump_offset);
