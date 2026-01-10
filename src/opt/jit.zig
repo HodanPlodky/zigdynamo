@@ -82,10 +82,11 @@ pub const JitCompiler = struct {
             .shared_data = shared_data,
         };
 
-        var free_regs: [3]GPR64 = .{
+        var free_regs: [4]GPR64 = .{
             GPR64.r8,
             GPR64.r9,
-            GPR64.r12,
+            GPR64.r10,
+            GPR64.r11,
         };
         self.register_alloc = try RegAllocAnalysis.init(analysis_base, &free_regs);
         try self.register_alloc.analyze();
@@ -143,7 +144,7 @@ pub const JitCompiler = struct {
         //}
 
         switch (inst) {
-            .ldi => |_| {
+            .ldi, .string => |_| {
                 // nop
                 // it only introduces the values
                 // and those are already set in reg alloc

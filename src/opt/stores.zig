@@ -153,6 +153,7 @@ pub const Stores = struct {
     pub fn get_type(self: *const Stores, inst: ir.Instruction) ir.Type {
         return switch (inst) {
             .ldi => ir.Type.Int,
+            .string => ir.Type.Top,
             .mov, .parallel_copy, .regify => |reg| {
                 const src_inst = self.get(ir.Instruction, reg);
                 return self.get_type(src_inst);
@@ -291,7 +292,17 @@ pub const Stores = struct {
 
         switch (inst) {
             // no regs
-            .ldi, .load_global, .arg, .load_env, .nil, .true, .false, .nop, .jmp => return RegIter.create_empty(),
+            .ldi,
+            .load_global,
+            .arg,
+            .load_env,
+            .nil,
+            .true,
+            .false,
+            .nop,
+            .jmp,
+            .string,
+            => return RegIter.create_empty(),
 
             .store_env, .store_global => |store_idx| {
                 const data = self.get(ir.StoreData, store_idx);
@@ -425,6 +436,7 @@ pub const Stores = struct {
             .false,
             .nop,
             .jmp,
+            .string,
             => return RegIterPtr.create_empty(),
 
             .store_env, .store_global => |store_idx| {

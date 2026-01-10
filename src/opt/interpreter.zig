@@ -54,6 +54,7 @@ const Interpreter = struct {
 
                 switch (inst) {
                     .ldi => |num| self.set_reg(reg, runtime.Value.new_num(num)),
+                    .string => |const_idx| self.set_reg(reg, runtime.Value.new_string(const_idx)),
 
                     // bit different semantics but oh well
                     .mov, .parallel_copy, .regify => |src_reg| self.set_reg(reg, self.get_reg(src_reg)),
@@ -185,7 +186,7 @@ fn test_helper(
     global_names: [][]const u8,
     globals: []runtime.Value,
 ) !runtime.Value {
-    return try test_helper_inner(input, args, global_names, globals, false);
+    return try test_helper_inner(input, args, global_names, globals, false, false);
 }
 
 fn test_helper_inner(
@@ -194,16 +195,24 @@ fn test_helper_inner(
     global_names: [][]const u8,
     globals: []runtime.Value,
     comptime ignore_ssa: bool,
+    comptime run_bc: bool,
 ) !runtime.Value {
     const Parser = @import("../parser.zig").Parser;
     const ir_compile = @import("compile.zig").ir_compile;
     const ir_compile_ssa = @import("compile.zig").ir_compile_ssa;
+    const bc_compile = @import("../compiler.zig").compile;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
     var p = Parser.new(input, allocator);
     const parse_res = try p.parse();
+
+    if (run_bc) {
+        // this is done because opt pipe line
+        // depends on some data that is set here
+        _ = try bc_compile(parse_res, allocator);
+    }
 
     // get first function
     const node = parse_res.data[0];
@@ -309,7 +318,7 @@ test "while fib" {
     ;
 
     var args: [1]runtime.Value = .{runtime.Value.new_num(35)};
-    const ret = try test_helper_inner(input, args[0..], &.{}, &.{}, true);
+    const ret = try test_helper_inner(input, args[0..], &.{}, &.{}, true, false);
     try std.testing.expectEqual(ret.get_number(), 9227465);
 }
 
@@ -329,7 +338,16 @@ test "interpreter global" {
     // WARN: there is a problem with over write of a global since it
     // could run twice (ssa and out ir) so no it runs only with
     // ssa no (they should be the same anyway)
-    const ret = try test_helper_inner(input, args[0..], global_names[0..], globals[0..], true);
+    const ret = try test_helper_inner(input, args[0..], global_names[0..], globals[0..], true, false);
     try std.testing.expectEqual(ret.get_number(), 123);
     try std.testing.expectEqual(globals[0].get_number(), 321);
+}
+
+test "interpreter string" {
+    const input =
+        \\ fn() = "hello";
+    ;
+
+    const ret = try test_helper_inner(input, &.{}, &.{}, &.{}, false, true);
+    try std.testing.expectEqual(ret.get_idx(), 0);
 }

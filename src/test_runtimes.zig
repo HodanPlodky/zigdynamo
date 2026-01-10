@@ -662,7 +662,7 @@ test "retstring" {
         \\ let f = fn() = "hello";
         \\ f();
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 7 (0)
         \\

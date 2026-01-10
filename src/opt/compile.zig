@@ -182,7 +182,7 @@ pub const CompiledResult = struct {
     pub fn write_payload(self: *const CompiledResult, inst: ir.Instruction, writer: anytype) !void {
         switch (inst) {
             // immediate ops
-            .ldi, .load_global, .arg, .load_env => |num| try writer.print(" {}", .{num}),
+            .ldi, .load_global, .arg, .load_env, .string => |num| try writer.print(" {}", .{num}),
 
             // stores
             .store_env, .store_global => |store_idx| {
@@ -395,6 +395,9 @@ pub const Compiler = struct {
             },
             .number => |num| {
                 return try self.append_inst(ir.Instruction{ .ldi = num });
+            },
+            .string => |string| {
+                return try self.append_inst(ir.Instruction{ .string = string.constant_idx });
             },
             .let => |let| {
                 const value_reg = try self.compile_expr(let.value);

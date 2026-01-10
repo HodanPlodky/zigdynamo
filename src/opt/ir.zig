@@ -95,6 +95,7 @@ pub const Instruction = union(enum) {
     nil,
     true,
     false,
+    string: u32,
     // forces constant to be in register
     // this is usefull when moving out of ssa
     // to use correct reg alloc and also
@@ -146,6 +147,7 @@ pub const Instruction = union(enum) {
             .nil => "nil",
             .true => "true",
             .false => "false",
+            .string => "string",
             .regify => "regify",
             .load_global => "load_global",
             .store_global => "store_global",
@@ -180,7 +182,7 @@ pub const Instruction = union(enum) {
 
     pub fn is_constant(self: Instruction) bool {
         return switch (self) {
-            .ldi, .nil, .true, .false => true,
+            .ldi, .nil, .true, .false, .string => true,
             else => false,
         };
     }

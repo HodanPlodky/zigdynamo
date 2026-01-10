@@ -114,6 +114,10 @@ pub const RegAllocAnalysis = struct {
                 self.translates[reg.get_usize()] = .{ .value = Value.new_false() };
                 return;
             },
+            .string => |idx| {
+                self.translates[reg.get_usize()] = .{ .value = Value.new_string(idx) };
+                return;
+            },
             else => {},
         }
 
