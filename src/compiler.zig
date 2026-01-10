@@ -422,11 +422,14 @@ const Compiler = struct {
             }
         }
 
+        // move to permanent allocation
+        const globals = try self.pernament_alloc.alloc([]const u8, self.env.get_global_count());
+        @memcpy(globals, self.env.global.vars.items);
         const res = bytecode.Bytecode{
             .functions = bytecode.Functions.new(functions, sources),
             .constants = constants,
             .current = functions[0].code.get_unchecked_slice_const(),
-            .global_count = self.env.get_global_count(),
+            .globals = globals,
         };
         return res;
     }

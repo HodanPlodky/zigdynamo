@@ -38,10 +38,12 @@ pub const JitCompiler = struct {
         function: *const bytecode.Function,
         source: *const ast.Function,
         metadata: *runtime.FunctionMetadata,
+        globals: [][]const u8,
     ) jit_utils.JitError!JitFunction {
         // this compiler does not
-        // uses source to compile
+        // uses source or globals info to compile
         _ = source;
+        _ = globals;
 
         self.pc = 0;
 

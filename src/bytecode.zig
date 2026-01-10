@@ -343,7 +343,7 @@ pub const Bytecode = struct {
     functions: Functions,
     constants: []Constant,
     current: [*]const u8,
-    global_count: usize,
+    globals: [][]const u8,
 
     pub fn read_inst(self: *const Bytecode, pc: usize) Instruction {
         return @enumFromInt(self.current[pc]);

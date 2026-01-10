@@ -31,7 +31,7 @@ pub const JitCompiler = struct {
     base: Base,
     ir_compiler: *const Compiler,
     register_alloc: RegAllocAnalysis,
-    //globals: [][]const u8,
+    globals: [][]const u8,
 
     bb_emited: BitSet,
 
@@ -42,6 +42,7 @@ pub const JitCompiler = struct {
             .ir_compiler = undefined,
             .register_alloc = undefined,
             .bb_emited = undefined,
+            .globals = undefined,
         };
     }
 
@@ -50,6 +51,7 @@ pub const JitCompiler = struct {
         bcdata: *const bytecode.Function,
         function: *const ast.Function,
         metadata: *runtime.FunctionMetadata,
+        globals: [][]const u8,
     ) !JitFunction {
         // vytecode is not used;
         _ = bcdata;
@@ -66,6 +68,7 @@ pub const JitCompiler = struct {
             return jit_utils.JitError.HeuristicNotMet;
         }
 
+        self.globals = globals;
         const scratch = self.base.scratch_arena.allocator();
 
         var compiler = try Compiler.init(&.{}, scratch, scratch);

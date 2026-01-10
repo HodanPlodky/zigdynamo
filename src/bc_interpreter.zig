@@ -410,7 +410,7 @@ pub fn Interpreter(comptime JitType: ?type) type {
                 .curr_fn = bc.FunctionIndex.new(0),
                 .gc = GC.init(heap_data),
                 .stack = Stack.init(alloc),
-                .env = Environment.init(bytecode.global_count, alloc),
+                .env = Environment.init(bytecode.globals.len, alloc),
                 .function_meta = meta,
                 .jit_compiler = if (JitType) |Jit| Jit.init(4096 * 1024, heuristic) else undefined,
                 .writer = writer,
@@ -765,7 +765,13 @@ pub fn Interpreter(comptime JitType: ?type) type {
                     self.env.local.pop_locals();
                     return;
                 }
-                const compiled = @call(.never_inline, Compiler.compile_fn, .{ &self.jit_compiler, function, function_source, meta });
+                const compiled = @call(.never_inline, Compiler.compile_fn, .{
+                    &self.jit_compiler,
+                    function,
+                    function_source,
+                    meta,
+                    self.bytecode.globals,
+                });
                 //const compiled = self.jit_compiler.compile_fn(function, function_source, meta);
                 if (compiled) |jitted| {
                     jitted.run(JitState, jit_state);
