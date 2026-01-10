@@ -23,7 +23,7 @@ const ValuePlace = RegAllocAnalysis.ValuePlace;
 
 const JitState = jit_utils.JitState(OptJitInterpreter);
 
-const DBG: bool = false;
+const DBG: bool = true;
 
 pub const JitCompiler = struct {
     // register usage:
@@ -93,10 +93,10 @@ pub const JitCompiler = struct {
         };
 
         var free_regs: [4]GPR64 = .{
-            GPR64.r8,
-            GPR64.r9,
-            GPR64.r10,
-            GPR64.r11,
+            GPR64.r12,
+            GPR64.r13,
+            GPR64.r14,
+            GPR64.r15,
         };
         self.register_alloc = try RegAllocAnalysis.init(analysis_base, &free_regs);
         try self.register_alloc.analyze();
@@ -356,9 +356,7 @@ pub const JitCompiler = struct {
                 // do call it self
                 try self.base.mov_from_jit_state(GPR64.rdi, "intepreter");
                 try self.base.mov_reg_reg(GPR64.rsi, GPR64.rbx);
-                try self.store_regs();
                 try self.base.call("call");
-                try self.restore_regs();
 
                 const outplace = self.get_place(ir_reg);
                 try self.stack_get_top(outplace, 0);
@@ -545,30 +543,31 @@ pub const JitCompiler = struct {
     }
 
     fn store_regs(self: *JitCompiler) !void {
-        // push r8
-        try self.base.emit_slice(&.{0x41, 0x50});
-        // push r9
-        try self.base.emit_slice(&.{0x41, 0x51});
-        // push r10
-        try self.base.emit_slice(&.{0x41, 0x52});
-        // push r11
-        try self.base.emit_slice(&.{0x41, 0x53});
+        // push r12
+        try self.base.emit_slice(&.{0x41, 0x54});
+        // push r13
+        try self.base.emit_slice(&.{0x41, 0x55});
+        // push r14
+        try self.base.emit_slice(&.{0x41, 0x56});
+        // push r15
+        try self.base.emit_slice(&.{0x41, 0x57});
     }
 
     fn restore_regs(self: *JitCompiler) !void {
-        // pop r11
-        try self.base.emit_slice(&.{0x41, 0x5b});
-        // pop r10
-        try self.base.emit_slice(&.{0x41, 0x5a});
-        // pop r9
-        try self.base.emit_slice(&.{0x41, 0x59});
-        // pop r8
-        try self.base.emit_slice(&.{0x41, 0x58});
+        // pop r15
+        try self.base.emit_slice(&.{0x41, 0x5f});
+        // pop r14
+        try self.base.emit_slice(&.{0x41, 0x5e});
+        // pop r13
+        try self.base.emit_slice(&.{0x41, 0x5d});
+        // pop r12
+        try self.base.emit_slice(&.{0x41, 0x5c});
     }
 
     fn emit_prolog(self: *JitCompiler) !void {
         // push rbx
         try self.base.emit_byte(0x53);
+        try self.store_regs();
 
         // sub rsp, <stacksize>https://www.youtube.com/watch?v=xKH3Hj4lqLs
         // 48 83 ec 7f = sub rsp, 0x7f
@@ -579,6 +578,7 @@ pub const JitCompiler = struct {
             // future fucker got it
             unreachable;
         }
+
 
         // mov rbx, rdi
         // rbx will store address to state
@@ -596,6 +596,7 @@ pub const JitCompiler = struct {
             unreachable;
         }
 
+        try self.restore_regs();
         // pop rbx
         try self.base.emit_byte(0x5b);
     }
