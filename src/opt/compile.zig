@@ -358,7 +358,7 @@ pub const Compiler = struct {
 
         for (function.params, 0..) |param_name, i| {
             const arg_reg = try self.append_inst(ir.Instruction{ .arg = @intCast(i) });
-            const local_idx = try self.locals.set(param_name);
+            const local_idx = try self.locals.set(param_name.value);
 
             const data = try self.create_with(ir.SetLocalData, ir.SetLocalData{
                 .local_idx = local_idx,
@@ -398,7 +398,7 @@ pub const Compiler = struct {
             },
             .let => |let| {
                 const value_reg = try self.compile_expr(let.value);
-                const local_idx = try self.locals.set(let.target);
+                const local_idx = try self.locals.set(let.target.value);
                 const data = try self.create_with(ir.SetLocalData, ir.SetLocalData{
                     .local_idx = local_idx,
                     .value = value_reg,
@@ -421,20 +421,20 @@ pub const Compiler = struct {
                 return res;
             },
             .ident => |ident| {
-                if (self.locals.get(ident)) |local_idx| {
+                if (self.locals.get(ident.value)) |local_idx| {
                     return try self.append_inst(ir.Instruction{ .get_local = local_idx });
-                } else if (self.get_global(ident)) |global_idx| {
+                } else if (self.get_global(ident.value)) |global_idx| {
                     return try self.append_inst(ir.Instruction{ .load_global = global_idx });
-                } else if (self.locals.get_env(ident)) |env_idx| {
+                } else if (self.locals.get_env(ident.value)) |env_idx| {
                     return try self.append_inst(ir.Instruction{ .load_env = env_idx });
                 } else {
-                    const env_idx = try self.locals.set_env(ident);
+                    const env_idx = try self.locals.set_env(ident.value);
                     return try self.append_inst(ir.Instruction{ .load_env = env_idx });
                 }
             },
             .assign => |assign| {
                 const val_reg = try self.compile_expr(assign.value);
-                const place = try self.get_ident_place(assign.target);
+                const place = try self.get_ident_place(assign.target.value);
                 switch (place) {
                     .local => |idx| {
                         const data = try self.create_with(ir.SetLocalData, .{

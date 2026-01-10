@@ -257,7 +257,7 @@ pub const Parser = struct {
                     tmp.* = result;
                     result = ast.Ast{ .field_access = ast.FieldAccess{
                         .target = tmp,
-                        .field = field,
+                        .field = .{ .value = field },
                     } };
                 },
                 else => break,
@@ -269,7 +269,7 @@ pub const Parser = struct {
     fn factor(self: *Parser) !ast.Ast {
         switch (self.pop()) {
             lexer.Token.number => |num| return ast.Ast{ .number = num },
-            lexer.Token.ident => |ident| return ast.Ast{ .ident = ident },
+            lexer.Token.ident => |ident| return ast.Ast{ .ident = .{ .value = ident } },
             lexer.Token.kwlet => return self.parse_let(),
             lexer.Token.kwobject => return self.parse_object(),
             lexer.Token.kwnil => return ast.Ast.nil,
@@ -279,7 +279,7 @@ pub const Parser = struct {
             lexer.Token.kwwhile => return self.parse_while(),
             lexer.Token.kwtrue => return ast.Ast{ .bool = true },
             lexer.Token.kwfalse => return ast.Ast{ .bool = false },
-            lexer.Token.string => |value| return ast.Ast{ .string = value },
+            lexer.Token.string => |value| return ast.Ast{ .string = .{ .value = value } },
             lexer.Token.kwprint => return ast.Ast.print_fn,
             else => return ParserError.UnexpectedToken,
         }
@@ -291,7 +291,7 @@ pub const Parser = struct {
                 try self.compare(lexer.Token.assign);
                 const val = try self.expr_ptr();
                 return ast.Ast{ .let = ast.Let{
-                    .target = ident,
+                    .target = .{ .value = ident },
                     .value = val,
                 } };
             },
@@ -316,7 +316,7 @@ pub const Parser = struct {
             const value = try self.expr_ptr();
             try self.compare(lexer.Token.comma);
             try fields.append(self.alloc, ast.Field{
-                .name = name,
+                .name = .{ .value = name },
                 .value = value,
             });
         }
@@ -338,10 +338,11 @@ pub const Parser = struct {
     fn parse_function(self: *Parser) !ast.Ast {
         try self.compare(lexer.Token.lparent);
 
-        var args = std.ArrayList([]const u8){};
+        var args = std.ArrayList(ast.String){};
         if (!self.curr_is(lexer.Token.rparent)) {
             while (true) {
-                try args.append(self.alloc, try self.parse_ident());
+                const ident_value = try self.parse_ident();
+                try args.append(self.alloc, .{ .value = ident_value });
                 if (!self.curr_is(lexer.Token.comma)) {
                     break;
                 }
@@ -447,12 +448,18 @@ test "test let" {
         \\{
         \\    data: [
         \\        tag(let): {
-        \\            target: "x"
+        \\            target: {
+        \\                value: "x"
+        \\                constant_idx: 4294967295
+        \\            }
         \\            value: &tag(number): 1
         \\        }
         \\        tag(binop): {
         \\            op: 43
-        \\            left: &tag(ident): "x"
+        \\            left: &tag(ident): {
+        \\                value: "x"
+        \\                constant_idx: 4294967295
+        \\            }
         \\            right: &tag(number): 1
         \\        }
         \\    ]
@@ -477,10 +484,16 @@ test "test function" {
         \\{
         \\    data: [
         \\        tag(let): {
-        \\            target: "f"
+        \\            target: {
+        \\                value: "f"
+        \\                constant_idx: 4294967295
+        \\            }
         \\            value: &tag(function): {
         \\                params: [
-        \\                    "n"
+        \\                    {
+        \\                        value: "n"
+        \\                        constant_idx: 4294967295
+        \\                    }
         \\                ]
         \\                body: &tag(binop): {
         \\                    op: 43
@@ -488,27 +501,42 @@ test "test function" {
         \\                        op: 42
         \\                        left: &tag(number): 1
         \\                        right: &tag(call): {
-        \\                            target: &tag(ident): "f"
+        \\                            target: &tag(ident): {
+        \\                                value: "f"
+        \\                                constant_idx: 4294967295
+        \\                            }
         \\                            args: [
         \\                                tag(binop): {
         \\                                    op: 45
-        \\                                    left: &tag(ident): "n"
+        \\                                    left: &tag(ident): {
+        \\                                        value: "n"
+        \\                                        constant_idx: 4294967295
+        \\                                    }
         \\                                    right: &tag(number): 1
         \\                                }
         \\                            ]
         \\                        }
         \\                    }
-        \\                    right: &tag(ident): "n"
+        \\                    right: &tag(ident): {
+        \\                        value: "n"
+        \\                        constant_idx: 4294967295
+        \\                    }
         \\                }
         \\            }
         \\        }
         \\        tag(call): {
-        \\            target: &tag(ident): "f"
+        \\            target: &tag(ident): {
+        \\                value: "f"
+        \\                constant_idx: 4294967295
+        \\            }
         \\            args: [
         \\                tag(binop): {
         \\                    op: 43
         \\                    left: &tag(call): {
-        \\                        target: &tag(ident): "f"
+        \\                        target: &tag(ident): {
+        \\                            value: "f"
+        \\                            constant_idx: 4294967295
+        \\                        }
         \\                        args: [
         \\                            tag(number): 10
         \\                        ]
@@ -565,29 +593,50 @@ test "test while" {
         \\{
         \\    data: [
         \\        tag(let): {
-        \\            target: "cond"
+        \\            target: {
+        \\                value: "cond"
+        \\                constant_idx: 4294967295
+        \\            }
         \\            value: &tag(bool): true
         \\        }
         \\        tag(let): {
-        \\            target: "x"
+        \\            target: {
+        \\                value: "x"
+        \\                constant_idx: 4294967295
+        \\            }
         \\            value: &tag(number): 1
         \\        }
         \\        tag(loop): {
-        \\            cond: &tag(ident): "cond"
+        \\            cond: &tag(ident): {
+        \\                value: "cond"
+        \\                constant_idx: 4294967295
+        \\            }
         \\            body: &tag(block): [
         \\                tag(assign): {
-        \\                    target: "x"
+        \\                    target: {
+        \\                        value: "x"
+        \\                        constant_idx: 4294967295
+        \\                    }
         \\                    value: &tag(binop): {
         \\                        op: 43
-        \\                        left: &tag(ident): "x"
+        \\                        left: &tag(ident): {
+        \\                            value: "x"
+        \\                            constant_idx: 4294967295
+        \\                        }
         \\                        right: &tag(number): 1
         \\                    }
         \\                }
         \\                tag(call): {
         \\                    target: &tag(print_fn): void
         \\                    args: [
-        \\                        tag(string): "x"
-        \\                        tag(ident): "x"
+        \\                        tag(string): {
+        \\                            value: "x"
+        \\                            constant_idx: 4294967295
+        \\                        }
+        \\                        tag(ident): {
+        \\                            value: "x"
+        \\                            constant_idx: 4294967295
+        \\                        }
         \\                    ]
         \\                }
         \\            ]
@@ -622,16 +671,25 @@ test "test objects" {
         \\{
         \\    data: [
         \\        tag(let): {
-        \\            target: "x"
+        \\            target: {
+        \\                value: "x"
+        \\                constant_idx: 4294967295
+        \\            }
         \\            value: &tag(object): {
         \\                prototype: (null)
         \\                fields: [
         \\                    {
-        \\                        name: "a"
+        \\                        name: {
+        \\                            value: "a"
+        \\                            constant_idx: 4294967295
+        \\                        }
         \\                        value: &tag(number): 1
         \\                    }
         \\                    {
-        \\                        name: "f"
+        \\                        name: {
+        \\                            value: "f"
+        \\                            constant_idx: 4294967295
+        \\                        }
         \\                        value: &tag(function): {
         \\                            params: [
         \\                            ]
@@ -639,8 +697,14 @@ test "test objects" {
         \\                                tag(binop): {
         \\                                    op: 43
         \\                                    left: &tag(field_access): {
-        \\                                        target: &tag(ident): "this"
-        \\                                        field: "a"
+        \\                                        target: &tag(ident): {
+        \\                                            value: "this"
+        \\                                            constant_idx: 4294967295
+        \\                                        }
+        \\                                        field: {
+        \\                                            value: "a"
+        \\                                            constant_idx: 4294967295
+        \\                                        }
         \\                                    }
         \\                                    right: &tag(number): 1
         \\                                }
@@ -651,16 +715,28 @@ test "test objects" {
         \\            }
         \\        }
         \\        tag(let): {
-        \\            target: "y"
+        \\            target: {
+        \\                value: "y"
+        \\                constant_idx: 4294967295
+        \\            }
         \\            value: &tag(object): {
-        \\                prototype: &tag(ident): "x"
+        \\                prototype: &tag(ident): {
+        \\                    value: "x"
+        \\                    constant_idx: 4294967295
+        \\                }
         \\                fields: [
         \\                    {
-        \\                        name: "b"
+        \\                        name: {
+        \\                            value: "b"
+        \\                            constant_idx: 4294967295
+        \\                        }
         \\                        value: &tag(number): 2
         \\                    }
         \\                    {
-        \\                        name: "g"
+        \\                        name: {
+        \\                            value: "g"
+        \\                            constant_idx: 4294967295
+        \\                        }
         \\                        value: &tag(function): {
         \\                            params: [
         \\                            ]
@@ -668,14 +744,26 @@ test "test objects" {
         \\                                tag(binop): {
         \\                                    op: 43
         \\                                    left: &tag(field_call): {
-        \\                                        target: &tag(ident): "this"
-        \\                                        field: "f"
+        \\                                        target: &tag(ident): {
+        \\                                            value: "this"
+        \\                                            constant_idx: 4294967295
+        \\                                        }
+        \\                                        field: {
+        \\                                            value: "f"
+        \\                                            constant_idx: 4294967295
+        \\                                        }
         \\                                        args: [
         \\                                        ]
         \\                                    }
         \\                                    right: &tag(field_access): {
-        \\                                        target: &tag(ident): "this"
-        \\                                        field: "b"
+        \\                                        target: &tag(ident): {
+        \\                                            value: "this"
+        \\                                            constant_idx: 4294967295
+        \\                                        }
+        \\                                        field: {
+        \\                                            value: "b"
+        \\                                            constant_idx: 4294967295
+        \\                                        }
         \\                                    }
         \\                                }
         \\                            ]

@@ -22,9 +22,9 @@ const CompilerFrame = struct {
         };
     }
 
-    pub fn get_index(self: *const CompilerFrame, var_name: []const u8) ?usize {
+    pub fn get_index(self: *const CompilerFrame, var_name: ast.String) ?usize {
         for (self.vars.items, 0..) |item, index| {
-            if (std.mem.eql(u8, item, var_name)) {
+            if (std.mem.eql(u8, item, var_name.value)) {
                 return index;
             }
         }
@@ -35,9 +35,9 @@ const CompilerFrame = struct {
         return self.vars.items.len;
     }
 
-    pub fn add_var(self: *CompilerFrame, var_name: []const u8) void {
+    pub fn add_var(self: *CompilerFrame, var_name: ast.String) void {
         if (self.get_index(var_name) == null) {
-            self.vars.append(self.alloc, var_name) catch unreachable;
+            self.vars.append(self.alloc, var_name.value) catch unreachable;
         }
     }
 };
@@ -60,7 +60,7 @@ const CompilerFnFrame = struct {
         };
     }
 
-    pub fn get_place(self: *const CompilerFnFrame, var_name: []const u8) ?Place {
+    pub fn get_place(self: *const CompilerFnFrame, var_name: ast.String) ?Place {
         var offset: usize = 0;
         for (self.frames.items) |frame| {
             if (frame.get_index(var_name)) |idx| {
@@ -71,7 +71,7 @@ const CompilerFnFrame = struct {
         return null;
     }
 
-    pub fn add_var(self: *CompilerFnFrame, var_name: []const u8) u32 {
+    pub fn add_var(self: *CompilerFnFrame, var_name: ast.String) u32 {
         self.get_current().add_var(var_name);
         const res = self.current_size;
         self.current_size += 1;
@@ -119,7 +119,7 @@ const CompilerEnv = struct {
         return self.global.len();
     }
 
-    pub fn get_place(self: *const CompilerEnv, var_name: []const u8) ?Place {
+    pub fn get_place(self: *const CompilerEnv, var_name: ast.String) ?Place {
         if (self.get_current_const()) |frame| {
             if (frame.get_place(var_name)) |place| {
                 return place;
@@ -133,12 +133,12 @@ const CompilerEnv = struct {
         return null;
     }
 
-    pub fn add_var(self: *CompilerEnv, var_name: []const u8) u32 {
+    pub fn add_var(self: *CompilerEnv, var_name: ast.String) u32 {
         var current = self.get_current().?;
         return current.add_var(var_name);
     }
 
-    pub fn add_global(self: *CompilerEnv, var_name: []const u8) void {
+    pub fn add_global(self: *CompilerEnv, var_name: ast.String) void {
         self.global.add_var(var_name);
     }
 
@@ -333,10 +333,13 @@ const FunctionBuffer = struct {
 };
 
 const UnboundIdent = struct {
-    ident: []const u8,
+    // all of those should have been already
+    // mutated to correct string idx so I dont
+    // need ptrs (I hope)
+    ident: ast.String,
     positions: std.ArrayListUnmanaged(u32),
 
-    pub fn init(ident: []const u8) UnboundIdent {
+    pub fn init(ident: ast.String) UnboundIdent {
         return UnboundIdent{
             .ident = ident,
             .positions = std.ArrayListUnmanaged(u32){},
@@ -372,8 +375,8 @@ const Compiler = struct {
         self.gather_globals(program);
         var main_buffer = self.create_main_buffer();
         var unbound_vars = std.ArrayList(UnboundIdent){};
-        for (program.data, 0..) |expr, i| {
-            switch (expr) {
+        for (program.data, 0..) |*expr, i| {
+            switch (expr.*) {
                 ast.Ast.let => |let| {
                     self.compile_expr(&main_buffer, &unbound_vars, false, let.value);
                     main_buffer.add_inst(I.set_global);
@@ -382,7 +385,7 @@ const Compiler = struct {
                     const target_idx = target_place.get_index();
                     main_buffer.add_u32(target_idx);
                 },
-                else => self.compile_expr(&main_buffer, &unbound_vars, false, &expr),
+                else => self.compile_expr(&main_buffer, &unbound_vars, false, expr),
             }
             if (program.data.len - 1 > i) {
                 main_buffer.add_inst(I.pop);
@@ -435,7 +438,8 @@ const Compiler = struct {
         var unbound_vars = std.ArrayList(UnboundIdent){};
         self.env.push();
         if (method) {
-            _ = self.env.add_var("this");
+            // TODO: this is a hack
+            _ = self.env.add_var(.{ .value = "this" });
         }
         for (function.params) |param| {
             _ = self.env.add_var(param);
@@ -450,7 +454,7 @@ const Compiler = struct {
 
         for (unbound_vars.items) |unbound| {
             if (self.compile_ident(buffer, unbound.ident)) {
-                std.debug.print("{s}\n", .{unbound.ident});
+                std.debug.print("{s}\n", .{unbound.ident.value});
                 @panic("non existant var");
             }
         }
@@ -464,7 +468,7 @@ const Compiler = struct {
         buffer.add_u32(@intCast(unbound_vars.items.len));
     }
 
-    pub fn compile_expr(self: *Compiler, buffer: *FunctionBuffer, unbound_vars: *std.ArrayList(UnboundIdent), tailcall: bool, expr: *const ast.Ast) void {
+    pub fn compile_expr(self: *Compiler, buffer: *FunctionBuffer, unbound_vars: *std.ArrayList(UnboundIdent), tailcall: bool, expr: *ast.Ast) void {
         switch (expr.*) {
             ast.Ast.number => |num| {
                 if (num >= 256) {
@@ -545,7 +549,7 @@ const Compiler = struct {
                     },
                 }
             },
-            ast.Ast.string => |string| {
+            ast.Ast.string => |*string| {
                 const string_idx = self.create_string_constant(string);
                 buffer.add_inst(I.string);
                 buffer.add_u32(string_idx.index);
@@ -607,8 +611,8 @@ const Compiler = struct {
                     buffer.add_inst(I.nil);
                 }
                 var class_const = self.create_constant(bytecode.ConstantType.class);
-                for (object.fields) |field| {
-                    const string_idx = self.create_string_constant(field.name);
+                for (object.fields) |*field| {
+                    const string_idx = self.create_string_constant(&field.name);
                     class_const.add_u32(string_idx.index);
                     switch (field.value.*) {
                         ast.Ast.function => |*function| self.compile_fn(buffer, true, function),
@@ -619,25 +623,25 @@ const Compiler = struct {
                 buffer.add_inst(I.object);
                 buffer.add_u32(class_idx.index);
             },
-            ast.Ast.field_access => |access| {
+            ast.Ast.field_access => |*access| {
                 self.compile_expr(buffer, unbound_vars, false, access.target);
-                const string_idx = self.create_string_constant(access.field);
+                const string_idx = self.create_string_constant(&access.field);
                 buffer.add_inst(I.get_field);
                 buffer.add_u32(string_idx.index);
             },
-            ast.Ast.field_assign => |assign| {
+            ast.Ast.field_assign => |*assign| {
                 self.compile_expr(buffer, unbound_vars, false, assign.value);
                 self.compile_expr(buffer, unbound_vars, false, assign.object);
-                const string_idx = self.create_string_constant(assign.field);
+                const string_idx = self.create_string_constant(&assign.field);
                 buffer.add_inst(I.set_field);
                 buffer.add_u32(string_idx.index);
             },
-            ast.Ast.field_call => |methodcall| {
+            ast.Ast.field_call => |*methodcall| {
                 for (methodcall.args) |*arg| {
                     self.compile_expr(buffer, unbound_vars, false, arg);
                 }
                 self.compile_expr(buffer, unbound_vars, false, methodcall.target);
-                const string_idx = self.create_string_constant(methodcall.field);
+                const string_idx = self.create_string_constant(&methodcall.field);
                 buffer.add_inst(I.methodcall);
                 buffer.add_u32(string_idx.index);
             },
@@ -648,7 +652,7 @@ const Compiler = struct {
         }
     }
 
-    fn compile_ident(self: *Compiler, buffer: *FunctionBuffer, ident: []const u8) bool {
+    fn compile_ident(self: *Compiler, buffer: *FunctionBuffer, ident: ast.String) bool {
         if (self.env.get_place(ident)) |place| {
             const idx = place.get_index();
             switch (place) {
@@ -671,10 +675,10 @@ const Compiler = struct {
         return true;
     }
 
-    fn set_unbound(self: *const Compiler, buffer: *const FunctionBuffer, unbound_vars: *std.ArrayList(UnboundIdent), ident: []const u8) void {
+    fn set_unbound(self: *const Compiler, buffer: *const FunctionBuffer, unbound_vars: *std.ArrayList(UnboundIdent), ident: ast.String) void {
         const position: u32 = @intCast(buffer.buffer.items.len);
         for (unbound_vars.items) |*unbound| {
-            if (std.mem.eql(u8, unbound.ident, ident)) {
+            if (std.mem.eql(u8, unbound.ident.value, ident.value)) {
                 unbound.positions.append(self.scratch_alloc, position) catch unreachable;
             }
         }
@@ -705,10 +709,12 @@ const Compiler = struct {
         return constant_buffer;
     }
 
-    fn create_string_constant(self: *Compiler, string: []const u8) bytecode.ConstantIndex {
+    fn create_string_constant(self: *Compiler, string: *ast.String) bytecode.ConstantIndex {
         var string_buffer = self.create_constant(bytecode.ConstantType.string);
-        string_buffer.append_slice(string);
-        return self.add_constant(string_buffer);
+        string_buffer.append_slice(string.value);
+        const idx = self.add_constant(string_buffer);
+        string.constant_idx = idx.index;
+        return idx;
     }
 
     fn add_constant(self: *Compiler, constant_buffer: ConstantBuffer) bytecode.ConstantIndex {
