@@ -718,6 +718,21 @@ test "sayhello" {
     res.deinit();
 }
 
+test "get global" {
+    const code =
+        \\ let f = fn() = n;
+        \\ let n = 5;
+        \\ f();
+    ;
+    var res = try test_helper_all(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 500000000 (5)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
+
 test "setglobal" {
     const code =
         \\ let n = 1;
@@ -731,7 +746,7 @@ test "setglobal" {
         \\ f();
         \\ print(n);
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\1 

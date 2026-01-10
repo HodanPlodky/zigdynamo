@@ -25,6 +25,12 @@ const JitState = jit_utils.JitState(OptJitInterpreter);
 const DBG: bool = false;
 
 pub const JitCompiler = struct {
+    // register usage:
+    //   rbx: jit state address
+    //   rax, rcx, rdi, rsi: temporary values in instructions
+    //   r8, r9, r10, r11: free regs used for ir values (caller save so we dont have to do much)
+    //   rest unused
+
     const Base = jit_utils.JitCompilerBase(JitState);
     const BitSet = std.DynamicBitSetUnmanaged;
 
@@ -71,7 +77,7 @@ pub const JitCompiler = struct {
         self.globals = globals;
         const scratch = self.base.scratch_arena.allocator();
 
-        var compiler = try Compiler.init(&.{}, scratch, scratch);
+        var compiler = try Compiler.init(self.globals, scratch, scratch);
         try compiler.compile(function, metadata);
         const shared_data = try SharedData.init(&compiler, scratch);
         try run_passes(&compiler, scratch, shared_data);
@@ -164,8 +170,37 @@ pub const JitCompiler = struct {
                 try self.mov_places(src, dst);
             },
 
-            .load_global => unreachable,
-            .store_global => unreachable,
+            .load_global => |index| {
+                const EnvType = @import("../bc_interpreter.zig").Environment;
+                // load env addr
+                try self.base.mov_from_jit_state(GPR64.rdi, "env");
+
+                // load global
+                try self.base.mov_from_struct_64(GPR64.rax, GPR64.rdi, @offsetOf(EnvType, "global"));
+                try self.base.set_reg_64(GPR64.rcx, @intCast(index));
+                try self.base.mov_index_access64(GPR64.rsi, Scale.scale8, GPR64.rax, GPR64.rcx, 0);
+
+                const outplace = self.get_place(ir_reg);
+                try self.mov_places(.{ .reg = GPR64.rsi }, outplace);
+            },
+            .store_global => |store_idx| {
+                const EnvType = @import("../bc_interpreter.zig").Environment;
+                const store = self.ir_compiler.get(ir.StoreData, store_idx);
+
+                // load val
+                const src_place = self.get_place(store.value);
+                try self.mov_place_to_reg(src_place, GPR64.rsi);
+
+                // load env addr
+                try self.base.mov_from_jit_state(GPR64.rdi, "env");
+                // load buffer into the rax
+                try self.base.mov_from_struct_64(GPR64.rax, GPR64.rdi, @offsetOf(EnvType, "global"));
+                try self.base.set_reg_64(GPR64.rcx, @intCast(store.idx));
+
+                // store it
+                try self.base.set_to_index64(Scale.scale8, GPR64.rax, GPR64.rcx, 0, GPR64.rsi);
+
+            },
             .load_env => unreachable,
             .store_env => unreachable,
             .add => |binop_idx| try self.handle_binop_simple(0x1, ir_reg, binop_idx),

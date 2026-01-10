@@ -445,17 +445,19 @@ pub const Compiler = struct {
                             .value = val_reg,
                             .basicblock_idx = self.current,
                         });
-                        return try self.append_inst(.{ .set_local = data });
+                        _ = try self.append_inst(.{ .set_local = data });
                     },
                     .global => |idx| {
                         const data = try self.create_with(ir.StoreData, .{ .idx = idx, .value = val_reg });
-                        return try self.append_inst(.{ .store_global = data });
+                        _ = try self.append_inst(.{ .store_global = data });
                     },
                     .env => |idx| {
                         const data = try self.create_with(ir.StoreData, .{ .idx = idx, .value = val_reg });
-                        return try self.append_inst(.{ .store_env = data });
+                        _ = try self.append_inst(.{ .store_env = data });
                     },
                 }
+                // it retuns value as expression result
+                return val_reg;
             },
             .condition => |condition| {
                 const cond_reg = try self.compile_expr(condition.cond);
