@@ -29,7 +29,7 @@ pub const JitCompiler = struct {
     // register usage:
     //   rbx: jit state address
     //   rax, rcx, rdi, rsi: temporary values in instructions
-    //   r8, r9, r10, r11: free regs used for ir values (caller save so we dont have to do much)
+    //   r12, r13, r4, r15: free regs used for ir values (callee save so you have to handle it)
     //   rest unused
 
     const Base = jit_utils.JitCompilerBase(JitState);
