@@ -17,6 +17,7 @@ const outofssa = @import("compile.zig").outofssa;
 const OptJitInterpreter = @import("../bc_interpreter.zig").OptJitInterpreter;
 const Environment = @import("../bc_interpreter.zig").Environment;
 const LocalEnv = @import("../bc_interpreter.zig").LocalEnv;
+const rev = @import("../utils.zig").ReversedSlice;
 
 const ValuePlace = RegAllocAnalysis.ValuePlace;
 
@@ -199,7 +200,6 @@ pub const JitCompiler = struct {
 
                 // store it
                 try self.base.set_to_index64(Scale.scale8, GPR64.rax, GPR64.rcx, 0, GPR64.rsi);
-
             },
             .load_env => unreachable,
             .store_env => unreachable,
@@ -339,7 +339,31 @@ pub const JitCompiler = struct {
                 const out = self.get_place(ir_reg);
                 try self.mov_places(.{ .reg = GPR64.rdi }, out);
             },
-            .call => unreachable,
+            .call => |call_idx| {
+                const call = self.ir_compiler.get(ir.CallData, call_idx);
+
+                // push args to stack
+                var args_iter = rev(ir.Reg).init(call.args);
+                while (args_iter.next()) |arg| {
+                    const arg_place = self.get_place(arg);
+                    try self.stack_push(arg_place);
+                }
+
+                // push target
+                const target_place = self.get_place(call.target);
+                try self.stack_push(target_place);
+
+                // do call it self
+                try self.base.mov_from_jit_state(GPR64.rdi, "intepreter");
+                try self.base.mov_reg_reg(GPR64.rsi, GPR64.rbx);
+                try self.store_regs();
+                try self.base.call("call");
+                try self.restore_regs();
+
+                const outplace = self.get_place(ir_reg);
+                try self.stack_get_top(outplace, 0);
+                try self.stack_pop();
+            },
             .copy => |copy_idx| {
                 const copy = self.ir_compiler.get(ir.CopyData, copy_idx);
                 const src = self.get_place(copy.src);
@@ -485,6 +509,61 @@ pub const JitCompiler = struct {
         // mov QWORD PTR [rax+rcx*8-0x8],rdi
         // 48 89 7c c8 f8
         try self.base.emit_slice(&.{ 0x48, 0x89, 0x7c, 0xc8, 0xf8 });
+    }
+
+    fn stack_get_top(self: *JitCompiler, dst: ValuePlace, offset: u8) !void {
+        try self.base.mov_from_jit_state(GPR64.rdi, "stack");
+        // load len
+        try self.base.mov_from_struct_64(GPR64.rcx, GPR64.rdi, 8);
+
+        // load stack ptr
+        try self.base.deref_ptr(GPR64.rax, GPR64.rdi);
+
+        // load value from top of stack with offset
+        // mov reg, [rax + rcx*8 - offset]
+        // offset is calculated with two's complement
+        const scale = Scale.from_size(@sizeOf(runtime.Value));
+        try self.base.mov_index_access64(GPR64.rdi, scale, GPR64.rax, GPR64.rcx, @intCast((~((offset + 1) * @sizeOf(runtime.Value))) + 1));
+        try self.mov_places(.{ .reg = GPR64.rdi }, dst);
+    }
+
+    fn stack_pop(self: *JitCompiler) !void {
+        try self.base.mov_from_jit_state(GPR64.rdi, "stack");
+        const stack_addr_val: u8 = @intFromEnum(GPR64.rdi);
+
+        const len_offset = 8;
+        // dec QWORD PTR [stack_addr+0x60]
+        // 49 ff 4f 60
+        // 49 = REX.W | B-bit = high stack_addr
+        // ff = opcode ????
+        // 4f = modrm = 01_001_[lower_stack_addr]
+        // 60 = offset
+        const rex = 0x48 | ((stack_addr_val & 0x8) >> 3);
+        const modrm = 0b01_001_000 | (stack_addr_val & 0x7);
+        const dec_slice: [4]u8 = .{ rex, 0xff, modrm, len_offset };
+        try self.base.emit_slice(dec_slice[0..]);
+    }
+
+    fn store_regs(self: *JitCompiler) !void {
+        // push r8
+        try self.base.emit_slice(&.{0x41, 0x50});
+        // push r9
+        try self.base.emit_slice(&.{0x41, 0x51});
+        // push r10
+        try self.base.emit_slice(&.{0x41, 0x52});
+        // push r11
+        try self.base.emit_slice(&.{0x41, 0x53});
+    }
+
+    fn restore_regs(self: *JitCompiler) !void {
+        // pop r11
+        try self.base.emit_slice(&.{0x41, 0x5b});
+        // pop r10
+        try self.base.emit_slice(&.{0x41, 0x5a});
+        // pop r9
+        try self.base.emit_slice(&.{0x41, 0x59});
+        // pop r8
+        try self.base.emit_slice(&.{0x41, 0x58});
     }
 
     fn emit_prolog(self: *JitCompiler) !void {
