@@ -366,8 +366,7 @@ pub const JitCompiler = struct {
                 const print = self.ir_compiler.get(ir.PrintData, print_idx);
 
                 // push args to stack
-                var args_iter = rev(ir.Reg).init(print.args);
-                while (args_iter.next()) |arg| {
+                for (print.args) |arg| {
                     const arg_place = self.get_place(arg);
                     try self.stack_push(arg_place);
                 }

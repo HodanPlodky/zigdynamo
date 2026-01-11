@@ -1,0 +1,6 @@
+let f = fn(x, y) = {
+    print(y, x, "hello");
+    print("x is", x, "y is", y);
+};
+f("a", 1);
+f(1, "2");

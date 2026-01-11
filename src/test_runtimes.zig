@@ -810,7 +810,7 @@ test "print multiple" {
         \\ f("a", 1);
         \\ f(1, "2");
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\1 a hello 
