@@ -200,7 +200,7 @@ pub const Instruction = union(enum) {
             return true;
         }
         return switch (self) {
-            .store_env, .store_global, .set_local, .call => true,
+            .store_env, .store_global, .set_local, .call, .print => true,
             else => false,
         };
     }

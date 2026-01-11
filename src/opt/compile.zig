@@ -238,7 +238,7 @@ pub const CompiledResult = struct {
             .print => |print_idx| {
                 const print = self.stores.get(ir.PrintData, print_idx);
                 if (print.args.len > 0) {
-                    try writer.print("%{}", .{print.args[0].index});
+                    try writer.print(" %{}", .{print.args[0].index});
                     for (print.args[1..]) |arg| {
                         try writer.print(", %{}", .{arg.index});
                     }
@@ -537,7 +537,10 @@ pub const Compiler = struct {
                 switch (call.target.*) {
                     .print_fn => {
                         const data = try self.create_with(ir.PrintData, .{ .args = args });
-                        return self.append_inst(.{ .print = data });
+                        _ = try self.append_inst(.{ .print = data });
+                        
+                        // the semantics of print is that it returns nil
+                        return self.append_inst(.nil);
                     },
                     else => {
                         const target = try self.compile_expr(call.target);

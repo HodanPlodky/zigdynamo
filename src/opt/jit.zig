@@ -150,7 +150,7 @@ pub const JitCompiler = struct {
         const ir_reg = self.ir_compiler.get_canonical_output(inst_idx);
         //if (self.ir_compiler.stores.get_type(inst) != .Void) {
         //const place = self.get_place(ir_reg);
-        //std.debug.print("{} -> {} -> {}\n", .{inst_idx.get_usize(), ir_reg.get_usize(), place});
+        //std.debug.print("{} -> {} -> {}\n", .{ inst_idx.get_usize(), ir_reg.get_usize(), place });
         //}
 
         switch (inst) {
@@ -363,8 +363,20 @@ pub const JitCompiler = struct {
                 try self.stack_pop();
             },
             .print => |print_idx| {
-                _ = print_idx;
-                unreachable;
+                const print = self.ir_compiler.get(ir.PrintData, print_idx);
+
+                // push args to stack
+                var args_iter = rev(ir.Reg).init(print.args);
+                while (args_iter.next()) |arg| {
+                    const arg_place = self.get_place(arg);
+                    try self.stack_push(arg_place);
+                }
+                //
+                // do call it self
+                try self.base.mov_from_jit_state(GPR64.rdi, "intepreter");
+                try self.base.set_reg_64(GPR64.rsi, print.args.len);
+                try self.base.call("print");
+                try self.stack_pop();
             },
             .copy => |copy_idx| {
                 const copy = self.ir_compiler.get(ir.CopyData, copy_idx);
@@ -548,24 +560,24 @@ pub const JitCompiler = struct {
 
     fn store_regs(self: *JitCompiler) !void {
         // push r12
-        try self.base.emit_slice(&.{0x41, 0x54});
+        try self.base.emit_slice(&.{ 0x41, 0x54 });
         // push r13
-        try self.base.emit_slice(&.{0x41, 0x55});
+        try self.base.emit_slice(&.{ 0x41, 0x55 });
         // push r14
-        try self.base.emit_slice(&.{0x41, 0x56});
+        try self.base.emit_slice(&.{ 0x41, 0x56 });
         // push r15
-        try self.base.emit_slice(&.{0x41, 0x57});
+        try self.base.emit_slice(&.{ 0x41, 0x57 });
     }
 
     fn restore_regs(self: *JitCompiler) !void {
         // pop r15
-        try self.base.emit_slice(&.{0x41, 0x5f});
+        try self.base.emit_slice(&.{ 0x41, 0x5f });
         // pop r14
-        try self.base.emit_slice(&.{0x41, 0x5e});
+        try self.base.emit_slice(&.{ 0x41, 0x5e });
         // pop r13
-        try self.base.emit_slice(&.{0x41, 0x5d});
+        try self.base.emit_slice(&.{ 0x41, 0x5d });
         // pop r12
-        try self.base.emit_slice(&.{0x41, 0x5c});
+        try self.base.emit_slice(&.{ 0x41, 0x5c });
     }
 
     fn emit_prolog(self: *JitCompiler) !void {
@@ -582,7 +594,6 @@ pub const JitCompiler = struct {
             // future fucker got it
             unreachable;
         }
-
 
         // mov rbx, rdi
         // rbx will store address to state
