@@ -529,14 +529,23 @@ pub const Compiler = struct {
                 return try self.append_inst(ir.Instruction.false);
             },
             .call => |call| {
-                const target = try self.compile_expr(call.target);
                 const args = try self.permanent_alloc.alloc(ir.Reg, call.args.len);
                 for (call.args, 0..) |*arg, idx| {
                     args[idx] = try self.compile_expr(arg);
                 }
 
-                const data = try self.create_with(ir.CallData, .{ .target = target, .args = args });
-                return self.append_inst(.{ .call = data });
+                switch (call.target.*) {
+                    .print_fn => {
+                        const data = try self.create_with(ir.PrintData, .{ .args = args });
+                        return self.append_inst(.{ .print = data });
+                    },
+                    else => {
+                        const target = try self.compile_expr(call.target);
+
+                        const data = try self.create_with(ir.CallData, .{ .target = target, .args = args });
+                        return self.append_inst(.{ .call = data });
+                    },
+                }
             },
             else => {
                 std.debug.print("{}", .{expr});
@@ -1283,22 +1292,22 @@ test "call opt compiler" {
         \\function {
         \\basicblock0: []
         \\    %0 = arg 0
-        \\    %2 = load_global 0
-        \\    %4 = ldi 1
-        \\    %5 = add %0, %4
-        \\    %6 = ldi 2
-        \\    %7 = call %2(%5, %6)
-        \\    %8 = load_global 0
-        \\    %9 = load_global 0
-        \\    %11 = ldi 2
-        \\    %12 = mul %0, %11
-        \\    %13 = ldi 1
-        \\    %14 = call %9(%12, %13)
-        \\    %15 = ldi 1
-        \\    %16 = call %8(%14, %15)
-        \\    %17 = load_global 0
-        \\    %18 = ldi 1
-        \\    %20 = call %17(%18, %0)
+        \\    %3 = ldi 1
+        \\    %4 = add %0, %3
+        \\    %5 = ldi 2
+        \\    %6 = load_global 0
+        \\    %7 = call %6(%4, %5)
+        \\    %9 = ldi 2
+        \\    %10 = mul %0, %9
+        \\    %11 = ldi 1
+        \\    %12 = load_global 0
+        \\    %13 = call %12(%10, %11)
+        \\    %14 = ldi 1
+        \\    %15 = load_global 0
+        \\    %16 = call %15(%13, %14)
+        \\    %17 = ldi 1
+        \\    %19 = load_global 0
+        \\    %20 = call %19(%17, %0)
         \\    ret %20
         \\}
         \\
@@ -1308,22 +1317,22 @@ test "call opt compiler" {
         \\function {
         \\basicblock0: []
         \\    %0 = arg 0
-        \\    %2 = load_global 0
-        \\    %4 = ldi 1
-        \\    %5 = add %0, %4
-        \\    %6 = ldi 2
-        \\    %7 = call %2(%5, %6)
-        \\    %8 = load_global 0
-        \\    %9 = load_global 0
-        \\    %11 = ldi 2
-        \\    %12 = mul %0, %11
-        \\    %13 = ldi 1
-        \\    %14 = call %9(%12, %13)
-        \\    %15 = ldi 1
-        \\    %16 = call %8(%14, %15)
-        \\    %17 = load_global 0
-        \\    %18 = ldi 1
-        \\    %20 = call %17(%18, %0)
+        \\    %3 = ldi 1
+        \\    %4 = add %0, %3
+        \\    %5 = ldi 2
+        \\    %6 = load_global 0
+        \\    %7 = call %6(%4, %5)
+        \\    %9 = ldi 2
+        \\    %10 = mul %0, %9
+        \\    %11 = ldi 1
+        \\    %12 = load_global 0
+        \\    %13 = call %12(%10, %11)
+        \\    %14 = ldi 1
+        \\    %15 = load_global 0
+        \\    %16 = call %15(%13, %14)
+        \\    %17 = ldi 1
+        \\    %19 = load_global 0
+        \\    %20 = call %19(%17, %0)
         \\    ret %20
         \\}
         \\
@@ -1365,14 +1374,14 @@ test "fib recursive opt compile" {
         \\basicblock1: [0]
         \\    jmp 3
         \\basicblock2: [0]
-        \\    %8 = load_global 0
-        \\    %10 = ldi 1
-        \\    %11 = sub %0, %10
-        \\    %12 = call %8(%11)
-        \\    %13 = load_global 0
-        \\    %15 = ldi 2
-        \\    %16 = sub %0, %15
-        \\    %17 = call %13(%16)
+        \\    %9 = ldi 1
+        \\    %10 = sub %0, %9
+        \\    %11 = load_global 0
+        \\    %12 = call %11(%10)
+        \\    %14 = ldi 2
+        \\    %15 = sub %0, %14
+        \\    %16 = load_global 0
+        \\    %17 = call %16(%15)
         \\    %18 = add %12, %17
         \\    jmp 3
         \\basicblock3: [1, 2]
@@ -1392,14 +1401,14 @@ test "fib recursive opt compile" {
         \\basicblock1: [0]
         \\    jmp 3
         \\basicblock2: [0]
-        \\    %8 = load_global 0
-        \\    %10 = ldi 1
-        \\    %11 = sub %20, %10
-        \\    %12 = call %8(%11)
-        \\    %13 = load_global 0
-        \\    %15 = ldi 2
-        \\    %16 = sub %20, %15
-        \\    %17 = call %13(%16)
+        \\    %9 = ldi 1
+        \\    %10 = sub %20, %9
+        \\    %11 = load_global 0
+        \\    %12 = call %11(%10)
+        \\    %14 = ldi 2
+        \\    %15 = sub %20, %14
+        \\    %16 = load_global 0
+        \\    %17 = call %16(%15)
         \\    %20 = add %12, %17
         \\    jmp 3
         \\basicblock3: [1, 2]
