@@ -71,6 +71,12 @@ pub const CallData = struct {
 pub const CallDataDistinct = utils.DistinctData(u32, CallData);
 pub const CallDataIdx = CallDataDistinct.Index;
 
+pub const PrintData = struct {
+    args: []Reg,
+};
+pub const PrintDataDistinct = utils.DistinctData(u32, PrintData);
+pub const PrintDataIdx = PrintDataDistinct.Index;
+
 pub const ParallelCopy = struct {
     reg: Reg,
 
@@ -129,6 +135,7 @@ pub const Instruction = union(enum) {
 
     // calls
     call: CallDataIdx,
+    print: PrintDataIdx,
 
     // this instruction should be removed
     // before jit
@@ -167,6 +174,7 @@ pub const Instruction = union(enum) {
             .phony => "phony",
             .parallel_copy => "parallel_copy",
             .call => "call",
+            .print => "print",
             .get_local => "get_local",
             .set_local => "set_local",
             .copy => "copy",

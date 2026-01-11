@@ -235,6 +235,15 @@ pub const CompiledResult = struct {
                 }
                 try writer.print(")", .{});
             },
+            .print => |print_idx| {
+                const print = self.stores.get(ir.PrintData, print_idx);
+                if (print.args.len > 0) {
+                    try writer.print("%{}", .{print.args[0].index});
+                    for (print.args[1..]) |arg| {
+                        try writer.print(", %{}", .{arg.index});
+                    }
+                }
+            },
             .copy => |copy_idx| {
                 const copy = self.stores.get(ir.CopyData, copy_idx);
                 try writer.print(" %{} <- %{}", .{ copy.dst.get_usize(), copy.src.get_usize() });

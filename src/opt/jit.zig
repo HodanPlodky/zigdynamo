@@ -23,7 +23,7 @@ const ValuePlace = RegAllocAnalysis.ValuePlace;
 
 const JitState = jit_utils.JitState(OptJitInterpreter);
 
-const DBG: bool = true;
+const DBG: bool = false;
 
 pub const JitCompiler = struct {
     // register usage:
@@ -361,6 +361,10 @@ pub const JitCompiler = struct {
                 const outplace = self.get_place(ir_reg);
                 try self.stack_get_top(outplace, 0);
                 try self.stack_pop();
+            },
+            .print => |print_idx| {
+                _ = print_idx;
+                unreachable;
             },
             .copy => |copy_idx| {
                 const copy = self.ir_compiler.get(ir.CopyData, copy_idx);

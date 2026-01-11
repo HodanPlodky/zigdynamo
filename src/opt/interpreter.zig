@@ -147,6 +147,7 @@ const Interpreter = struct {
                         self.set_reg(reg, self.get_reg(res.?));
                     },
                     .call => unreachable,
+                    .print => unreachable,
                     .get_local, .set_local => @panic("after passes this should not be here"),
                 }
             }

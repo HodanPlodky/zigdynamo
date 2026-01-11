@@ -13,6 +13,7 @@ pub const Stores = struct {
     store_data: ir.StoreDataDistinct.Multi = .{},
     phony: ir.PhonyDistinct.Multi = .{},
     call: ir.CallDataDistinct.Multi = .{},
+    print: ir.PrintDataDistinct.Multi = .{},
     copies: ir.CopyDataDistinct.Multi = .{},
     alloc: std.mem.Allocator,
 
@@ -175,6 +176,7 @@ pub const Stores = struct {
             // TODO use join
             .phony => ir.Type.Top,
             .call => ir.Type.Top,
+            .print => ir.Type.Void,
             .get_local => ir.Type.Top,
             .set_local => ir.Type.Void,
         };
@@ -225,6 +227,7 @@ pub const Stores = struct {
         const IterTypes = union(enum) {
             phony_iter: []ir.PhonyData.Pair,
             call_iter: ir.CallData,
+            args: []ir.Reg,
             other: OtherData,
         };
 
@@ -240,6 +243,12 @@ pub const Stores = struct {
         fn create_call(calldata: ir.CallData) RegIter {
             return RegIter{
                 .data = .{ .call_iter = calldata },
+            };
+        }
+
+        fn create_args(args: []ir.Reg) RegIter {
+            return RegIter{
+                .data = .{ .args = args },
             };
         }
 
@@ -267,6 +276,7 @@ pub const Stores = struct {
                 .phony_iter => |pairs| pairs.len,
                 .call_iter => |calldata| calldata.args.len + 1,
                 .other => |data| @intCast(data.len),
+                .args => |data| data.len,
             };
         }
 
@@ -281,6 +291,7 @@ pub const Stores = struct {
                 else
                     calldata.args[self.current - 1],
                 .other => |data| data.regs[self.current],
+                .args => |data| data[self.current],
             };
             self.current += 1;
             return res;
@@ -329,6 +340,10 @@ pub const Stores = struct {
                 const data = self.get(ir.CallData, call_idx);
                 return RegIter.create_call(data);
             },
+            .print => |print_idx| {
+                const data = self.get(ir.PrintData, print_idx);
+                return RegIter.create_args(data.args);
+            },
             .get_local => return RegIter.create_empty(),
             .set_local => |set_local_idx| {
                 const set_local = self.get(ir.SetLocalData, set_local_idx);
@@ -357,6 +372,7 @@ pub const Stores = struct {
         const IterTypes = union(enum) {
             phony_iter: []ir.PhonyData.Pair,
             call_iter: CallData,
+            args: []ir.Reg,
             other: OtherData,
         };
 
@@ -375,6 +391,12 @@ pub const Stores = struct {
                     .target = target,
                     .args = args,
                 } },
+            };
+        }
+
+        fn create_args(args: []ir.Reg) RegIterPtr {
+            return RegIterPtr{
+                .data = .{ .args = args },
             };
         }
 
@@ -402,6 +424,7 @@ pub const Stores = struct {
                 .phony_iter => |pairs| pairs.len,
                 .call_iter => |calldata| calldata.args.len + 1,
                 .other => |data| @intCast(data.len),
+                .args => |data| data.len,
             };
         }
 
@@ -416,6 +439,7 @@ pub const Stores = struct {
                 else
                     &calldata.args[self.current - 1],
                 .other => |data| data.regs[self.current],
+                .args => |data| &data[self.current],
             };
             self.current += 1;
             return res;
@@ -480,6 +504,10 @@ pub const Stores = struct {
                 const data = self.get(ir.CallData, call_idx);
                 const target = self.get_field_reg_ptr(ir.CallData, .target, call_idx);
                 return RegIterPtr.create_call(target, data.args);
+            },
+            .print => |print_idx| {
+                const print = self.get(ir.PrintData, print_idx);
+                return RegIterPtr.create_args(print.args);
             },
             .get_local => return RegIterPtr.create_empty(),
             .set_local => |set_local_idx| {
