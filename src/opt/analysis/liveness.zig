@@ -80,7 +80,6 @@ pub const LivenessAnalysis = struct {
             self.curr.setUnion(first_liveness);
         }
 
-
         const bb = self.base.compiler.get(ir.BasicBlock, bb_idx);
         var inst_iter = rev(ir.InstructionIdx).init(bb.instructions.items);
         while (inst_iter.next()) |inst_idx| {

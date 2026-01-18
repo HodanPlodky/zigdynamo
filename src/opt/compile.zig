@@ -538,7 +538,7 @@ pub const Compiler = struct {
                     .print_fn => {
                         const data = try self.create_with(ir.PrintData, .{ .args = args });
                         _ = try self.append_inst(.{ .print = data });
-                        
+
                         // the semantics of print is that it returns nil
                         return self.append_inst(.nil);
                     },

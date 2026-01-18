@@ -149,8 +149,8 @@ pub const JitCompiler = struct {
         const inst = self.ir_compiler.stores.get(ir.Instruction, inst_idx);
         const ir_reg = self.ir_compiler.get_canonical_output(inst_idx);
         //if (self.ir_compiler.stores.get_type(inst) != .Void) {
-            //const place = self.get_place(ir_reg);
-            //std.debug.print("{} -> {} -> {}\n", .{ inst_idx.get_usize(), ir_reg.get_usize(), place });
+        //const place = self.get_place(ir_reg);
+        //std.debug.print("{} -> {} -> {}\n", .{ inst_idx.get_usize(), ir_reg.get_usize(), place });
         //}
 
         switch (inst) {
