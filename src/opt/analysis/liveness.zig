@@ -80,6 +80,7 @@ pub const LivenessAnalysis = struct {
             self.curr.setUnion(first_liveness);
         }
 
+
         const bb = self.base.compiler.get(ir.BasicBlock, bb_idx);
         var inst_iter = rev(ir.InstructionIdx).init(bb.instructions.items);
         while (inst_iter.next()) |inst_idx| {
@@ -104,6 +105,15 @@ pub const LivenessAnalysis = struct {
         bit_set_move(&self.curr, &self.out_live[bb_idx.get_usize()]);
 
         return change;
+    }
+
+    pub fn get_liveness_in(self: *const LivenessAnalysis, bb_idx: ir.BasicBlockIdx, index: usize) BitSet {
+        if (index == 0) {
+            return self.out_live[bb_idx.get_usize()];
+        }
+        const bb = self.base.get(ir.BasicBlock, bb_idx);
+        const inst_idx = bb.instructions.items[index - 1];
+        return self.liveness_at[inst_idx.get_usize()];
     }
 
     pub fn get_liveness_at(self: *const LivenessAnalysis, place: ir.InstructionIdx) BitSet {

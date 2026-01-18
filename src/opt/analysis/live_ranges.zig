@@ -1,6 +1,7 @@
 const std = @import("std");
 const Base = @import("analysis_base.zig").AnalysisBase;
 const ir = @import("../ir.zig");
+const Liveness = @import("liveness.zig").LivenessAnalysis;
 
 pub const LiveRangesAnalysis = struct {
     // I can get away with "only"
@@ -13,16 +14,19 @@ pub const LiveRangesAnalysis = struct {
 
     base: Base,
     ranges: []Range,
+    liveness: Liveness,
 
     pub fn init(base: Base) !LiveRangesAnalysis {
         const inst_count = base.compiler.stores.get_max_idx(ir.Instruction);
         return LiveRangesAnalysis{
             .base = base,
             .ranges = try base.alloc.alloc(Range, inst_count.get_usize()),
+            .liveness = try Liveness.init(base, base.compiler.canonical_regs),
         };
     }
 
-    pub fn analyze(self: *LiveRangesAnalysis) void {
+    pub fn analyze(self: *LiveRangesAnalysis) !void {
+        try self.liveness.analyze();
         var fn_iter = self.base.compiler.stores.idx_iter(ir.Function);
         @memset(self.ranges, .{ .begin = std.math.maxInt(u32), .end = 0 });
         while (fn_iter.next()) |idx| {
@@ -46,16 +50,18 @@ pub const LiveRangesAnalysis = struct {
         const bb = self.base.compiler.get(ir.BasicBlock, bb_idx);
         var new_idx = curr_idx;
 
-        for (bb.instructions.items) |inst_idx| {
+        for (bb.instructions.items, 0..) |inst_idx, index| {
             const outreg = self.base.compiler.get_canonical_output(inst_idx);
             if (self.ranges[outreg.get_usize()].begin >= new_idx) {
                 self.ranges[outreg.get_usize()].begin = new_idx;
             }
             self.ranges[outreg.get_usize()].end = new_idx;
-            var reg_iter = self.base.compiler.stores.get_reg_iter(inst_idx);
-            while (reg_iter.next()) |reg| {
-                const canon_reg = self.base.compiler.get_canon(reg);
-                self.ranges[canon_reg.get_usize()].end = new_idx;
+
+            const live = self.liveness.get_liveness_in(bb_idx, index);
+            var live_iter = live.iterator(.{});
+            while (live_iter.next()) |reg| {
+                // should already be canon
+                self.ranges[reg].end = new_idx;
             }
             new_idx += 1;
         }

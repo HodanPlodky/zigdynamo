@@ -40,7 +40,7 @@ pub const RegAllocAnalysis = struct {
         for (self.release) |*item| {
             item.* = .{};
         }
-        self.ranges.analyze();
+        try self.ranges.analyze();
         var iter = self.base.compiler.stores.idx_iter(ir.Function);
         while (iter.next()) |idx| {
             try self.analyze_fn(idx);
