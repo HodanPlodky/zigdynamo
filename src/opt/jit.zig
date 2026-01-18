@@ -60,7 +60,7 @@ pub const JitCompiler = struct {
         metadata: *runtime.FunctionMetadata,
         globals: [][]const u8,
     ) !JitFunction {
-        // vytecode is not used;
+        // bytecode is not used;
         _ = bcdata;
 
         defer _ = self.base.scratch_arena.reset(.retain_capacity);

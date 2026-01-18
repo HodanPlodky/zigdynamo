@@ -6,7 +6,7 @@ const Liveness = @import("liveness.zig").LivenessAnalysis;
 pub const LiveRangesAnalysis = struct {
     // I can get away with "only"
     // u32 since the index for inst
-    // is u32 so I cannot have move inst
+    // is u32 so I cannot have more inst
     const Range = struct {
         begin: u32,
         end: u32,
