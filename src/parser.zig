@@ -522,6 +522,9 @@ test "test function" {
         \\                        constant_idx: 4294967295
         \\                    }
         \\                }
+        \\                function_idx: 4294967295
+        \\                env_vars: [
+        \\                ]
         \\            }
         \\        }
         \\        tag(call): {
@@ -709,6 +712,9 @@ test "test objects" {
         \\                                    right: &tag(number): 1
         \\                                }
         \\                            ]
+        \\                            function_idx: 4294967295
+        \\                            env_vars: [
+        \\                            ]
         \\                        }
         \\                    }
         \\                ]
@@ -766,6 +772,9 @@ test "test objects" {
         \\                                        }
         \\                                    }
         \\                                }
+        \\                            ]
+        \\                            function_idx: 4294967295
+        \\                            env_vars: [
         \\                            ]
         \\                        }
         \\                    }

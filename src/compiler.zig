@@ -347,6 +347,11 @@ const UnboundIdent = struct {
     }
 };
 
+const UnboundIdents = struct {
+    idents: std.ArrayList(ast.String),
+    positions: std.ArrayList(std.ArrayList(u32)),
+};
+
 const Compiler = struct {
     pernament_alloc: std.mem.Allocator,
     scratch_alloc: std.mem.Allocator,
@@ -434,7 +439,7 @@ const Compiler = struct {
         return res;
     }
 
-    pub fn compile_fn(self: *Compiler, buffer: *FunctionBuffer, method: bool, function: *const ast.Function) void {
+    pub fn compile_fn(self: *Compiler, buffer: *FunctionBuffer, method: bool, function: *ast.Function) void {
         var function_constant = self.create_function_buffer(function);
         // local count padding
         function_constant.get_fn_ptr_mut().param_count = @intCast(function.params.len);

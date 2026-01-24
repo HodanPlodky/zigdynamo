@@ -47,6 +47,10 @@ pub const Call = struct {
 pub const Function = struct {
     params: []String,
     body: *Ast,
+
+    // calculated after the parsing
+    function_idx: u32 = std.math.maxInt(u32),
+    env_vars: []String = &.{},
 };
 
 pub const Assign = struct {
