@@ -508,7 +508,13 @@ const Compiler = struct {
         buffer.add_u32(@intCast(unbound_vars.len()));
     }
 
-    pub fn compile_expr(self: *Compiler, buffer: *FunctionBuffer, unbound_vars: *UnboundIdents, tailcall: bool, expr: *ast.Ast) void {
+    pub fn compile_expr(
+        self: *Compiler,
+        buffer: *FunctionBuffer,
+        unbound_vars: *UnboundIdents,
+        tailcall: bool,
+        expr: *ast.Ast,
+    ) void {
         switch (expr.*) {
             ast.Ast.number => |num| {
                 if (num >= 256) {
@@ -660,6 +666,7 @@ const Compiler = struct {
                     }
                 }
                 const class_idx = self.add_constant(class_const);
+                expr.object.class_idx = class_idx.index;
                 buffer.add_inst(I.object);
                 buffer.add_u32(class_idx.index);
             },

@@ -720,6 +720,7 @@ test "test objects" {
         \\                        }
         \\                    }
         \\                ]
+        \\                class_idx: 4294967295
         \\            }
         \\        }
         \\        tag(let): {
@@ -782,6 +783,7 @@ test "test objects" {
         \\                        }
         \\                    }
         \\                ]
+        \\                class_idx: 4294967295
         \\            }
         \\        }
         \\    ]

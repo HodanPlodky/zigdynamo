@@ -72,6 +72,9 @@ pub const Field = struct {
 pub const Object = struct {
     prototype: ?*Ast,
     fields: []Field,
+
+    // set afterwards
+    class_idx: u32 = std.math.maxInt(u32),
 };
 
 pub const FieldAccess = struct {
