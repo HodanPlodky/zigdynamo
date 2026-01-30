@@ -363,7 +363,7 @@ pub const Compiler = struct {
 
         const bb_idx = try self.create(ir.BasicBlock);
         self.set_basicblock(bb_idx);
-        const fn_idx = try self.create_with(ir.Function, try ir.Function.create(bb_idx, self.permanent_alloc));
+        const fn_idx = try self.create_with(ir.Function, try ir.Function.create(bb_idx, 0, self.permanent_alloc));
         self.fn_idx = fn_idx;
 
         return fn_idx;
@@ -373,7 +373,7 @@ pub const Compiler = struct {
         _ = metadata;
         const bb_idx = try self.create(ir.BasicBlock);
         self.set_basicblock(bb_idx);
-        const fn_idx = try self.create_with(ir.Function, try ir.Function.create(bb_idx, self.permanent_alloc));
+        const fn_idx = try self.create_with(ir.Function, try ir.Function.create(bb_idx, function.env_start, self.permanent_alloc));
         self.fn_idx = fn_idx;
 
         for (function.params, 0..) |param_name, i| {

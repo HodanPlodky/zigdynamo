@@ -51,6 +51,7 @@ pub const Function = struct {
     // calculated after the parsing
     function_idx: u32 = std.math.maxInt(u32),
     env_vars: []String = &.{},
+    env_start: u32 = std.math.maxInt(u32),
 };
 
 pub const Assign = struct {

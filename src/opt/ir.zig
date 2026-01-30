@@ -280,13 +280,15 @@ pub const BasicBlock = struct {
 pub const Function = struct {
     entry: BasicBlockIdx,
     basicblocks: std.ArrayListUnmanaged(BasicBlockIdx),
+    env_start: u32,
 
-    pub fn create(entry: BasicBlockIdx, alloc: std.mem.Allocator) !Function {
+    pub fn create(entry: BasicBlockIdx, env_start: u32, alloc: std.mem.Allocator) !Function {
         var array = std.ArrayListUnmanaged(BasicBlockIdx){};
         try array.append(alloc, entry);
         return Function{
             .entry = entry,
             .basicblocks = array,
+            .env_start = env_start,
         };
     }
 };

@@ -525,6 +525,7 @@ test "test function" {
         \\                function_idx: 4294967295
         \\                env_vars: [
         \\                ]
+        \\                env_start: 4294967295
         \\            }
         \\        }
         \\        tag(call): {
@@ -715,6 +716,7 @@ test "test objects" {
         \\                            function_idx: 4294967295
         \\                            env_vars: [
         \\                            ]
+        \\                            env_start: 4294967295
         \\                        }
         \\                    }
         \\                ]
@@ -776,6 +778,7 @@ test "test objects" {
         \\                            function_idx: 4294967295
         \\                            env_vars: [
         \\                            ]
+        \\                            env_start: 4294967295
         \\                        }
         \\                    }
         \\                ]

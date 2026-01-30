@@ -501,6 +501,7 @@ const Compiler = struct {
         const function_constant_idx = self.add_function(function_constant);
         function.function_idx = function_constant_idx.index;
         function.env_vars = unbound_vars.idents.items;
+        function.env_start = max_size;
 
         buffer.add_inst(I.closure);
         buffer.add_u32(function_constant_idx.index);
