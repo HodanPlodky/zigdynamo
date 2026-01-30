@@ -259,6 +259,19 @@ pub const CompiledResult = struct {
                 }
                 try writer.print(")", .{});
             },
+            .object => |object_idx| {
+                const object = self.stores.get(ir.Object, object_idx);
+                try writer.print(" (class={}, proto=%{})", .{ object.class_idx, object.proto.index });
+
+                try writer.print(" (", .{});
+                if (object.fields.len > 0) {
+                    try writer.print("%{}", .{object.fields[0].index});
+                    for (object.fields[1..]) |field| {
+                        try writer.print(", %{}", .{field.index});
+                    }
+                }
+                try writer.print(")", .{});
+            },
         }
     }
 };
@@ -577,6 +590,25 @@ pub const Compiler = struct {
                 });
 
                 return self.append_inst(.{ .closure = closure_idx });
+            },
+            .object => |object| {
+                const proto_reg = if (object.prototype) |proto|
+                    try self.compile_expr(proto)
+                else
+                    try self.append_inst(.nil);
+
+                const fields_regs = try self.permanent_alloc.alloc(ir.Reg, object.fields.len);
+                for (object.fields, 0..) |field, idx| {
+                    fields_regs[idx] = try self.compile_expr(field.value);
+                }
+
+                const object_idx = try self.create_with(ir.Object, .{
+                    .class_idx = object.class_idx,
+                    .proto = proto_reg,
+                    .fields = fields_regs,
+                });
+
+                return self.append_inst(.{ .object = object_idx });
             },
             else => {
                 std.debug.print("{}", .{expr});
@@ -1580,4 +1612,58 @@ test "opt compiler basic closure" {
             \\
         ).equal_fmt(try ir_compile(source, &meta, bytecode.globals, allocator));
     }
+}
+
+test "opt compile basic object" {
+    const Parser = @import("../parser.zig").Parser;
+    const snap = @import("../snap.zig");
+    const compiler = @import("../compiler.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ fn(n) = object {
+        \\     n: n + 1,
+        \\ };
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+    
+    // need compile for object idxs
+    _ = try compiler.compile(parse_res, allocator);
+
+    // get first function
+    const node = parse_res.data[0];
+
+    // first should be function
+    const function = &node.function;
+    const metadata = runtime.FunctionMetadata{};
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %2 = nil
+        \\    %4 = ldi 1
+        \\    %5 = add %0, %4
+        \\    %6 = object (class=1, proto=%2) (%5)
+        \\    ret %6
+        \\}
+        \\
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, &.{}, allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %2 = nil
+        \\    %4 = ldi 1
+        \\    %5 = add %0, %4
+        \\    %6 = object (class=1, proto=%2) (%5)
+        \\    ret %6
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
 }

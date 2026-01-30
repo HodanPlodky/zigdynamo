@@ -16,6 +16,7 @@ pub const Stores = struct {
     print: ir.PrintDataDistinct.Multi = .{},
     copies: ir.CopyDataDistinct.Multi = .{},
     closures: ir.ClosureDistinct.Multi = .{},
+    objects: ir.ObjectDistinct.Multi = .{},
     alloc: std.mem.Allocator,
 
     const Self = @This();
@@ -157,6 +158,7 @@ pub const Stores = struct {
             .ldi => ir.Type.Int,
             .string => ir.Type.Top,
             .closure => ir.Type.Top,
+            .object => ir.Type.Top,
             .mov, .parallel_copy, .regify => |reg| {
                 const src_inst = self.get(ir.Instruction, reg);
                 return self.get_type(src_inst);
@@ -229,6 +231,7 @@ pub const Stores = struct {
         const IterTypes = union(enum) {
             phony_iter: []ir.PhonyData.Pair,
             call_iter: ir.CallData,
+            object_iter: ir.Object,
             args: []ir.Reg,
             other: OtherData,
         };
@@ -245,6 +248,12 @@ pub const Stores = struct {
         fn create_call(calldata: ir.CallData) RegIter {
             return RegIter{
                 .data = .{ .call_iter = calldata },
+            };
+        }
+
+        fn create_object(object: ir.Object) RegIter {
+            return RegIter{
+                .data = .{ .object_iter = object },
             };
         }
 
@@ -277,6 +286,7 @@ pub const Stores = struct {
             return switch (self.data) {
                 .phony_iter => |pairs| pairs.len,
                 .call_iter => |calldata| calldata.args.len + 1,
+                .object_iter => |object| object.fields.len + 1,
                 .other => |data| @intCast(data.len),
                 .args => |data| data.len,
             };
@@ -292,6 +302,10 @@ pub const Stores = struct {
                     calldata.target
                 else
                     calldata.args[self.current - 1],
+                .object_iter => |object| if (self.current == 0)
+                    object.proto
+                else
+                    object.fields[self.current - 1],
                 .other => |data| data.regs[self.current],
                 .args => |data| data[self.current],
             };
@@ -360,6 +374,10 @@ pub const Stores = struct {
                 const closure = self.get(ir.Closure, closure_idx);
                 return RegIter.create_args(closure.env);
             },
+            .object => |object_idx| {
+                const object = self.get(ir.Object, object_idx);
+                return RegIter.create_object(object);
+            },
         }
     }
 
@@ -370,14 +388,14 @@ pub const Stores = struct {
             len: u8,
         };
 
-        const CallData = struct {
+        const OneAndRest = struct {
             target: *ir.Reg,
             args: []ir.Reg,
         };
 
         const IterTypes = union(enum) {
             phony_iter: []ir.PhonyData.Pair,
-            call_iter: CallData,
+            onerest_iter: OneAndRest,
             args: []ir.Reg,
             other: OtherData,
         };
@@ -391,9 +409,9 @@ pub const Stores = struct {
             };
         }
 
-        fn create_call(target: *ir.Reg, args: []ir.Reg) RegIterPtr {
+        fn create_onerest(target: *ir.Reg, args: []ir.Reg) RegIterPtr {
             return RegIterPtr{
-                .data = .{ .call_iter = .{
+                .data = .{ .onerest_iter = .{
                     .target = target,
                     .args = args,
                 } },
@@ -428,7 +446,7 @@ pub const Stores = struct {
         fn get_len(self: *const RegIterPtr) usize {
             return switch (self.data) {
                 .phony_iter => |pairs| pairs.len,
-                .call_iter => |calldata| calldata.args.len + 1,
+                .onerest_iter => |calldata| calldata.args.len + 1,
                 .other => |data| @intCast(data.len),
                 .args => |data| data.len,
             };
@@ -440,7 +458,7 @@ pub const Stores = struct {
             }
             const res = switch (self.data) {
                 .phony_iter => |pairs| &pairs[self.current].reg,
-                .call_iter => |calldata| if (self.current == 0)
+                .onerest_iter => |calldata| if (self.current == 0)
                     calldata.target
                 else
                     &calldata.args[self.current - 1],
@@ -509,7 +527,7 @@ pub const Stores = struct {
             .call => |call_idx| {
                 const data = self.get(ir.CallData, call_idx);
                 const target = self.get_field_reg_ptr(ir.CallData, .target, call_idx);
-                return RegIterPtr.create_call(target, data.args);
+                return RegIterPtr.create_onerest(target, data.args);
             },
             .print => |print_idx| {
                 const print = self.get(ir.PrintData, print_idx);
@@ -527,6 +545,11 @@ pub const Stores = struct {
             .closure => |closure_idx| {
                 const closure = self.get(ir.Closure, closure_idx);
                 return RegIterPtr.create_args(closure.env);
+            },
+            .object => |object_idx| {
+                const object = self.get(ir.Object, object_idx);
+                const proto = self.get_field_reg_ptr(ir.Object, .proto, object_idx);
+                return RegIterPtr.create_onerest(proto, object.fields);
             },
         }
     }

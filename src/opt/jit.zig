@@ -428,6 +428,27 @@ pub const JitCompiler = struct {
                 try self.stack_pop();
             },
 
+            .object => |object_idx| {
+                const object = self.ir_compiler.get(ir.Object, object_idx);
+
+                const proto_place = self.get_place(object.proto);
+                try self.stack_push(proto_place);
+
+                for (object.fields) |field| {
+                    const field_place = self.get_place(field);
+                    try self.stack_push(field_place);
+                }
+
+                try self.base.mov_from_jit_state(GPR64.rdi, "intepreter");
+                try self.base.set_reg_64(GPR64.rsi, object.class_idx);
+                try self.base.call("create_object");
+
+
+                const out_place = self.get_place(ir_reg);
+                try self.stack_get_top(out_place, 0);
+                try self.stack_pop();
+            },
+
             // should not be in code when generating
             // machine code
             .get_local, .set_local => unreachable,
