@@ -167,7 +167,7 @@ test "basic_closure" {
         \\ let inc1 = inc(1);
         \\ inc1(2);
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 300000000 (3)
         \\
@@ -276,7 +276,7 @@ test "function" {
         \\ 
         \\ inc(2)(inc1(1) + inc(1)(2));
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 700000000 (7)
         \\11 

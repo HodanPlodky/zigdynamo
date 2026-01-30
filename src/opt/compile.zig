@@ -274,14 +274,16 @@ const Locals = struct {
     env: std.StringHashMapUnmanaged(u32),
     curr_idx: u32,
     env_idx: u32,
+    env_start: u32,
 
-    fn init(alloc: std.mem.Allocator) !Locals {
+    fn init(alloc: std.mem.Allocator, env_start: u32) !Locals {
         var res = Locals{
             .alloc = alloc,
             .locals = .{},
             .env = .{},
             .curr_idx = 0,
             .env_idx = 0,
+            .env_start = env_start,
         };
         try res.push_block();
         return res;
@@ -319,11 +321,11 @@ const Locals = struct {
     fn set_env(self: *Locals, var_name: []const u8) !u32 {
         try self.env.putNoClobber(self.alloc, var_name, self.env_idx);
         self.env_idx += 1;
-        return self.env_idx - 1;
+        return self.env_idx - 1 + self.env_start;
     }
 
     fn get_env(self: *const Locals, var_name: []const u8) ?u32 {
-        return self.env.get(var_name);
+        return if (self.env.get(var_name)) |res| res + self.env_start else null;
     }
 };
 
@@ -347,13 +349,14 @@ pub const Compiler = struct {
             .scratch_alloc = scratch_alloc,
             .current = undefined,
             .stores = .{ .alloc = permanent_alloc },
-            .locals = try Locals.init(scratch_alloc),
+            .locals = try Locals.init(scratch_alloc, 0),
             .globals = globals,
             .canonical_regs = undefined,
         };
     }
 
     pub fn compile(self: *Compiler, input: *const ast.Function, metadata: *const runtime.FunctionMetadata) !void {
+        self.locals.env_start = input.env_start;
         self.entry_fn = try self.compile_fn(input, metadata);
     }
 
@@ -884,7 +887,7 @@ test "let" {
         \\    %0 = ldi 1
         \\    %3 = ldi 2
         \\    %8 = add %0, %3
-        \\    %9 = load_env 0
+        \\    %9 = load_env 4294967295
         \\    %10 = add %8, %9
         \\    ret %10
         \\}
@@ -897,7 +900,7 @@ test "let" {
         \\    %0 = ldi 1
         \\    %3 = ldi 2
         \\    %8 = add %0, %3
-        \\    %9 = load_env 0
+        \\    %9 = load_env 4294967295
         \\    %10 = add %8, %9
         \\    ret %10
         \\}
@@ -1557,7 +1560,7 @@ test "opt compiler basic closure" {
             \\function {
             \\basicblock0: []
             \\    %0 = arg 0
-            \\    %2 = load_env 0
+            \\    %2 = load_env 1
             \\    %4 = add %2, %0
             \\    ret %4
             \\}

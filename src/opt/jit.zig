@@ -201,7 +201,31 @@ pub const JitCompiler = struct {
                 // store it
                 try self.base.set_to_index64(Scale.scale8, GPR64.rax, GPR64.rcx, 0, GPR64.rsi);
             },
-            .load_env => unreachable,
+            .load_env => |idx| {
+                const EnvType = @import("../bc_interpreter.zig").Environment;
+                const LocalEnvType = @import("../bc_interpreter.zig").LocalEnv;
+                try self.base.mov_from_jit_state(GPR64.rdi, "env");
+
+                // load current ptr into the rax
+                try self.base.mov_from_struct_64(
+                    GPR64.rax,
+                    GPR64.rdi,
+                    @offsetOf(EnvType, "local") + @offsetOf(LocalEnvType, "current_ptr"),
+                );
+
+                // load local.buffer ptr
+                try self.base.mov_from_struct_64(
+                    GPR64.rcx,
+                    GPR64.rdi,
+                    @offsetOf(EnvType, "local") + @offsetOf(LocalEnvType, "buffer"),
+                );
+
+                // load val from index
+                try self.base.mov_index_access64(GPR64.rdi, Scale.scale8, GPR64.rcx, GPR64.rax, idx * 8);
+                
+                const out_place = self.get_place(ir_reg);
+                try self.mov_places(.{.reg = GPR64.rdi}, out_place);
+            },
             .store_env => unreachable,
             .add => |binop_idx| try self.handle_binop_simple(0x1, ir_reg, binop_idx),
             .sub => |binop_idx| try self.handle_binop_simple(0x29, ir_reg, binop_idx),
