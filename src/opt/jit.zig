@@ -384,7 +384,25 @@ pub const JitCompiler = struct {
                 try self.mov_places(src, dst);
             },
 
-            .closure => unreachable,
+            .closure => |closure_idx| {
+                const closure = self.ir_compiler.get(ir.Closure, closure_idx);
+
+                // push env vars to stack
+                for (closure.env) |reg| {
+                    const place = self.get_place(reg);
+                    try self.stack_push(place);
+                }
+
+                try self.base.mov_from_jit_state(GPR64.rdi, "intepreter");
+                try self.base.set_reg_64(GPR64.rsi, @intCast(closure.function_idx));
+                try self.base.set_reg_64(GPR64.rdx, @intCast(closure.env.len));
+
+                try self.base.call("create_closure");
+
+                const out_place = self.get_place(ir_reg);
+                try self.stack_get_top(out_place, 0);
+                try self.stack_pop();
+            },
 
             // should not be in code when generating
             // machine code
