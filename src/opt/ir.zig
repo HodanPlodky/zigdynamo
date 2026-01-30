@@ -93,6 +93,13 @@ pub const CopyData = struct {
 pub const CopyDataDistinct = utils.DistinctData(u32, CopyData);
 pub const CopyIdx = CopyDataDistinct.Index;
 
+pub const Closure = struct {
+    function_idx: u32,
+    env: []Reg,
+};
+pub const ClosureDistinct = utils.DistinctData(u32, Closure);
+pub const ClosureIdx = ClosureDistinct.Index;
+
 // taged union with max payload
 // of size 4 bytes (u32)
 pub const Instruction = union(enum) {
@@ -102,6 +109,7 @@ pub const Instruction = union(enum) {
     true,
     false,
     string: u32,
+    closure: ClosureIdx,
     // forces constant to be in register
     // this is usefull when moving out of ssa
     // to use correct reg alloc and also
@@ -155,6 +163,7 @@ pub const Instruction = union(enum) {
             .true => "true",
             .false => "false",
             .string => "string",
+            .closure => "closure",
             .regify => "regify",
             .load_global => "load_global",
             .store_global => "store_global",

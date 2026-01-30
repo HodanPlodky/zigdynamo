@@ -384,6 +384,8 @@ pub const JitCompiler = struct {
                 try self.mov_places(src, dst);
             },
 
+            .closure => unreachable,
+
             // should not be in code when generating
             // machine code
             .get_local, .set_local => unreachable,

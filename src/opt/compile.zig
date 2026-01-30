@@ -248,6 +248,17 @@ pub const CompiledResult = struct {
                 const copy = self.stores.get(ir.CopyData, copy_idx);
                 try writer.print(" %{} <- %{}", .{ copy.dst.get_usize(), copy.src.get_usize() });
             },
+            .closure => |closure_idx| {
+                const closure = self.stores.get(ir.Closure, closure_idx);
+                try writer.print(" {}(", .{closure.function_idx});
+                if (closure.env.len > 0) {
+                    try writer.print("%{}", .{closure.env[0].get_usize()});
+                    for (closure.env[1..]) |env_var| {
+                        try writer.print(", %{}", .{env_var.get_usize()});
+                    }
+                }
+                try writer.print(")", .{});
+            },
         }
     }
 };
@@ -549,6 +560,20 @@ pub const Compiler = struct {
                         return self.append_inst(.{ .call = data });
                     },
                 }
+            },
+            .function => |function| {
+                const args = try self.permanent_alloc.alloc(ir.Reg, function.env_vars.len);
+                for (function.env_vars, 0..) |env_var, idx| {
+                    const tmp_ident: ast.Ast = .{ .ident = env_var };
+                    args[idx] = try self.compile_expr(&tmp_ident);
+                }
+
+                const closure_idx = try self.create_with(ir.Closure, .{
+                    .function_idx = function.function_idx,
+                    .env = args,
+                });
+
+                return self.append_inst(.{ .closure = closure_idx });
             },
             else => {
                 std.debug.print("{}", .{expr});
@@ -1493,4 +1518,63 @@ test "conditions vars overlaps more" {
         \\}
         \\
     ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
+}
+
+test "opt compiler basic closure" {
+    const Parser = @import("../parser.zig").Parser;
+    const snap = @import("../snap.zig");
+    const compiler = @import("../compiler.zig");
+    const bc = @import("../bc_interpreter.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ let inc = fn(n) = fn(x) = n + x;
+        \\ let inc1 = inc(1);
+        \\ inc1(2);
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+    const bytecode = try compiler.compile(parse_res, allocator);
+    var writer = std.io.Writer.Allocating.init(std.testing.allocator);
+
+    // does not have to run
+    const inter = bc.OptJitInterpreter.init(
+        allocator,
+        bytecode,
+        try allocator.allocWithOptions(u8, 1024, std.mem.Alignment.@"16", null),
+        &writer.writer,
+        .{},
+    );
+
+    try std.testing.expectEqual(bytecode.functions.sources.len, 2);
+    {
+        const source = bytecode.functions.sources[0];
+        var meta = inter.function_meta[1];
+        try snap.Snap.init(@src(),
+            \\function {
+            \\basicblock0: []
+            \\    %0 = arg 0
+            \\    %2 = load_env 0
+            \\    %4 = add %2, %0
+            \\    ret %4
+            \\}
+            \\
+        ).equal_fmt(try ir_compile(source, &meta, bytecode.globals, allocator));
+    }
+    {
+        const source = bytecode.functions.sources[1];
+        var meta = inter.function_meta[2];
+        try snap.Snap.init(@src(),
+            \\function {
+            \\basicblock0: []
+            \\    %0 = arg 0
+            \\    %3 = closure 1(%0)
+            \\    ret %3
+            \\}
+            \\
+        ).equal_fmt(try ir_compile(source, &meta, bytecode.globals, allocator));
+    }
 }

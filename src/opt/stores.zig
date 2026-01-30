@@ -15,6 +15,7 @@ pub const Stores = struct {
     call: ir.CallDataDistinct.Multi = .{},
     print: ir.PrintDataDistinct.Multi = .{},
     copies: ir.CopyDataDistinct.Multi = .{},
+    closures: ir.ClosureDistinct.Multi = .{},
     alloc: std.mem.Allocator,
 
     const Self = @This();
@@ -155,6 +156,7 @@ pub const Stores = struct {
         return switch (inst) {
             .ldi => ir.Type.Int,
             .string => ir.Type.Top,
+            .closure => ir.Type.Top,
             .mov, .parallel_copy, .regify => |reg| {
                 const src_inst = self.get(ir.Instruction, reg);
                 return self.get_type(src_inst);
@@ -354,6 +356,10 @@ pub const Stores = struct {
                 const copy = self.get(ir.CopyData, copy_idx);
                 return RegIter.create_one(copy.src);
             },
+            .closure => |closure_idx| {
+                const closure = self.get(ir.Closure, closure_idx);
+                return RegIter.create_args(closure.env);
+            },
         }
     }
 
@@ -517,6 +523,10 @@ pub const Stores = struct {
             .copy => |copy_idx| {
                 const src = self.get_field_reg_ptr(ir.CopyData, .src, copy_idx);
                 return RegIterPtr.create_one(src);
+            },
+            .closure => |closure_idx| {
+                const closure = self.get(ir.Closure, closure_idx);
+                return RegIterPtr.create_args(closure.env);
             },
         }
     }
