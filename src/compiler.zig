@@ -322,34 +322,62 @@ const FunctionBuffer = struct {
         }
     }
 
-    pub fn fix_locals(self: *FunctionBuffer, unbound_vars: *const std.ArrayList(UnboundIdent), offset: u32) void {
-        for (unbound_vars.items, 0..) |unbound, order| {
-            const tmp: u32 = @intCast(order);
+    pub fn fix_locals(self: *FunctionBuffer, unbound_vars: *const UnboundIdents, offset: u32) void {
+        var iter = unbound_vars.iter();
+        while (iter.next()) |unbound| {
             for (unbound.positions.items) |pos| {
-                self.set_u32(pos, offset + tmp);
+                self.set_u32(pos, offset + unbound.order);
             }
         }
     }
 };
 
-const UnboundIdent = struct {
-    // all of those should have been already
-    // mutated to correct string idx so I dont
-    // need ptrs (I hope)
-    ident: ast.String,
-    positions: std.ArrayListUnmanaged(u32),
-
-    pub fn init(ident: ast.String) UnboundIdent {
-        return UnboundIdent{
-            .ident = ident,
-            .positions = std.ArrayListUnmanaged(u32){},
-        };
-    }
-};
-
 const UnboundIdents = struct {
-    idents: std.ArrayList(ast.String),
-    positions: std.ArrayList(std.ArrayList(u32)),
+    idents: std.ArrayList(ast.String) = .{},
+    positions: std.ArrayList(std.ArrayList(u32)) = .{},
+
+    fn len(self: *const UnboundIdents) usize {
+        return self.idents.items.len;
+    }
+
+    const UnboundIter = struct {
+        data: *const UnboundIdents,
+        position: usize = 0,
+
+        fn next(self: *UnboundIter) ?struct {
+            ident: ast.String,
+            positions: *std.ArrayList(u32),
+            order: u32,
+        } {
+            if (self.position >= self.data.idents.items.len) {
+                return null;
+            }
+
+            const curr = self.position;
+            self.position += 1;
+            return .{
+                .ident = self.data.idents.items[curr],
+                .positions = &self.data.positions.items[curr],
+                .order = @intCast(curr),
+            };
+        }
+    };
+
+    fn iter(self: *const UnboundIdents) UnboundIter {
+        return .{ .data = self };
+    }
+
+    fn new_ident(
+        self: *UnboundIdents,
+        ident: ast.String,
+        position: u32,
+        permanent: std.mem.Allocator,
+        scratch: std.mem.Allocator,
+    ) void {
+        self.idents.append(permanent, ident) catch unreachable;
+        self.positions.append(scratch, .{}) catch unreachable;
+        self.positions.items[self.len() - 1].append(scratch, position) catch unreachable;
+    }
 };
 
 const Compiler = struct {
@@ -379,7 +407,7 @@ const Compiler = struct {
         // behaves dynamically
         self.gather_globals(program);
         var main_buffer = self.create_main_buffer();
-        var unbound_vars = std.ArrayList(UnboundIdent){};
+        var unbound_vars = UnboundIdents{};
         for (program.data, 0..) |*expr, i| {
             switch (expr.*) {
                 ast.Ast.let => |let| {
@@ -408,7 +436,7 @@ const Compiler = struct {
             buffer.patch_len();
         }
 
-        std.debug.assert(unbound_vars.items.len == 0);
+        std.debug.assert(unbound_vars.len() == 0);
 
         var constants = try self.pernament_alloc.alloc(bytecode.Constant, self.constant_buffers.items.len);
         var functions = try self.pernament_alloc.alloc(*const bytecode.Function, self.function_buffers.items.len);
@@ -443,7 +471,7 @@ const Compiler = struct {
         var function_constant = self.create_function_buffer(function);
         // local count padding
         function_constant.get_fn_ptr_mut().param_count = @intCast(function.params.len);
-        var unbound_vars = std.ArrayList(UnboundIdent){};
+        var unbound_vars = UnboundIdents{};
         self.env.push();
         if (method) {
             // TODO: this is a hack
@@ -456,11 +484,12 @@ const Compiler = struct {
         const max_size: u32 = @intCast(self.env.get_current().?.max_size);
         self.env.pop();
 
-        const unbound_count: u32 = @intCast(unbound_vars.items.len);
+        const unbound_count: u32 = @intCast(unbound_vars.idents.items.len);
         function_constant.get_fn_ptr_mut().locals_count = max_size + unbound_count;
         function_constant.add_inst(I.ret);
 
-        for (unbound_vars.items) |unbound| {
+        var iter = unbound_vars.iter();
+        while (iter.next()) |unbound| {
             if (self.compile_ident(buffer, unbound.ident)) {
                 std.debug.print("{s}\n", .{unbound.ident.value});
                 @panic("non existant var");
@@ -470,13 +499,15 @@ const Compiler = struct {
         function_constant.fix_locals(&unbound_vars, max_size);
 
         const function_constant_idx = self.add_function(function_constant);
+        function.function_idx = function_constant_idx.index;
+        function.env_vars = unbound_vars.idents.items;
 
         buffer.add_inst(I.closure);
         buffer.add_u32(function_constant_idx.index);
-        buffer.add_u32(@intCast(unbound_vars.items.len));
+        buffer.add_u32(@intCast(unbound_vars.len()));
     }
 
-    pub fn compile_expr(self: *Compiler, buffer: *FunctionBuffer, unbound_vars: *std.ArrayList(UnboundIdent), tailcall: bool, expr: *ast.Ast) void {
+    pub fn compile_expr(self: *Compiler, buffer: *FunctionBuffer, unbound_vars: *UnboundIdents, tailcall: bool, expr: *ast.Ast) void {
         switch (expr.*) {
             ast.Ast.number => |num| {
                 if (num >= 256) {
@@ -683,17 +714,22 @@ const Compiler = struct {
         return true;
     }
 
-    fn set_unbound(self: *const Compiler, buffer: *const FunctionBuffer, unbound_vars: *std.ArrayList(UnboundIdent), ident: ast.String) void {
+    fn set_unbound(
+        self: *const Compiler,
+        buffer: *const FunctionBuffer,
+        unbound_vars: *UnboundIdents,
+        ident: ast.String,
+    ) void {
         const position: u32 = @intCast(buffer.buffer.items.len);
-        for (unbound_vars.items) |*unbound| {
+
+        var iter = unbound_vars.iter();
+        while (iter.next()) |unbound| {
             if (std.mem.eql(u8, unbound.ident.value, ident.value)) {
                 unbound.positions.append(self.scratch_alloc, position) catch unreachable;
             }
         }
 
-        var new_unbound = UnboundIdent.init(ident);
-        new_unbound.positions.append(self.scratch_alloc, position) catch unreachable;
-        unbound_vars.append(self.scratch_alloc, new_unbound) catch unreachable;
+        unbound_vars.new_ident(ident, position, self.pernament_alloc, self.scratch_alloc);
     }
 
     fn create_function_buffer(self: *Compiler, function: *const ast.Function) FunctionBuffer {
