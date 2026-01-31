@@ -61,6 +61,7 @@ const Interpreter = struct {
                     .object => unreachable,
                     .get_field => unreachable,
                     .set_field => unreachable,
+                    .method_call => unreachable,
 
                     // bit different semantics but oh well
                     .mov, .parallel_copy, .regify => |src_reg| self.set_reg(reg, self.get_reg(src_reg)),

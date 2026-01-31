@@ -235,6 +235,17 @@ pub const CompiledResult = struct {
                 }
                 try writer.print(")", .{});
             },
+            .method_call => |call_idx| {
+                const call = self.stores.get(ir.MethodCall, call_idx);
+                try writer.print(" %{}[{}](", .{ call.object.index, call.field });
+                if (call.args.len > 0) {
+                    try writer.print("%{}", .{call.args[0].index});
+                    for (call.args[1..]) |arg| {
+                        try writer.print(", %{}", .{arg.index});
+                    }
+                }
+                try writer.print(")", .{});
+            },
             .print => |print_idx| {
                 const print = self.stores.get(ir.PrintData, print_idx);
                 if (print.args.len > 0) {
@@ -656,6 +667,22 @@ pub const Compiler = struct {
 
                 _ = try self.append_inst(.{ .set_field = set_field_idx });
                 return value_reg;
+            },
+            .field_call => |method_call| {
+                const object_reg = try self.compile_expr(method_call.target);
+
+                const args = try self.permanent_alloc.alloc(ir.Reg, method_call.args.len);
+                for (method_call.args, 0..) |*arg, idx| {
+                    args[idx] = try self.compile_expr(arg);
+                }
+
+                const method_call_idx = try self.create_with(ir.MethodCall, .{
+                    .object = object_reg,
+                    .args = args,
+                    .field = method_call.field.constant_idx,
+                });
+
+                return self.append_inst(.{ .method_call = method_call_idx });
             },
             else => {
                 std.debug.print("{}", .{expr});

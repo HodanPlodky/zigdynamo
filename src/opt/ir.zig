@@ -126,6 +126,16 @@ pub const SetField = struct {
 pub const SetFieldDistinct = utils.DistinctData(u32, SetField);
 pub const SetFieldIdx = SetFieldDistinct.Index;
 
+pub const MethodCall = struct {
+    object: Reg,
+    args: []Reg,
+
+    // string idx
+    field: u32,
+};
+pub const MethodCallDistinct = utils.DistinctData(u32, MethodCall);
+pub const MethodCallIdx = MethodCallDistinct.Index;
+
 // taged union with max payload
 // of size 4 bytes (u32)
 pub const Instruction = union(enum) {
@@ -174,6 +184,7 @@ pub const Instruction = union(enum) {
 
     // calls
     call: CallDataIdx,
+    method_call: MethodCallIdx,
     print: PrintDataIdx,
 
     // this instruction should be removed
@@ -217,6 +228,7 @@ pub const Instruction = union(enum) {
             .phony => "phony",
             .parallel_copy => "parallel_copy",
             .call => "call",
+            .method_call => "method_call",
             .print => "print",
             .get_local => "get_local",
             .set_local => "set_local",
@@ -243,7 +255,14 @@ pub const Instruction = union(enum) {
             return true;
         }
         return switch (self) {
-            .store_env, .store_global, .set_local, .call, .print, .set_field => true,
+            .store_env,
+            .store_global,
+            .set_local,
+            .call,
+            .method_call,
+            .print,
+            .set_field,
+            => true,
             else => false,
         };
     }

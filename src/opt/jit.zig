@@ -222,9 +222,9 @@ pub const JitCompiler = struct {
 
                 // load val from index
                 try self.base.mov_index_access64(GPR64.rdi, Scale.scale8, GPR64.rcx, GPR64.rax, idx * 8);
-                
+
                 const out_place = self.get_place(ir_reg);
-                try self.mov_places(.{.reg = GPR64.rdi}, out_place);
+                try self.mov_places(.{ .reg = GPR64.rdi }, out_place);
             },
             .store_env => unreachable,
             .add => |binop_idx| try self.handle_binop_simple(0x1, ir_reg, binop_idx),
@@ -386,6 +386,26 @@ pub const JitCompiler = struct {
                 try self.stack_get_top(outplace, 0);
                 try self.stack_pop();
             },
+            .method_call => |call_idx| {
+                const call = self.ir_compiler.get(ir.MethodCall, call_idx);
+
+                // push args to stack
+                var args_iter = rev(ir.Reg).init(call.args);
+                while (args_iter.next()) |arg| {
+                    const arg_place = self.get_place(arg);
+                    try self.stack_push(arg_place);
+                }
+
+                // push object
+                const object_place = self.get_place(call.object);
+                try self.stack_push(object_place);
+
+                try self.base.mov_from_jit_state(GPR64.rdi, "intepreter");
+                // set rsi to state addres which is in rbx
+                try self.base.mov_reg_reg(GPR64.rsi, GPR64.rbx);
+                try self.base.set_reg_64(GPR64.rdx, call.field);
+                try self.base.call("method_call");
+            },
             .print => |print_idx| {
                 const print = self.ir_compiler.get(ir.PrintData, print_idx);
 
@@ -443,7 +463,6 @@ pub const JitCompiler = struct {
                 try self.base.set_reg_64(GPR64.rsi, object.class_idx);
                 try self.base.call("create_object");
 
-
                 const out_place = self.get_place(ir_reg);
                 try self.stack_get_top(out_place, 0);
                 try self.stack_pop();
@@ -454,7 +473,7 @@ pub const JitCompiler = struct {
 
                 const object_place = self.get_place(get_field.object);
                 try self.stack_push(object_place);
-                
+
                 try self.base.mov_from_jit_state(GPR64.rdi, "intepreter");
                 try self.base.set_reg_64(GPR64.rsi, get_field.field);
                 try self.base.call("get_field");

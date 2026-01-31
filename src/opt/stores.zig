@@ -19,6 +19,7 @@ pub const Stores = struct {
     objects: ir.ObjectDistinct.Multi = .{},
     get_fields: ir.GetFieldDistinct.Multi = .{},
     set_fields: ir.SetFieldDistinct.Multi = .{},
+    method_calls: ir.MethodCallDistinct.Multi = .{},
     alloc: std.mem.Allocator,
 
     const Self = @This();
@@ -184,6 +185,7 @@ pub const Stores = struct {
             // TODO use join
             .phony => ir.Type.Top,
             .call => ir.Type.Top,
+            .method_call => ir.Type.Top,
             .print => ir.Type.Void,
             .get_local => ir.Type.Top,
             .set_local => ir.Type.Void,
@@ -236,6 +238,7 @@ pub const Stores = struct {
             phony_iter: []ir.PhonyData.Pair,
             call_iter: ir.CallData,
             object_iter: ir.Object,
+            method_iter: ir.MethodCall,
             args: []ir.Reg,
             other: OtherData,
         };
@@ -258,6 +261,12 @@ pub const Stores = struct {
         fn create_object(object: ir.Object) RegIter {
             return RegIter{
                 .data = .{ .object_iter = object },
+            };
+        }
+        
+        fn create_method_call(method_call: ir.MethodCall) RegIter {
+            return RegIter{
+                .data = .{.method_iter = method_call},
             };
         }
 
@@ -290,6 +299,7 @@ pub const Stores = struct {
             return switch (self.data) {
                 .phony_iter => |pairs| pairs.len,
                 .call_iter => |calldata| calldata.args.len + 1,
+                .method_iter => |method| method.args.len + 1,
                 .object_iter => |object| object.fields.len + 1,
                 .other => |data| @intCast(data.len),
                 .args => |data| data.len,
@@ -306,6 +316,10 @@ pub const Stores = struct {
                     calldata.target
                 else
                     calldata.args[self.current - 1],
+                .method_iter => |method| if (self.current == 0)
+                    method.object
+                else
+                    method.args[self.current - 1],
                 .object_iter => |object| if (self.current == 0)
                     object.proto
                 else
@@ -359,6 +373,10 @@ pub const Stores = struct {
             .call => |call_idx| {
                 const data = self.get(ir.CallData, call_idx);
                 return RegIter.create_call(data);
+            },
+            .method_call => |call_idx| {
+                const call = self.get(ir.MethodCall, call_idx);
+                return RegIter.create_method_call(call);
             },
             .print => |print_idx| {
                 const data = self.get(ir.PrintData, print_idx);
@@ -540,6 +558,11 @@ pub const Stores = struct {
                 const data = self.get(ir.CallData, call_idx);
                 const target = self.get_field_reg_ptr(ir.CallData, .target, call_idx);
                 return RegIterPtr.create_onerest(target, data.args);
+            },
+            .method_call => |call_idx| {
+                const data = self.get(ir.MethodCall, call_idx);
+                const object = self.get_field_reg_ptr(ir.MethodCall, .object, call_idx);
+                return RegIterPtr.create_onerest(object, data.args);
             },
             .print => |print_idx| {
                 const print = self.get(ir.PrintData, print_idx);
