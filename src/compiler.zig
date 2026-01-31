@@ -473,6 +473,7 @@ const Compiler = struct {
         function_constant.get_fn_ptr_mut().param_count = @intCast(function.params.len);
         var unbound_vars = UnboundIdents{};
         self.env.push();
+        function.is_method = method;
         if (method) {
             // TODO: this is a hack
             _ = self.env.add_var(.{ .value = "this" });

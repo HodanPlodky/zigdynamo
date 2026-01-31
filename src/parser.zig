@@ -526,6 +526,7 @@ test "test function" {
         \\                env_vars: [
         \\                ]
         \\                env_start: 4294967295
+        \\                is_method: false
         \\            }
         \\        }
         \\        tag(call): {
@@ -717,6 +718,7 @@ test "test objects" {
         \\                            env_vars: [
         \\                            ]
         \\                            env_start: 4294967295
+        \\                            is_method: false
         \\                        }
         \\                    }
         \\                ]
@@ -780,6 +782,7 @@ test "test objects" {
         \\                            env_vars: [
         \\                            ]
         \\                            env_start: 4294967295
+        \\                            is_method: false
         \\                        }
         \\                    }
         \\                ]

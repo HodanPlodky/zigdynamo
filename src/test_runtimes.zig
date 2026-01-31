@@ -204,7 +204,7 @@ test "basic_method_call" {
         \\ o.a = 2;
         \\ o.f(2);
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\2 

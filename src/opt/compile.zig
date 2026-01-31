@@ -396,7 +396,20 @@ pub const Compiler = struct {
         const fn_idx = try self.create_with(ir.Function, try ir.Function.create(bb_idx, function.env_start, self.permanent_alloc));
         self.fn_idx = fn_idx;
 
-        for (function.params, 0..) |param_name, i| {
+        if (function.is_method) {
+            const arg_reg = try self.append_inst(ir.Instruction{ .arg = 0 });
+            const local_idx = try self.locals.set("this");
+
+            const data = try self.create_with(ir.SetLocalData, ir.SetLocalData{
+                .local_idx = local_idx,
+                .value = arg_reg,
+                .basicblock_idx = self.current,
+            });
+            _ = try self.append_inst(ir.Instruction{ .set_local = data });
+        }
+
+        const start: usize = if (function.is_method) 1 else 0;
+        for (function.params, start..) |param_name, i| {
             const arg_reg = try self.append_inst(ir.Instruction{ .arg = @intCast(i) });
             const local_idx = try self.locals.set(param_name.value);
 
