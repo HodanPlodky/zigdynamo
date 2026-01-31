@@ -108,6 +108,14 @@ pub const Object = struct {
 pub const ObjectDistinct = utils.DistinctData(u32, Object);
 pub const ObjectIdx = ObjectDistinct.Index;
 
+pub const GetField = struct {
+    object: Reg,
+    // string idx
+    field: u32,
+};
+pub const GetFieldDistinct = utils.DistinctData(u32, GetField);
+pub const GetFieldIdx = GetFieldDistinct.Index;
+
 // taged union with max payload
 // of size 4 bytes (u32)
 pub const Instruction = union(enum) {
@@ -131,6 +139,9 @@ pub const Instruction = union(enum) {
     store_global: StoreDataIdx,
     load_env: u32,
     store_env: StoreDataIdx,
+
+    // object manipulation
+    get_field: GetFieldIdx,
 
     // ops
     add: BinOpIdx,
@@ -179,6 +190,7 @@ pub const Instruction = union(enum) {
             .store_global => "store_global",
             .load_env => "load_env",
             .store_env => "store_env",
+            .get_field => "get_field",
             .add => "add",
             .sub => "sub",
             .mul => "mul",

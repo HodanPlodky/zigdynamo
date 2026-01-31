@@ -59,6 +59,7 @@ const Interpreter = struct {
                     // TODO: Maybe add this
                     .closure => unreachable,
                     .object => unreachable,
+                    .get_field => unreachable,
 
                     // bit different semantics but oh well
                     .mov, .parallel_copy, .regify => |src_reg| self.set_reg(reg, self.get_reg(src_reg)),

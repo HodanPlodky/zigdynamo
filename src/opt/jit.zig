@@ -449,6 +449,8 @@ pub const JitCompiler = struct {
                 try self.stack_pop();
             },
 
+            .get_field => unreachable,
+
             // should not be in code when generating
             // machine code
             .get_local, .set_local => unreachable,

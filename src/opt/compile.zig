@@ -272,6 +272,10 @@ pub const CompiledResult = struct {
                 }
                 try writer.print(")", .{});
             },
+            .get_field => |get_field_idx| {
+                const get_field = self.stores.get(ir.GetField, get_field_idx);
+                try writer.print(" %{}, {}", .{get_field.object, get_field.field});
+            },
         }
     }
 };
