@@ -872,7 +872,7 @@ test "test runtime isbigger/smaller" {
     res.deinit();
 }
 
-test "method call" {
+test "field access" {
     const code =
         \\ let f = fn(o) = {
         \\     o.number + 1;
@@ -885,6 +885,31 @@ test "method call" {
         \\result: 2a00000000 (42)
         \\
         \\
+    ).equal_fmt(res);
+    res.deinit();
+}
+
+test "field assign" {
+    const code =
+        \\ let f = fn(n) = object {
+        \\     number: n * n,
+        \\ };
+        \\ let g = fn() = {
+        \\     let o = f(2);
+        \\     print(o.number);
+        \\     o.number = 12;
+        \\     o;
+        \\ };
+        \\ 
+        \\ let x = g();
+        \\ x.number;
+    ;
+    var res = try test_helper_all(code[0..]);
+    try snap.Snap.init(@src(),
+       \\result: c00000000 (12)
+       \\4 
+       \\
+       \\
     ).equal_fmt(res);
     res.deinit();
 }

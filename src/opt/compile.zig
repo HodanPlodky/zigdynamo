@@ -276,6 +276,14 @@ pub const CompiledResult = struct {
                 const get_field = self.stores.get(ir.GetField, get_field_idx);
                 try writer.print(" %{}, {}", .{ get_field.object.index, get_field.field });
             },
+            .set_field => |set_field_idx| {
+                const set_field = self.stores.get(ir.SetField, set_field_idx);
+                try writer.print(" %{}, {}, %{}", .{
+                    set_field.object.index,
+                    set_field.field,
+                    set_field.value.index,
+                });
+            },
         }
     }
 };
@@ -635,6 +643,19 @@ pub const Compiler = struct {
                 });
 
                 return self.append_inst(.{ .get_field = get_field_idx });
+            },
+            .field_assign => |assign| {
+                const object_reg = try self.compile_expr(assign.object);
+                const value_reg = try self.compile_expr(assign.value);
+
+                const set_field_idx = try self.create_with(ir.SetField, .{
+                    .object = object_reg,
+                    .value = value_reg,
+                    .field = assign.field.constant_idx,
+                });
+
+                _ = try self.append_inst(.{ .set_field = set_field_idx });
+                return value_reg;
             },
             else => {
                 std.debug.print("{}", .{expr});

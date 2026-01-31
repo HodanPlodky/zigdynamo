@@ -464,6 +464,19 @@ pub const JitCompiler = struct {
                 try self.stack_pop();
             },
 
+            .set_field => |set_field_idx| {
+                const set_field = self.ir_compiler.get(ir.SetField, set_field_idx);
+                const value_place = self.get_place(set_field.value);
+                const object_place = self.get_place(set_field.object);
+
+                try self.stack_push(value_place);
+                try self.stack_push(object_place);
+
+                try self.base.mov_from_jit_state(GPR64.rdi, "intepreter");
+                try self.base.set_reg_64(GPR64.rsi, set_field.field);
+                try self.base.call("set_field");
+            },
+
             // should not be in code when generating
             // machine code
             .get_local, .set_local => unreachable,

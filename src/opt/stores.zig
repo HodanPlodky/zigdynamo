@@ -18,6 +18,7 @@ pub const Stores = struct {
     closures: ir.ClosureDistinct.Multi = .{},
     objects: ir.ObjectDistinct.Multi = .{},
     get_fields: ir.GetFieldDistinct.Multi = .{},
+    set_fields: ir.SetFieldDistinct.Multi = .{},
     alloc: std.mem.Allocator,
 
     const Self = @This();
@@ -161,6 +162,7 @@ pub const Stores = struct {
             .closure => ir.Type.Top,
             .object => ir.Type.Top,
             .get_field => ir.Type.Top,
+            .set_field => ir.Type.Void,
             .mov, .parallel_copy, .regify => |reg| {
                 const src_inst = self.get(ir.Instruction, reg);
                 return self.get_type(src_inst);
@@ -384,6 +386,10 @@ pub const Stores = struct {
                 const get_field = self.get(ir.GetField, get_field_idx);
                 return RegIter.create_one(get_field.object);
             },
+            .set_field => |set_field_idx| {
+                const set_field = self.get(ir.SetField, set_field_idx);
+                return RegIter.create_two(set_field.object, set_field.value);
+            },
         }
     }
 
@@ -561,6 +567,11 @@ pub const Stores = struct {
                 const object = self.get_field_reg_ptr(ir.GetField, .object, get_field_idx);
                 return RegIterPtr.create_one(object);
             },
+            .set_field => |set_field_idx| {
+                const object = self.get_field_reg_ptr(ir.SetField, .object, set_field_idx);
+                const value = self.get_field_reg_ptr(ir.SetField, .value, set_field_idx);
+                return RegIterPtr.create_two(object, value);
+            }
         }
     }
 };
