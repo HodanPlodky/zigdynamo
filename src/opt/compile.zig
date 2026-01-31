@@ -274,7 +274,7 @@ pub const CompiledResult = struct {
             },
             .get_field => |get_field_idx| {
                 const get_field = self.stores.get(ir.GetField, get_field_idx);
-                try writer.print(" %{}, {}", .{get_field.object, get_field.field});
+                try writer.print(" %{}, {}", .{ get_field.object.index, get_field.field });
             },
         }
     }
@@ -613,6 +613,15 @@ pub const Compiler = struct {
                 });
 
                 return self.append_inst(.{ .object = object_idx });
+            },
+            .field_access => |access| {
+                const object_reg = try self.compile_expr(access.target);
+                const get_field_idx = try self.create_with(ir.GetField, .{
+                    .object = object_reg,
+                    .field = access.field.constant_idx,
+                });
+
+                return self.append_inst(.{ .get_field = get_field_idx });
             },
             else => {
                 std.debug.print("{}", .{expr});
@@ -1634,7 +1643,7 @@ test "opt compile basic object" {
 
     var p = Parser.new(input, allocator);
     const parse_res = try p.parse();
-    
+
     // need compile for object idxs
     _ = try compiler.compile(parse_res, allocator);
 
@@ -1667,6 +1676,58 @@ test "opt compile basic object" {
         \\    %5 = add %0, %4
         \\    %6 = object (class=1, proto=%2) (%5)
         \\    ret %6
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
+}
+
+test "opt compile basic get field" {
+    const Parser = @import("../parser.zig").Parser;
+    const snap = @import("../snap.zig");
+    const compiler = @import("../compiler.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ fn(o) = {
+        \\     o.age + 1;   
+        \\ };
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+
+    // need compile for object idxs
+    _ = try compiler.compile(parse_res, allocator);
+
+    // get first function
+    const node = parse_res.data[0];
+
+    // first should be function
+    const function = &node.function;
+    const metadata = runtime.FunctionMetadata{};
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %3 = get_field %0, 0
+        \\    %4 = ldi 1
+        \\    %5 = add %3, %4
+        \\    ret %5
+        \\}
+        \\
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, &.{}, allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = arg 0
+        \\    %3 = get_field %0, 0
+        \\    %4 = ldi 1
+        \\    %5 = add %3, %4
+        \\    ret %5
         \\}
         \\
     ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));

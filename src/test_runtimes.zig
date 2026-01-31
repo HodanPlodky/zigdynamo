@@ -871,3 +871,20 @@ test "test runtime isbigger/smaller" {
     ).equal_fmt(res);
     res.deinit();
 }
+
+test "method call" {
+    const code =
+        \\ let f = fn(o) = {
+        \\     o.number + 1;
+        \\ };
+        \\ 
+        \\ f(object {number: 41,});
+    ;
+    var res = try test_helper_all(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 2a00000000 (42)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
