@@ -471,6 +471,9 @@ pub const Compiler = struct {
             .string => |string| {
                 return try self.append_inst(ir.Instruction{ .string = string.constant_idx });
             },
+            .nil => {
+                return self.append_inst(.nil);
+            },
             .let => |let| {
                 const value_reg = try self.compile_expr(let.value);
                 const local_idx = try self.locals.set(let.target.value);

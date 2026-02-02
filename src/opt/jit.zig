@@ -405,6 +405,10 @@ pub const JitCompiler = struct {
                 try self.base.mov_reg_reg(GPR64.rsi, GPR64.rbx);
                 try self.base.set_reg_64(GPR64.rdx, call.field);
                 try self.base.call("method_call");
+
+                const outplace = self.get_place(ir_reg);
+                try self.stack_get_top(outplace, 0);
+                try self.stack_pop();
             },
             .print => |print_idx| {
                 const print = self.ir_compiler.get(ir.PrintData, print_idx);

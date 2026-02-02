@@ -507,7 +507,7 @@ test "object" {
         \\ 
         \\ pos.x + pos.y;
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 300000000 (3)
         \\Adam age 25 
