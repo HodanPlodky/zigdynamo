@@ -291,6 +291,60 @@ pub const JitCompiler = struct {
                     }
                 }.f, out_place, left, right);
             },
+            .eq => |binop_idx| {
+                const binop = self.ir_compiler.get(ir.BinOpData, binop_idx);
+                const left = self.get_place(binop.left);
+                const right = self.get_place(binop.right);
+                const out_place = self.get_place(ir_reg);
+                try self.handle_binop(struct {
+                    fn f(comp: *JitCompiler, output: ValuePlace) !void {
+                        // cmp rsi, rdi
+                        try comp.emit_basic_reg(0x39, GPR64.rsi, GPR64.rdi);
+
+                        // sete sil (lower bytes of rsi)
+                        // 40 0f 94 c6
+                        try comp.base.emit_slice(&.{ 0x40, 0x0f, 0x94, 0xc6 });
+
+                        // add rsi, (false value - 8)
+                        // 48 83 c6 08
+                        const add_slice: [4]u8 = .{
+                            0x48,
+                            0x83,
+                            0xc6,
+                            @intFromEnum(runtime.ValueType.false),
+                        };
+                        try comp.base.emit_slice(add_slice[0..]);
+                        try comp.mov_places(.{ .reg = GPR64.rsi }, output);
+                    }
+                }.f, out_place, left, right);
+            },
+            .ne => |binop_idx| {
+                const binop = self.ir_compiler.get(ir.BinOpData, binop_idx);
+                const left = self.get_place(binop.left);
+                const right = self.get_place(binop.right);
+                const out_place = self.get_place(ir_reg);
+                try self.handle_binop(struct {
+                    fn f(comp: *JitCompiler, output: ValuePlace) !void {
+                        // cmp rsi, rdi
+                        try comp.emit_basic_reg(0x39, GPR64.rsi, GPR64.rdi);
+
+                        // setne sil (lower bytes of rsi)
+                        // 40 0f 95 c6
+                        try comp.base.emit_slice(&.{ 0x40, 0x0f, 0x95, 0xc6 });
+
+                        // add rsi, (false value - 8)
+                        // 48 83 c6 08
+                        const add_slice: [4]u8 = .{
+                            0x48,
+                            0x83,
+                            0xc6,
+                            @intFromEnum(runtime.ValueType.false),
+                        };
+                        try comp.base.emit_slice(add_slice[0..]);
+                        try comp.mov_places(.{ .reg = GPR64.rsi }, output);
+                    }
+                }.f, out_place, left, right);
+            },
             .ret => |reg| {
                 const src = self.get_place(reg);
 

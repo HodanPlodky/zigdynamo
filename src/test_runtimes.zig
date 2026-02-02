@@ -906,10 +906,59 @@ test "field assign" {
     ;
     var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
-       \\result: c00000000 (12)
-       \\4 
-       \\
-       \\
+        \\result: c00000000 (12)
+        \\4 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
+
+test "bin ops" {
+    const code =
+        \\ let f = fn(x, y) = {
+        \\     print(x + y);
+        \\     print(x * y);
+        \\     print(x > y);
+        \\     print(x < y);
+        \\     print(x == y);
+        \\     print(x != y);
+        \\ };
+        \\ 
+        \\ f(1, 2);
+        \\ f(2, 1);
+        \\ f(1, 1);
+        \\ f(2, 2);
+    ;
+    var res = try test_helper_all(code[0..]);
+    try snap.Snap.init(@src(),
+      \\result: 1 (0)
+      \\3 
+      \\2 
+      \\false 
+      \\true 
+      \\false 
+      \\true 
+      \\3 
+      \\2 
+      \\true 
+      \\false 
+      \\false 
+      \\true 
+      \\2 
+      \\1 
+      \\false 
+      \\false 
+      \\true 
+      \\false 
+      \\4 
+      \\4 
+      \\false 
+      \\false 
+      \\true 
+      \\false 
+      \\
+      \\
     ).equal_fmt(res);
     res.deinit();
 }

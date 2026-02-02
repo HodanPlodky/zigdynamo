@@ -118,6 +118,16 @@ const Interpreter = struct {
                         self.code.stores.get(ir.BinOpData, binop_idx),
                         runtime.Value.gt,
                     ),
+                    .eq => |binop_idx| self.run_binop(
+                        inst_idx,
+                        self.code.stores.get(ir.BinOpData, binop_idx),
+                        runtime.Value.eq,
+                    ),
+                    .ne => |binop_idx| self.run_binop(
+                        inst_idx,
+                        self.code.stores.get(ir.BinOpData, binop_idx),
+                        runtime.Value.ne,
+                    ),
                     .ret => |ret_reg| {
                         std.debug.assert(idx == curr_bb.instructions.items.len - 1);
                         return self.get_reg(ret_reg);

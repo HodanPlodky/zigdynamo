@@ -197,7 +197,7 @@ pub const CompiledResult = struct {
             .ret, .mov, .parallel_copy, .regify => |reg| try writer.print(" %{}", .{reg.index}),
 
             //  binop ops
-            .add, .sub, .mul, .div, .lt, .gt => |binop_idx| {
+            .add, .sub, .mul, .div, .lt, .gt, .eq, .ne => |binop_idx| {
                 const binop = self.stores.get(ir.BinOpData, binop_idx);
                 try writer.print(" %{}, %{}", .{ binop.left.index, binop.right.index });
             },
@@ -462,6 +462,8 @@ pub const Compiler = struct {
                     '/' => try self.append_inst(.{ .div = binop_data }),
                     '<' => try self.append_inst(.{ .lt = binop_data }),
                     '>' => try self.append_inst(.{ .gt = binop_data }),
+                    'e' => try self.append_inst(.{ .eq = binop_data }),
+                    'n' => try self.append_inst(.{ .ne = binop_data }),
                     else => unreachable,
                 };
             },

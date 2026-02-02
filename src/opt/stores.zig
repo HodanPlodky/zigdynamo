@@ -178,7 +178,15 @@ pub const Stores = struct {
             .store_global => ir.Type.Void,
             .load_env => ir.Type.Top,
             .store_env => ir.Type.Void,
-            .add, .sub, .mul, .div, .lt, .gt => ir.Type.Top,
+            .add,
+            .sub,
+            .mul,
+            .div,
+            .lt,
+            .gt,
+            .eq,
+            .ne,
+            => ir.Type.Top,
             .ret, .branch, .jmp => ir.Type.Void,
             .arg => ir.Type.Top,
             .nop => ir.Type.Void,
@@ -263,10 +271,10 @@ pub const Stores = struct {
                 .data = .{ .object_iter = object },
             };
         }
-        
+
         fn create_method_call(method_call: ir.MethodCall) RegIter {
             return RegIter{
-                .data = .{.method_iter = method_call},
+                .data = .{ .method_iter = method_call },
             };
         }
 
@@ -358,7 +366,7 @@ pub const Stores = struct {
             .ret, .mov, .parallel_copy, .regify => |reg| return RegIter.create_one(reg),
 
             //  binop ops
-            .add, .sub, .mul, .div, .lt, .gt => |binop_idx| {
+            .add, .sub, .mul, .div, .lt, .gt, .ne, .eq => |binop_idx| {
                 const binop = self.get(ir.BinOpData, binop_idx);
                 return RegIter.create_two(binop.left, binop.right);
             },
@@ -541,7 +549,7 @@ pub const Stores = struct {
             },
 
             //  binop ops
-            .add, .sub, .mul, .div, .lt, .gt => |binop_idx| {
+            .add, .sub, .mul, .div, .lt, .gt, .eq, .ne => |binop_idx| {
                 const left = self.get_field_reg_ptr(ir.BinOpData, .left, binop_idx);
                 const right = self.get_field_reg_ptr(ir.BinOpData, .right, binop_idx);
                 return RegIterPtr.create_two(left, right);
@@ -594,7 +602,7 @@ pub const Stores = struct {
                 const object = self.get_field_reg_ptr(ir.SetField, .object, set_field_idx);
                 const value = self.get_field_reg_ptr(ir.SetField, .value, set_field_idx);
                 return RegIterPtr.create_two(object, value);
-            }
+            },
         }
     }
 };
