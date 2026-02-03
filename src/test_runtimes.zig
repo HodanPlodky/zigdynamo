@@ -932,33 +932,120 @@ test "bin ops" {
     ;
     var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
-      \\result: 1 (0)
-      \\3 
-      \\2 
-      \\false 
-      \\true 
-      \\false 
-      \\true 
-      \\3 
-      \\2 
-      \\true 
-      \\false 
-      \\false 
-      \\true 
-      \\2 
-      \\1 
-      \\false 
-      \\false 
-      \\true 
-      \\false 
-      \\4 
-      \\4 
-      \\false 
-      \\false 
-      \\true 
-      \\false 
-      \\
-      \\
+        \\result: 1 (0)
+        \\3 
+        \\2 
+        \\false 
+        \\true 
+        \\false 
+        \\true 
+        \\3 
+        \\2 
+        \\true 
+        \\false 
+        \\false 
+        \\true 
+        \\2 
+        \\1 
+        \\false 
+        \\false 
+        \\true 
+        \\false 
+        \\4 
+        \\4 
+        \\false 
+        \\false 
+        \\true 
+        \\false 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
+
+test "equal and not equals" {
+    const code =
+        \\ let f = fn(x, y) = {
+        \\     print(x == y);
+        \\     print(x != y);
+        \\     print(y == x);
+        \\     print(y != x);
+        \\     print(x == x);
+        \\     print(y == y);
+        \\     print(x != x);
+        \\     print(y != y);
+        \\ };
+        \\ 
+        \\ let x = object { number: 1, };
+        \\ f(1, 1);
+        \\ f(1, 2);
+        \\ f(1, nil);
+        \\ f(nil, nil);
+        \\ f(x, nil);
+        \\ f(1, x);
+        \\ f(x, x);
+    ;
+    var res = try test_helper_all(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1 (0)
+        \\true 
+        \\false 
+        \\true 
+        \\false 
+        \\true 
+        \\true 
+        \\false 
+        \\false 
+        \\false 
+        \\true 
+        \\false 
+        \\true 
+        \\true 
+        \\true 
+        \\false 
+        \\false 
+        \\false 
+        \\true 
+        \\false 
+        \\true 
+        \\true 
+        \\true 
+        \\false 
+        \\false 
+        \\true 
+        \\false 
+        \\true 
+        \\false 
+        \\true 
+        \\true 
+        \\false 
+        \\false 
+        \\false 
+        \\true 
+        \\false 
+        \\true 
+        \\true 
+        \\true 
+        \\false 
+        \\false 
+        \\false 
+        \\true 
+        \\false 
+        \\true 
+        \\true 
+        \\true 
+        \\false 
+        \\false 
+        \\true 
+        \\false 
+        \\true 
+        \\false 
+        \\true 
+        \\true 
+        \\false 
+        \\false 
+        \\
+        \\
     ).equal_fmt(res);
     res.deinit();
 }
