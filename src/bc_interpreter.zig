@@ -391,6 +391,9 @@ pub fn Interpreter(comptime JitType: ?type) type {
     return struct {
         const Self = @This();
         const JitState = jit_utils.JitState(Self);
+        const DBG: bool = false;
+        const DebuggerType = if (DBG) @import("bc_debugger.zig").BytecodeDebugger(Self) else struct {};
+
         bytecode: bc.Bytecode,
         pc: usize,
         curr_fn: bc.FunctionIndex,
@@ -400,6 +403,34 @@ pub fn Interpreter(comptime JitType: ?type) type {
         writer: *std.io.Writer,
         function_meta: []runtime.FunctionMetadata,
         jit_compiler: if (JitType) |Jit| Jit else struct {},
+
+        bc_debugger: DebuggerType,
+
+
+        inline fn dprint_basic(msg: []const u8, inter: *Self) void {
+            _ = inter;
+            if (DBG) {
+                std.debug.print(msg, .{});
+                std.debug.print("\n", .{});
+            }
+        }
+
+        inline fn dprint_small_info(msg: []const u8, inter: *Self) void {
+            if (DBG) {
+                std.debug.print("pc: {}, ", .{inter.pc});
+                std.debug.print(msg, .{});
+                std.debug.print("\n", .{});
+            }
+        }
+
+        inline fn debugger(msg: []const u8, inter: *Self) void {
+            _ = msg;
+            if (DBG) {
+                inter.bc_debugger.breakpoint();
+            }
+        }
+
+        const inter_dbg = debugger;
 
         pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: *std.io.Writer, heuristic: jit_utils.Heuristic) Self {
             const meta = alloc.alloc(runtime.FunctionMetadata, bytecode.functions.count()) catch unreachable;
@@ -414,15 +445,22 @@ pub fn Interpreter(comptime JitType: ?type) type {
                 .function_meta = meta,
                 .jit_compiler = if (JitType) |Jit| Jit.init(4096 * 1024, heuristic) else undefined,
                 .writer = writer,
+                .bc_debugger = undefined
             };
         }
 
+
         pub fn run(self: *Self) runtime.Value {
+            if (DBG) {
+                // initialized here because it needs pointer
+                self.bc_debugger = @import("bc_debugger.zig").BytecodeDebugger(Self).init(self, self.writer);
+            }
             while (true) {
                 const inst = self.read_inst();
                 std.debug.assert(self.stack.stack.items.len <= self.stack.stack.capacity);
                 sw: switch (inst) {
                     bc.Instruction.push => {
+                        inter_dbg("push", self);
                         const num = self.read_u32();
                         const val = Value.new_num(num);
                         self.stack.push(val);
@@ -435,30 +473,36 @@ pub fn Interpreter(comptime JitType: ?type) type {
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.push_byte => {
+                        inter_dbg("push_byte", self);
                         const num = self.read_u8();
                         const val = Value.new_num(@intCast(num));
                         self.stack.push(val);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.pop => {
+                        inter_dbg("pop", self);
                         _ = self.stack.pop();
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.dup => {
+                        inter_dbg("dup", self);
                         self.stack.push(self.stack.top());
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.true => {
+                        inter_dbg("true", self);
                         const val = Value.new_true();
                         self.stack.push(val);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.false => {
+                        inter_dbg("false", self);
                         const val = Value.new_false();
                         self.stack.push(val);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.nil => {
+                        inter_dbg("nil", self);
                         const val = Value.new_nil();
                         self.stack.push(val);
                         continue :sw self.read_inst();
@@ -466,42 +510,51 @@ pub fn Interpreter(comptime JitType: ?type) type {
 
                     // should not create call
                     bc.Instruction.add => {
+                        inter_dbg("add", self);
                         self.handle_binop(Value.add);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.sub => {
+                        inter_dbg("sub", self);
                         self.handle_binop(Value.sub);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.mul => {
+                        inter_dbg("mul", self);
                         self.handle_binop(Value.mul);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.div => {
+                        inter_dbg("div", self);
                         self.handle_binop(Value.div);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.gt => {
+                        inter_dbg("gt", self);
                         self.handle_binop(Value.gt);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.lt => {
+                        inter_dbg("lt", self);
                         self.handle_binop(Value.lt);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.eq => {
+                        inter_dbg("eq", self);
                         const right = self.stack.pop();
                         const left = self.stack.top();
                         self.stack.set_top(Value.eq(left, right));
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.ne => {
+                        inter_dbg("ne", self);
                         const right = self.stack.pop();
                         const left = self.stack.top();
                         self.stack.set_top(Value.ne(left, right));
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.ret => {
+                        inter_dbg("ret", self);
                         const restore_data = self.env.local.get_ret();
                         self.pc = restore_data.ret_pc;
                         self.curr_fn = restore_data.ret_fn;
@@ -510,28 +563,36 @@ pub fn Interpreter(comptime JitType: ?type) type {
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.ret_main => {
+                        inter_dbg("ret_main", self);
+                        if (DBG) {
+                            self.bc_debugger.deinit();
+                        }
                         return self.stack.top();
                     },
 
                     bc.Instruction.set_global => {
+                        inter_dbg("set_global", self);
                         const value = self.stack.top();
                         const idx = self.read_u32();
                         self.env.set_global(idx, value);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.set => {
+                        inter_dbg("set", self);
                         const value = self.stack.top();
                         const idx = self.read_u32();
                         self.env.local.set(idx, value);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.set_global_small => {
+                        inter_dbg("set_global_small", self);
                         const value = self.stack.top();
                         const idx = self.read_u8();
                         self.env.set_global(@intCast(idx), value);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.set_small => {
+                        inter_dbg("set_small", self);
                         const value = self.stack.top();
                         const idx = self.read_u8();
                         self.env.local.set(@intCast(idx), value);
@@ -539,24 +600,28 @@ pub fn Interpreter(comptime JitType: ?type) type {
                     },
 
                     bc.Instruction.get_global => {
+                        inter_dbg("get_global", self);
                         const idx = self.read_u32();
                         const value = self.env.get_global(idx);
                         self.stack.push(value);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.get_global_small => {
+                        inter_dbg("get_global_small", self);
                         const idx = self.read_u8();
                         const value = self.env.get_global(@intCast(idx));
                         self.stack.push(value);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.get => {
+                        inter_dbg("get", self);
                         const idx = self.read_u32();
                         const value = self.env.local.get(idx);
                         self.stack.push(value);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.get_small => {
+                        inter_dbg("get_small", self);
                         const idx = self.read_u8();
                         const value = self.env.local.get(@intCast(idx));
                         self.stack.push(value);
@@ -564,11 +629,13 @@ pub fn Interpreter(comptime JitType: ?type) type {
                     },
 
                     bc.Instruction.jump => {
+                        inter_dbg("jump", self);
                         const pc = self.read_u32();
                         self.pc = pc;
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.branch => {
+                        inter_dbg("branch", self);
                         const pc = self.read_u32();
                         const cond = self.stack.pop();
                         switch (cond.get_type()) {
@@ -579,12 +646,14 @@ pub fn Interpreter(comptime JitType: ?type) type {
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.closure => {
+                        inter_dbg("closure", self);
                         const constant_idx: u64 = self.read_u32();
                         const unbound_count: u64 = self.read_u32();
                         self.do_closure(constant_idx, unbound_count);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.call => {
+                        inter_dbg("call", self);
                         const jit_state = self.get_jit_state();
                         const target = self.stack.pop();
 
@@ -597,11 +666,13 @@ pub fn Interpreter(comptime JitType: ?type) type {
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.print => {
+                        inter_dbg("print", self);
                         const arg_count: u64 = @intCast(self.read_u32());
                         self.do_print(arg_count);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.string => {
+                        inter_dbg("string", self);
                         const idx = bc.ConstantIndex.new(self.read_u32());
                         if (self.bytecode.get_type(idx) != bc.ConstantType.string) {
                             @panic("Incorrect string");
@@ -611,22 +682,26 @@ pub fn Interpreter(comptime JitType: ?type) type {
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.object => {
+                        inter_dbg("object", self);
                         const class_idx = bc.ConstantIndex.new(self.read_u32());
                         self.do_object(class_idx);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.get_field => {
+                        inter_dbg("get_field", self);
                         const field_idx = self.read_u32();
 
                         self.do_get_field(bc.ConstantIndex.new(field_idx));
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.set_field => {
+                        inter_dbg("set_field", self);
                         const field_idx = self.read_u32();
                         self.do_set_field(bc.ConstantIndex.new(field_idx));
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.methodcall => {
+                        inter_dbg("methodcall", self);
                         const field_idx = self.read_u32();
                         const jit_state = self.get_jit_state();
                         self.do_method_call(&jit_state, bc.ConstantIndex.new(field_idx));
@@ -849,6 +924,7 @@ pub fn Interpreter(comptime JitType: ?type) type {
         fn do_get_field(self: *Self, string_idx: bc.ConstantIndex) void {
             const val = self.stack.top();
             if (val.get_type() != ValueType.object) {
+                std.debug.print("{f}\n", .{val});
                 @panic("invalid object");
             }
             const object = val.get_ptr(bc.Object);

@@ -168,6 +168,27 @@ pub const Function = packed struct {
             try writer.print("\n", .{});
         }
     }
+
+    pub fn write_with_highlight(self: *const Function, writer: *std.io.Writer, pc: usize) !void {
+        try writer.print("function ({} bytes)\n", .{self.code.count});
+        const size = self.code.count;
+        const slice = self.code.get_slice_const();
+        var i: usize = 0;
+        while (i < size) {
+            const inst: Instruction = @enumFromInt(slice[i]);
+            if (i == pc) {
+                try writer.print("    \x1b[1;32m> {}: {f}\x1b[0m", .{ i, inst });
+            } else {
+                try writer.print("    {}: {f}", .{ i, inst });
+            }
+            i += 1;
+            for (0..inst.get_extrabytes()) |_| {
+                try writer.print(" {}", .{slice[i]});
+                i += 1;
+            }
+            try writer.print("\n", .{});
+        }
+    }
 };
 
 pub const Functions = struct {
