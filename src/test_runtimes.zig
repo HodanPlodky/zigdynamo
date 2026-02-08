@@ -1063,6 +1063,7 @@ test "blocks" {
         \\ 
         \\ f();
     ;
+
     var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 500000000 (5)

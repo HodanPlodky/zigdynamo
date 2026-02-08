@@ -55,7 +55,7 @@ const Interpreter = struct {
                 switch (inst) {
                     .ldi => |num| self.set_reg(reg, runtime.Value.new_num(num)),
                     .string => |const_idx| self.set_reg(reg, runtime.Value.new_string(const_idx)),
-                    
+
                     // TODO: Maybe add this
                     .closure => unreachable,
                     .object => unreachable,

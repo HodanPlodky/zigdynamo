@@ -101,15 +101,15 @@ pub fn BytecodeDebugger(comptime Interpret: type) type {
             const stack: Stack = self.state.stack;
             var iter = rev(Value).init(stack.stack.items);
 
-            _ = self.writer.write("Stack:\n[ ")  catch @panic("write debugger panic");
+            _ = self.writer.write("Stack:\n[ ") catch @panic("write debugger panic");
             if (iter.next()) |first_val| {
                 Value.format(first_val, self.writer) catch @panic("write debugger panic");
                 while (iter.next()) |value| {
-                    _ = self.writer.write(", ")  catch @panic("write debugger panic");
+                    _ = self.writer.write(", ") catch @panic("write debugger panic");
                     Value.format(value, self.writer) catch @panic("write debugger panic");
                 }
             }
-            _ = self.writer.write(" ]\nEnv:\n")  catch @panic("write debugger panic");
+            _ = self.writer.write(" ]\nEnv:\n") catch @panic("write debugger panic");
 
             // print local env
             const env: LocalEnv = self.state.env.local;
@@ -120,7 +120,7 @@ pub fn BytecodeDebugger(comptime Interpret: type) type {
                 Value.format(value, self.writer) catch @panic("write debugger panic");
                 _ = self.writer.print("| ", .{}) catch @panic("write debugger panic");
             }
-            _ = self.writer.write("\n\n")  catch @panic("write debugger panic");
+            _ = self.writer.write("\n\n") catch @panic("write debugger panic");
         }
 
         fn write_msg(self: *Self, msg: []const u8) void {

@@ -413,7 +413,6 @@ pub fn Interpreter(comptime JitType: ?type) type {
 
         bc_debugger: DebuggerType,
 
-
         inline fn dprint_basic(msg: []const u8, inter: *Self) void {
             _ = inter;
             if (DBG) {
@@ -442,20 +441,8 @@ pub fn Interpreter(comptime JitType: ?type) type {
         pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: *std.io.Writer, heuristic: jit_utils.Heuristic) Self {
             const meta = alloc.alloc(runtime.FunctionMetadata, bytecode.functions.count()) catch unreachable;
             @memset(meta, runtime.FunctionMetadata{ .call_counter = 0, .jit_state = 0 });
-            return Self{
-                .bytecode = bytecode,
-                .pc = 0,
-                .curr_fn = bc.FunctionIndex.new(0),
-                .gc = GC.init(heap_data),
-                .stack = Stack.init(alloc),
-                .env = Environment.init(bytecode.globals.len, alloc),
-                .function_meta = meta,
-                .jit_compiler = if (JitType) |Jit| Jit.init(4096 * 1024, heuristic) else undefined,
-                .writer = writer,
-                .bc_debugger = undefined
-            };
+            return Self{ .bytecode = bytecode, .pc = 0, .curr_fn = bc.FunctionIndex.new(0), .gc = GC.init(heap_data), .stack = Stack.init(alloc), .env = Environment.init(bytecode.globals.len, alloc), .function_meta = meta, .jit_compiler = if (JitType) |Jit| Jit.init(4096 * 1024, heuristic) else undefined, .writer = writer, .bc_debugger = undefined };
         }
-
 
         pub fn run(self: *Self) runtime.Value {
             if (DBG) {

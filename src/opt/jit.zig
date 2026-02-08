@@ -299,7 +299,7 @@ pub const JitCompiler = struct {
 
                 try self.mov_place_to_reg(left, GPR64.rax);
                 try self.mov_place_to_reg(right, GPR64.rdi);
-                
+
                 // xor rsi, rsi
                 try self.emit_basic_reg(0x33, GPR64.rsi, GPR64.rsi);
 
@@ -329,7 +329,7 @@ pub const JitCompiler = struct {
 
                 try self.mov_place_to_reg(left, GPR64.rax);
                 try self.mov_place_to_reg(right, GPR64.rdi);
-                
+
                 // xor rsi, rsi
                 try self.emit_basic_reg(0x33, GPR64.rsi, GPR64.rsi);
 
