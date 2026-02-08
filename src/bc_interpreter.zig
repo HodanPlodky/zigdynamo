@@ -346,6 +346,13 @@ pub const LocalEnv = struct {
         };
     }
 
+    pub fn get_current_count(self: *const LocalEnv) usize {
+        if (self.buffer.items.len == 0) {
+            return 0;
+        }
+        return self.buffer.items.len - self.current_ptr - 2;
+    }
+
     pub fn get(self: *const LocalEnv, idx: u32) Value {
         return self.buffer.items[@intCast(self.current_ptr + idx)];
     }
@@ -391,7 +398,7 @@ pub fn Interpreter(comptime JitType: ?type) type {
     return struct {
         const Self = @This();
         const JitState = jit_utils.JitState(Self);
-        const DBG: bool = false;
+        const DBG: bool = true;
         const DebuggerType = if (DBG) @import("bc_debugger.zig").BytecodeDebugger(Self) else struct {};
 
         bytecode: bc.Bytecode,

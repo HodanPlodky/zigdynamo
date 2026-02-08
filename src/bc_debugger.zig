@@ -1,6 +1,7 @@
 const std = @import("std");
 const Bytecode = @import("bytecode.zig").Bytecode;
 const Stack = @import("bc_interpreter.zig").Stack;
+const LocalEnv = @import("bc_interpreter.zig").LocalEnv;
 const Writer = std.io.Writer;
 const rev = @import("utils.zig").ReversedSlice;
 const Value = @import("runtime.zig").Value;
@@ -96,6 +97,7 @@ pub fn BytecodeDebugger(comptime Interpret: type) type {
             self.writer.print("pc: {}\n", .{pc}) catch @panic("write debugger panic");
             function.write_with_highlight(self.writer, pc) catch @panic("write debugger panic");
 
+            // print stack
             const stack: Stack = self.state.stack;
             var iter = rev(Value).init(stack.stack.items);
 
@@ -107,7 +109,18 @@ pub fn BytecodeDebugger(comptime Interpret: type) type {
                     Value.format(value, self.writer) catch @panic("write debugger panic");
                 }
             }
-            _ = self.writer.write(" ]\n\n")  catch @panic("write debugger panic");
+            _ = self.writer.write(" ]\nEnv:\n")  catch @panic("write debugger panic");
+
+            // print local env
+            const env: LocalEnv = self.state.env.local;
+            const count = env.get_current_count();
+            for (0..count) |idx| {
+                _ = self.writer.print("|{}: ", .{idx}) catch @panic("write debugger panic");
+                const value = env.get(@intCast(idx));
+                Value.format(value, self.writer) catch @panic("write debugger panic");
+                _ = self.writer.print("| ", .{}) catch @panic("write debugger panic");
+            }
+            _ = self.writer.write("\n\n")  catch @panic("write debugger panic");
         }
 
         fn write_msg(self: *Self, msg: []const u8) void {
