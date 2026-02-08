@@ -2,6 +2,7 @@ const std = @import("std");
 const ast = @import("ast.zig");
 const bytecode = @import("bytecode.zig");
 const I = bytecode.Instruction;
+const rev = @import("utils.zig").ReversedSlice;
 
 pub fn compile(program: ast.Program, alloc: std.mem.Allocator) !bytecode.Bytecode {
     var scratch_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -61,12 +62,13 @@ const CompilerFnFrame = struct {
     }
 
     pub fn get_place(self: *const CompilerFnFrame, var_name: ast.String) ?Place {
-        var offset: usize = 0;
-        for (self.frames.items) |frame| {
+        var offset: usize = self.current_size;
+        var iter = rev(CompilerFrame).init(self.frames.items);
+        while (iter.next()) |frame| {
+            offset -= frame.len();
             if (frame.get_index(var_name)) |idx| {
                 return Place{ .local = @intCast(offset + idx) };
             }
-            offset += frame.len();
         }
         return null;
     }
@@ -1411,6 +1413,59 @@ test "linked list" {
         \\
         \\class (25 bytes)
         \\class: 3 4 5 6 7
+        \\
+    ).equal_fmt(res);
+}
+
+test "blocks compiler" {
+    const Parser = @import("parser.zig").Parser;
+    const snap = @import("snap.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var p = Parser.new(
+        \\ let f = fn() = { 
+        \\     let x = 5;
+        \\     {
+        \\         let x = x + 1;
+        \\         print("printing", x);
+        \\     };
+        \\     x;
+        \\ };
+        \\ 
+        \\ f();
+    , allocator);
+    const prog = try p.parse();
+    const res = try compile(prog, allocator);
+    try snap.Snap.init(@src(),
+        \\function (19 bytes)
+        \\    0: closure 0 0 0 1 0 0 0 0
+        \\    9: set_global 0 0 0 0
+        \\    14: pop
+        \\    15: get_global_small 0
+        \\    17: call
+        \\    18: ret_main
+        \\
+        \\function (35 bytes)
+        \\    0: push_byte 5
+        \\    2: set 0 0 0 0
+        \\    7: pop
+        \\    8: get_small 0
+        \\    10: push_byte 1
+        \\    12: add
+        \\    13: set 0 0 0 1
+        \\    18: pop
+        \\    19: string 0 0 0 0
+        \\    24: get_small 1
+        \\    26: print 0 0 0 2
+        \\    31: pop
+        \\    32: get_small 0
+        \\    34: ret
+        \\
+        \\string (13 bytes)
+        \\string: printing
+        \\
         \\
     ).equal_fmt(res);
 }

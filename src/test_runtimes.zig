@@ -1049,3 +1049,26 @@ test "equal and not equals" {
     ).equal_fmt(res);
     res.deinit();
 }
+
+test "blocks" {
+    const code =
+        \\ let f = fn() = { 
+        \\     let x = 5;
+        \\     {
+        \\         let x = x + 1;
+        \\         print("printing", x);
+        \\     };
+        \\     x;
+        \\ };
+        \\ 
+        \\ f();
+    ;
+    var res = try test_helper_all(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 500000000 (5)
+        \\printing 6 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
