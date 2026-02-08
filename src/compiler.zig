@@ -81,6 +81,15 @@ const CompilerFnFrame = struct {
         return @intCast(res);
     }
 
+    pub fn push(self: *CompilerFnFrame) void {
+        self.frames.append(self.alloc, CompilerFrame.init(self.alloc)) catch unreachable;
+    }
+
+    pub fn pop(self: *CompilerFnFrame) void {
+        const tmp = self.frames.pop();
+        self.current_size -= tmp.?.vars.items.len;
+    }
+
     pub fn get_current(self: *CompilerFnFrame) *CompilerFrame {
         return &self.frames.items[self.frames.items.len - 1];
     }
@@ -160,8 +169,17 @@ const CompilerEnv = struct {
         self.function_frames.append(self.alloc, CompilerFnFrame.init(self.alloc)) catch unreachable;
     }
 
+    pub fn push_frame(self: *CompilerEnv) void {
+        // the globals dont have scoped blocks
+        if (self.get_current()) |curr| curr.push();
+    }
+
     pub fn pop(self: *CompilerEnv) void {
         _ = self.function_frames.pop();
+    }
+
+    pub fn pop_frame(self: *CompilerEnv) void {
+        if (self.get_current()) |curr| curr.pop();
     }
 };
 
@@ -620,8 +638,10 @@ const Compiler = struct {
                 buffer.set_label_position(after_label);
             },
             ast.Ast.block => |exprs| {
+                self.env.push_frame();
                 if (exprs.len == 0) {
                     buffer.add_inst(I.nil);
+                    self.env.pop_frame();
                     return;
                 }
                 for (exprs[0..(exprs.len - 1)]) |*item| {
@@ -629,6 +649,7 @@ const Compiler = struct {
                     buffer.add_inst(I.pop);
                 }
                 self.compile_expr(buffer, unbound_vars, false, &exprs[exprs.len - 1]);
+                self.env.pop_frame();
             },
             ast.Ast.let => |let| {
                 self.compile_expr(buffer, unbound_vars, false, let.value);
@@ -1320,7 +1341,7 @@ test "linked list" {
         \\    114: jump 0 0 0 149
         \\    119: get_small 0
         \\    121: get_field 0 0 0 3
-        \\    126: set 0 0 0 3
+        \\    126: set 0 0 0 1
         \\    131: pop
         \\    132: get_small 0
         \\    134: get_field 0 0 0 3

@@ -398,7 +398,7 @@ pub fn Interpreter(comptime JitType: ?type) type {
     return struct {
         const Self = @This();
         const JitState = jit_utils.JitState(Self);
-        const DBG: bool = true;
+        const DBG: bool = false;
         const DebuggerType = if (DBG) @import("bc_debugger.zig").BytecodeDebugger(Self) else struct {};
 
         bytecode: bc.Bytecode,
