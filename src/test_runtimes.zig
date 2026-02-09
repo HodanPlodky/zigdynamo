@@ -1073,3 +1073,28 @@ test "blocks" {
     ).equal_fmt(res);
     res.deinit();
 }
+
+test "if-else chain" {
+    const code =
+        \\ let f = fn() = {
+        \\     if (false) {
+        \\         1;
+        \\     } else if (true) {
+        \\         2;
+        \\     } else {
+        \\         3;
+        \\     };
+        \\ };
+        \\ 
+        \\ 
+        \\ f();
+    ;
+
+    var res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 200000000 (2)
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
