@@ -551,6 +551,8 @@ pub const Compiler = struct {
                 self.set_basicblock(true_bb);
                 const true_reg = try self.compile_expr(condition.then_block);
                 try self.append_terminator(ir.Instruction{ .jmp = join_bb });
+                const true_end = self.current;
+
                 self.set_basicblock(false_bb);
 
                 const false_reg = if (condition.else_block) |else_block|
@@ -558,11 +560,13 @@ pub const Compiler = struct {
                 else
                     try self.append_inst(ir.Instruction.nil);
                 try self.append_terminator(ir.Instruction{ .jmp = join_bb });
+                const false_end = self.current;
+
                 self.set_basicblock(join_bb);
 
                 // insert phony node that merges two result
                 // of the condition
-                const phony = try self.create_phony(true_bb, true_reg, false_bb, false_reg, null);
+                const phony = try self.create_phony(true_end, true_reg, false_end, false_reg, null);
                 return try self.append_inst(phony);
             },
             .loop => |loop| {
@@ -1797,4 +1801,61 @@ test "opt compile basic get field" {
         \\}
         \\
     ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
+}
+
+test "opt compile if-else chain" {
+    const Parser = @import("../parser.zig").Parser;
+    const snap = @import("../snap.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\ fn() = {
+        \\     if (false) {
+        \\         1;
+        \\     } else if (true) {
+        \\         2;
+        \\     } else {
+        \\         3;
+        \\     };
+        \\ };
+    ;
+
+    var p = Parser.new(input, allocator);
+    const parse_res = try p.parse();
+
+    // get first function
+    const node = parse_res.data[0];
+
+    // first should be function
+    const function = &node.function;
+    const metadata = runtime.FunctionMetadata{};
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = false
+        \\    branch %0, basicblock1, basicblock2
+        \\basicblock1: [0]
+        \\    %2 = ldi 1
+        \\    jmp 3
+        \\basicblock2: [0]
+        \\    %4 = true
+        \\    branch %4, basicblock4, basicblock5
+        \\basicblock3: [1, 6]
+        \\    %12 = phony 1 -> %2, 6 -> %10
+        \\    ret %12
+        \\basicblock4: [2]
+        \\    %6 = ldi 2
+        \\    jmp 6
+        \\basicblock5: [2]
+        \\    %8 = ldi 3
+        \\    jmp 6
+        \\basicblock6: [4, 5]
+        \\    %10 = phony 4 -> %6, 5 -> %8
+        \\    jmp 3
+        \\}
+        \\
+    ).equal_fmt(try ir_compile_ssa(function, &metadata, &.{}, allocator));
 }
