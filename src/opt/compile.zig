@@ -1858,4 +1858,34 @@ test "opt compile if-else chain" {
         \\}
         \\
     ).equal_fmt(try ir_compile_ssa(function, &metadata, &.{}, allocator));
+
+    try snap.Snap.init(@src(),
+        \\function {
+        \\basicblock0: []
+        \\    %0 = false
+        \\    branch %0, basicblock1, basicblock2
+        \\basicblock1: [0]
+        \\    %2 = ldi 1
+        \\    %12 = regify %2
+        \\    jmp 3
+        \\basicblock2: [0]
+        \\    %4 = true
+        \\    branch %4, basicblock4, basicblock5
+        \\basicblock3: [1, 6]
+        \\    ret %12
+        \\basicblock4: [2]
+        \\    %6 = ldi 2
+        \\    %18 = regify %6
+        \\    copy %12 <- %18
+        \\    jmp 6
+        \\basicblock5: [2]
+        \\    %8 = ldi 3
+        \\    %20 = regify %8
+        \\    copy %12 <- %20
+        \\    jmp 6
+        \\basicblock6: [4, 5]
+        \\    jmp 3
+        \\}
+        \\
+    ).equal_fmt(try ir_compile(function, &metadata, &.{}, allocator));
 }
