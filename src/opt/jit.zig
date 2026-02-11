@@ -558,6 +558,10 @@ pub const JitCompiler = struct {
                 try self.base.mov_from_jit_state(GPR64.rdi, "intepreter");
                 try self.base.set_reg_64(GPR64.rsi, set_field.field);
                 try self.base.call("set_field");
+
+                // set field in bc pushes the value to stack
+                // but that is not wanted in opt jit
+                try self.stack_pop();
             },
 
             // should not be in code when generating
