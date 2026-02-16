@@ -54,7 +54,7 @@ let createlist = fn() = object {
 let list = createlist();
 
 let i = 0;
-while (i < 1) {
+while (i < 1000) {
     list.append(1);
     list.append(2);
     list.append(3);

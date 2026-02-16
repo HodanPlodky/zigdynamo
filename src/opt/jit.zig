@@ -23,7 +23,8 @@ const ValuePlace = RegAllocAnalysis.ValuePlace;
 
 const JitState = jit_utils.JitState(OptJitInterpreter);
 
-const DBG: bool = false;
+const BREAKPOINT: bool = false;
+const INST_DEBUG: bool = false;
 
 pub const JitCompiler = struct {
     // register usage:
@@ -41,6 +42,7 @@ pub const JitCompiler = struct {
     globals: [][]const u8,
 
     bb_emited: BitSet,
+    place_helper: std.ArrayList(ValuePlace) = .{},
 
     pub fn init(code_buffer_size: usize, heuristic: jit_utils.Heuristic) JitCompiler {
         const base = Base.init(code_buffer_size, heuristic);
@@ -63,7 +65,11 @@ pub const JitCompiler = struct {
         // bytecode is not used;
         _ = bcdata;
 
-        defer _ = self.base.scratch_arena.reset(.retain_capacity);
+        defer {
+            self.place_helper.deinit(self.base.scratch_arena.allocator());
+            self.place_helper = .{};
+            _ = self.base.scratch_arena.reset(.retain_capacity);
+        }
 
         if (metadata.jit_state != 0) {
             return JitFunction{ .code = @ptrCast(&self.base.code_slice[metadata.jit_state]) };
@@ -121,7 +127,7 @@ pub const JitCompiler = struct {
 
     fn compile_ir_function(self: *JitCompiler, function_idx: ir.FunctionIdx, top_level: bool) !void {
         const function = self.ir_compiler.stores.get(ir.Function, function_idx);
-        if (DBG) {
+        if (BREAKPOINT) {
             try self.base.emit_break();
         }
         try self.emit_prolog();
@@ -424,6 +430,7 @@ pub const JitCompiler = struct {
                 try self.mov_places(.{ .reg = GPR64.rdi }, out);
             },
             .call => |call_idx| {
+                const stored_places = try self.store_to_stack_live(inst_idx);
                 const call = self.ir_compiler.get(ir.CallData, call_idx);
 
                 // push args to stack
@@ -445,8 +452,10 @@ pub const JitCompiler = struct {
                 const outplace = self.get_place(ir_reg);
                 try self.stack_get_top(outplace, 0);
                 try self.stack_pop();
+                try self.restore_from_stack(stored_places);
             },
             .method_call => |call_idx| {
+                const stored_places = try self.store_to_stack_live(inst_idx);
                 const call = self.ir_compiler.get(ir.MethodCall, call_idx);
 
                 // push args to stack
@@ -469,6 +478,7 @@ pub const JitCompiler = struct {
                 const outplace = self.get_place(ir_reg);
                 try self.stack_get_top(outplace, 0);
                 try self.stack_pop();
+                try self.restore_from_stack(stored_places);
             },
             .print => |print_idx| {
                 const print = self.ir_compiler.get(ir.PrintData, print_idx);
@@ -493,6 +503,7 @@ pub const JitCompiler = struct {
             },
 
             .closure => |closure_idx| {
+                const stored_places = try self.store_to_stack_live(inst_idx);
                 const closure = self.ir_compiler.get(ir.Closure, closure_idx);
 
                 // push env vars to stack
@@ -510,9 +521,12 @@ pub const JitCompiler = struct {
                 const out_place = self.get_place(ir_reg);
                 try self.stack_get_top(out_place, 0);
                 try self.stack_pop();
+
+                try self.restore_from_stack(stored_places);
             },
 
             .object => |object_idx| {
+                const stored_places = try self.store_to_stack_live(inst_idx);
                 const object = self.ir_compiler.get(ir.Object, object_idx);
 
                 const proto_place = self.get_place(object.proto);
@@ -530,6 +544,8 @@ pub const JitCompiler = struct {
                 const out_place = self.get_place(ir_reg);
                 try self.stack_get_top(out_place, 0);
                 try self.stack_pop();
+
+                try self.restore_from_stack(stored_places);
             },
 
             .get_field => |get_field_idx| {
@@ -735,6 +751,33 @@ pub const JitCompiler = struct {
         const modrm = 0b01_001_000 | (stack_addr_val & 0x7);
         const dec_slice: [4]u8 = .{ rex, 0xff, modrm, len_offset };
         try self.base.emit_slice(dec_slice[0..]);
+    }
+
+    // store and restore to stack in interpreter
+    // for it to be reachable by gc
+    fn store_to_stack_live(self: *JitCompiler, inst_idx: ir.InstructionIdx) ![]ValuePlace {
+        const cannon = self.ir_compiler.get_canonical_output(inst_idx);
+        self.place_helper.clearRetainingCapacity();
+        var liveness = self.register_alloc.ranges.liveness.get_liveness_at(inst_idx);
+        liveness.unset(cannon.get_usize());
+        var iter = liveness.iterator(.{});
+        while (iter.next()) |ir_reg| {
+            const place = self.get_place(ir.InstructionIdx.new(@intCast(ir_reg)));
+            if (std.meta.activeTag(place) == .value) {
+                continue;
+            }
+            try self.stack_push(place);
+            try self.place_helper.append(self.base.scratch_arena.allocator(), place);
+        }
+        return self.place_helper.items;
+    }
+
+    fn restore_from_stack(self: *JitCompiler, places: []ValuePlace) !void {
+        var iter = rev(ValuePlace).init(places);
+        while (iter.next()) |place| {
+            try self.stack_get_top(place, 0);
+            try self.stack_pop();
+        }
     }
 
     fn store_regs(self: *JitCompiler) !void {

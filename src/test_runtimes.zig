@@ -398,7 +398,7 @@ test "linkedlist" {
         \\ list.debug();
     ;
 
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\append 
@@ -1095,6 +1095,131 @@ test "if-else chain" {
         \\result: 200000000 (2)
         \\
         \\
+    ).equal_fmt(res);
+    res.deinit();
+}
+
+test "allocations" {
+    const code =
+        \\ let f = fn() = {
+        \\     let n = 100;
+        \\     while(n > 0) {
+        \\         let o = object {
+        \\             number: 1,
+        \\         };
+        \\         print(o.number);
+        \\         n = n - 1;
+        \\     };
+        \\ };
+        \\ 
+        \\ f();
+    ;
+
+    var res = try test_helper_all(code[0..]);
+    try snap.Snap.init(@src(),
+       \\result: 0 (0)
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\1 
+       \\
+       \\
     ).equal_fmt(res);
     res.deinit();
 }

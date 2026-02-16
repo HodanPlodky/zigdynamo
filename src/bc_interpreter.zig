@@ -92,8 +92,8 @@ pub const GC = struct {
                 },
             }
         }
-
-        std.debug.assert(done_ptr == self.to.curr_ptr);
+        
+        std.debug.assert(done_ptr == self.to.curr_aligned());
         const tmp = self.from;
         self.from = self.to;
         self.to = tmp;

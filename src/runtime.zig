@@ -31,11 +31,15 @@ pub const Heap = struct {
 
     pub fn alloc_with_additional(self: *Heap, comptime T: type, count: usize) *T {
         // align without the branch
-        self.curr_ptr = (self.curr_ptr + (heap_align - 1)) & ~(heap_align - 1);
+        self.curr_ptr = self.curr_aligned();
 
         const res: *T = @ptrCast(@alignCast(&self.data[self.curr_ptr]));
         self.curr_ptr += @sizeOf(T) + T.additional_size(count);
         return res;
+    }
+
+    pub fn curr_aligned(self: *const Heap) usize {
+        return (self.curr_ptr + (heap_align - 1)) & ~(heap_align - 1);
     }
 
     pub fn check_available(self: *const Heap, comptime T: type, count: usize) bool {
