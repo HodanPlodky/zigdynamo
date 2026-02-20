@@ -113,7 +113,30 @@ pub fn main() !void {
             const res = try opt.ir_compile(source, &meta, bytecode.globals, alloc);
             std.debug.print("{f}\n", .{res});
         }
-    } else {
+    } else if (std.mem.eql(u8, "--ssa", kind)) {
+        var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        const alloc = runtime_arena.allocator();
+        const bytecode = compiler.compile(program, allocator) catch @panic("error");
+        const inter = bc.JitInterpreter.init(
+            alloc,
+            bytecode,
+            try allocator.allocWithOptions(u8, HEAP_SIZE, std.mem.Alignment.@"16", null),
+            writer,
+            .{},
+        );
+
+        //_ = inter.run();
+
+        // to  run this you need atleast one compilable function
+        // since this is only for debug just blowup
+        std.debug.assert(bytecode.functions.functions.len > 1);
+        for (bytecode.functions.sources, 0..) |source, idx| {
+            var meta = inter.function_meta[idx + 1];
+            const res = try opt.ir_compile_ssa(source, &meta, bytecode.globals, alloc);
+            std.debug.print("{f}\n", .{res});
+        }
+    } 
+    else {
         @panic("incorect kind");
     }
 

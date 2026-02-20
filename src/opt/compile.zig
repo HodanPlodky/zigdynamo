@@ -580,9 +580,10 @@ pub const Compiler = struct {
                 self.set_basicblock(body_bb_idx);
                 const body_ret = try self.compile_expr(loop.body);
                 try self.append_terminator(.{ .jmp = cond_bb_idx });
+                const body_end = self.current;
 
                 self.set_basicblock(cond_bb_idx);
-                const phony = try self.create_phony(before_bb_idx, default_ret, body_bb_idx, body_ret, null);
+                const phony = try self.create_phony(before_bb_idx, default_ret, body_end, body_ret, null);
                 const phony_reg = try self.append_inst(phony);
                 const cond_reg = try self.compile_expr(loop.cond);
                 const branch_data = try self.create_with(ir.BranchData, .{
