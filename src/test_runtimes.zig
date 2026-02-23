@@ -1117,107 +1117,183 @@ test "allocations" {
 
     var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
-       \\result: 0 (0)
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
-       \\1 
+        \\result: 0 (0)
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\1 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
+
+test "bin tree" {
+    const code =
+        \\ let createnode = fn(val, left, right) = object {
+        \\     val: val,
+        \\     left: left,
+        \\     right: right,
+        \\ };
+        \\ 
+        \\ let max = fn(a,b) = if (a > b) a else b;
+        \\ 
+        \\ let size  = fn(node) = if (node == nil) 0 else 1 + size(node.left) + size(node.right);
+        \\ let depth = fn(node) = if (node == nil) 0 else 1 + max(depth(node.left), depth(node.right));
+        \\ 
+        \\ let inOrder = fn(node) = {
+        \\     if (node != nil) {
+        \\         inOrder(node.left);
+        \\         print(node.val);
+        \\         inOrder(node.right);
+        \\     };
+        \\ };
+        \\ 
+        \\ let insertRec = fn(node, val) = {
+        \\     if (node == nil) {
+        \\         createnode(val, nil, nil);
+        \\     } else {
+        \\         if (val < node.val) {
+        \\             node.left = insertRec(node.left, val);
+        \\         } else {
+        \\             node.right = insertRec(node.right, val);
+        \\         };
+        \\         node;
+        \\     };
+        \\ };
+        \\ 
+        \\ let binaryTree = fn() = object {
+        \\     root: nil,
+        \\ 
+        \\     insert: fn(val) = { this.root = insertRec(this.root, val); },
+        \\ 
+        \\     debug: fn() = {
+        \\         print("Size:", size(this.root));
+        \\         print("Depth:", depth(this.root));
+        \\         print("In-order traversal:");
+        \\         inOrder(this.root);
+        \\         print("(end)");
+        \\     },
+        \\ };
+        \\ 
+        \\ let tree = binaryTree();
+        \\ tree.insert(10);
+        \\ tree.insert(5);
+        \\ tree.insert(15);
+        \\ tree.insert(7);
+        \\ tree.insert(3);
+        \\ 
+        \\ tree.debug();
+    ;
+
+    var res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+       \\result: 1 (0)
+       \\Size: 5 
+       \\Depth: 3 
+       \\In-order traversal: 
+       \\3 
+       \\5 
+       \\7 
+       \\10 
+       \\15 
+       \\(end) 
        \\
        \\
     ).equal_fmt(res);
