@@ -85,10 +85,10 @@ pub const SharedData = struct {
         self.visited_bb.unsetAll();
 
         const function = compiler.get(ir.Function, function_idx);
-        self.dfs(function.entry, function_idx, compiler);
+        self.dfs_post(function.entry, function_idx, compiler);
     }
 
-    fn dfs(
+    fn dfs_post(
         self: *SharedData,
         bb: ir.BasicBlockIdx,
         function_idx: ir.FunctionIdx,
@@ -101,9 +101,47 @@ pub const SharedData = struct {
 
         var iter = compiler.get_succesors(bb);
         while (iter.next()) |succ| {
-            self.dfs(succ, function_idx, compiler);
+            self.dfs_post(succ, function_idx, compiler);
         }
 
         self.post_orders[function_idx.get_usize()].appendAssumeCapacity(bb);
+    }
+    
+    pub fn update_all_emit_orders(self: *SharedData, compiler: *const Compiler) void {
+        var iter = compiler.stores.idx_iter(ir.Function);
+        while (iter.next()) |idx| {
+            self.update_emit_order(compiler, idx);
+        }
+    }
+
+    pub fn update_emit_order(
+        self: *SharedData,
+        compiler: *const Compiler,
+        function_idx: ir.FunctionIdx,
+    ) void {
+        self.emit_orders[function_idx.get_usize()].clearRetainingCapacity();
+        self.visited_bb.unsetAll();
+
+        const function = compiler.get(ir.Function, function_idx);
+        self.dfs_emit(function.entry, function_idx, compiler);
+    }
+
+    fn dfs_emit(
+        self: *SharedData,
+        bb: ir.BasicBlockIdx,
+        function_idx: ir.FunctionIdx,
+        compiler: *const Compiler,
+    ) void {
+        if (self.visited_bb.isSet(bb.get_usize())) {
+            return;
+        }
+        self.visited_bb.set(bb.get_usize());
+        self.emit_orders[function_idx.get_usize()].appendAssumeCapacity(bb);
+
+        var iter = compiler.get_succesors(bb);
+        while (iter.next()) |succ| {
+            self.dfs_emit(succ, function_idx, compiler);
+        }
+
     }
 };

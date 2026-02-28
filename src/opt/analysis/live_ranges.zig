@@ -37,11 +37,8 @@ pub const LiveRangesAnalysis = struct {
     fn analyze_fn(self: *LiveRangesAnalysis, function_idx: ir.FunctionIdx) void {
         var curr_idx: u32 = 0;
 
-        const post_order = self.base.shared_data.get_postorder(function_idx);
-        var index: usize = post_order.len;
-        while (index > 0) {
-            index -= 1;
-            const bb_idx = post_order[index];
+        const order = self.base.shared_data.get_emitorder(function_idx);
+        for (order) |bb_idx| {
             curr_idx = self.process_bb(bb_idx, curr_idx);
         }
     }

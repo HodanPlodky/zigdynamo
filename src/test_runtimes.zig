@@ -1282,18 +1282,48 @@ test "bin tree" {
         \\ tree.debug();
     ;
 
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1 (0)
+        \\Size: 5 
+        \\Depth: 3 
+        \\In-order traversal: 
+        \\3 
+        \\5 
+        \\7 
+        \\10 
+        \\15 
+        \\(end) 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
+
+test "order of args" {
+    const code =
+        \\ let f = fn(a,b,c) = object {
+        \\     a: a,
+        \\     b: b,
+        \\     c: c,
+        \\ };
+        \\ 
+        \\ let g = fn(a, b, c) = {
+        \\     f(a, b, c);
+        \\ };
+        \\ 
+        \\ let o = g("a", "b", "c");
+        \\ print(o.a);
+        \\ print(o.b);
+        \\ print(o.c);
+    ;
+
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
        \\result: 1 (0)
-       \\Size: 5 
-       \\Depth: 3 
-       \\In-order traversal: 
-       \\3 
-       \\5 
-       \\7 
-       \\10 
-       \\15 
-       \\(end) 
+       \\a 
+       \\b 
+       \\c 
        \\
        \\
     ).equal_fmt(res);

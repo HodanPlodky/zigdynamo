@@ -434,8 +434,7 @@ pub const JitCompiler = struct {
                 const call = self.ir_compiler.get(ir.CallData, call_idx);
 
                 // push args to stack
-                var args_iter = rev(ir.Reg).init(call.args);
-                while (args_iter.next()) |arg| {
+                for (call.args) |arg| {
                     const arg_place = self.get_place(arg);
                     try self.stack_push(arg_place);
                 }
@@ -459,8 +458,7 @@ pub const JitCompiler = struct {
                 const call = self.ir_compiler.get(ir.MethodCall, call_idx);
 
                 // push args to stack
-                var args_iter = rev(ir.Reg).init(call.args);
-                while (args_iter.next()) |arg| {
+                for (call.args) |arg| {
                     const arg_place = self.get_place(arg);
                     try self.stack_push(arg_place);
                 }

@@ -40,6 +40,7 @@ pub const RegAllocAnalysis = struct {
         for (self.release) |*item| {
             item.* = .{};
         }
+        self.base.shared_data.update_all_emit_orders(self.base.compiler);
         try self.ranges.analyze();
         var iter = self.base.compiler.stores.idx_iter(ir.Function);
         while (iter.next()) |idx| {
@@ -52,11 +53,8 @@ pub const RegAllocAnalysis = struct {
             item.clearRetainingCapacity();
         }
         var curr_idx: u32 = 0;
-        const post_order = self.base.shared_data.get_postorder(function_idx);
-        var index: usize = post_order.len;
-        while (index > 0) {
-            index -= 1;
-            const bb_idx = post_order[index];
+        const order = self.base.shared_data.get_emitorder(function_idx);
+        for (order) |bb_idx| {
             const bb = self.base.compiler.stores.get(ir.BasicBlock, bb_idx);
 
             for (bb.instructions.items) |inst_idx| {

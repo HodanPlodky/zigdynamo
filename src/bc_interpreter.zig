@@ -907,18 +907,22 @@ pub fn Interpreter(comptime JitType: ?type) type {
                     ValueType.false => {
                         self.writer.print("false ", .{}) catch unreachable;
                     },
+                    ValueType.nil => {
+                        self.writer.print("nil ", .{}) catch unreachable;
+                    },
                     else => @panic("Cannot print"),
                 }
             }
             self.stack.pop_n(arg_count_tmp);
             self.writer.print("\n", .{}) catch unreachable;
+            self.writer.flush() catch unreachable;
             self.stack.push(Value.new_nil());
         }
 
         fn do_get_field(self: *Self, string_idx: bc.ConstantIndex) void {
             const val = self.stack.top();
             if (val.get_type() != ValueType.object) {
-                std.debug.print("{f}\n", .{val});
+                std.debug.print("tried calling on {f}\n", .{val});
                 @panic("invalid object");
             }
             const object = val.get_ptr(bc.Object);
