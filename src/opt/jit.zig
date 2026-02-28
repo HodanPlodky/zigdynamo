@@ -663,7 +663,12 @@ pub const JitCompiler = struct {
                 try self.base.mov_to_offset(GPR64.rsp, 0, reg)
             else
                 try self.base.mov_to_offset(GPR64.rsp, @intCast(dst_offset), reg),
-            .memory, .none, .value => unreachable,
+            .memory => unreachable,
+            .none => unreachable,
+            .value => |value| {
+                try self.base.set_reg_64(GPR64.rdi, value.data);
+                try self.mov_place_to_mem(.{ .reg = GPR64.rdi }, dst_offset);
+            },
         }
     }
 
