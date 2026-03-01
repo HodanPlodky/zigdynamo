@@ -47,10 +47,6 @@ fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.All
 }
 
 fn test_helper(code: []const u8) !TestResult {
-    return test_helper_inner(code, &.{JitInterpreter});
-}
-
-fn test_helper_all(code: []const u8) !TestResult {
     return test_helper_inner(code, &.{ JitInterpreter, OptJitInterpreter });
 }
 
@@ -99,7 +95,7 @@ test "basic" {
         \\ let f = fn() = 1;
         \\ f();
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
@@ -118,7 +114,7 @@ test "fib" {
         \\ 
         \\ fib(10);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 3700000000 (55)
         \\
@@ -136,7 +132,7 @@ test "assign" {
         \\ a = 11;
         \\ a;
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: b00000000 (11)
         \\5 
@@ -152,7 +148,7 @@ test "basic arith" {
         \\  1 + 2;
         \\ 1 +   2 * 2 - 3;
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 200000000 (2)
         \\
@@ -167,7 +163,7 @@ test "basic_closure" {
         \\ let inc1 = inc(1);
         \\ inc1(2);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 300000000 (3)
         \\
@@ -181,7 +177,7 @@ test "basic_function" {
         \\ let f = fn(n) = n + 1;
         \\ f(1);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 200000000 (2)
         \\
@@ -204,7 +200,7 @@ test "basic_method_call" {
         \\ o.a = 2;
         \\ o.f(2);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\2 
@@ -228,7 +224,7 @@ test "basic_object" {
         \\ o.a = 2;
         \\ print(o.a + 1);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\2 
@@ -251,7 +247,7 @@ test "closure_test" {
         \\ 
         \\ f2();
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\1 
@@ -276,7 +272,7 @@ test "function" {
         \\ 
         \\ inc(2)(inc1(1) + inc(1)(2));
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 700000000 (7)
         \\11 
@@ -292,7 +288,7 @@ test "if" {
         \\ let x = true;
         \\ if (x) 1 else 2;
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
@@ -314,7 +310,7 @@ test "let" {
         \\ let x = 1 + 2;
         \\ x + 2;
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 500000000 (5)
         \\
@@ -398,7 +394,7 @@ test "linkedlist" {
         \\ list.debug();
     ;
 
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\append 
@@ -444,7 +440,7 @@ test "number" {
     const code =
         \\ 1;
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
@@ -507,7 +503,7 @@ test "object" {
         \\ 
         \\ pos.x + pos.y;
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 300000000 (3)
         \\Adam age 25 
@@ -526,7 +522,7 @@ test "ret1" {
         \\ let f = fn() = 1;
         \\ f();
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
@@ -540,7 +536,7 @@ test "retadd" {
         \\ let f = fn() = 1 + 2 + 3;
         \\ f();
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 600000000 (6)
         \\
@@ -554,7 +550,7 @@ test "retbignum" {
         \\ let f = fn() = 12345;
         \\ f();
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 303900000000 (12345)
         \\
@@ -569,7 +565,7 @@ test "retident" {
         \\ let f = fn(x, y) = x + 2 * y;
         \\ f(ident(2), ident(3));
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 800000000 (8)
         \\
@@ -583,7 +579,7 @@ test "retif" {
         \\ let f = fn() = if (1 < 2) 1 else 2;
         \\ f();
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 100000000 (1)
         \\
@@ -598,7 +594,7 @@ test "retinnercall" {
         \\ let double_inc = fn(x) = inc(inc(x));
         \\ double_inc(1);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 300000000 (3)
         \\
@@ -612,7 +608,7 @@ test "retmul" {
         \\ let f = fn() = 2 * 3 * 4;
         \\ f();
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1800000000 (24)
         \\
@@ -632,7 +628,7 @@ test "retobject" {
         \\ print(x.other);
         \\ x.n;
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 200000000 (2)
         \\ahoj 
@@ -652,7 +648,7 @@ test "retset" {
         \\ 
         \\ f(1);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 400000000 (4)
         \\
@@ -666,7 +662,7 @@ test "retstring" {
         \\ let f = fn() = "hello";
         \\ f();
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 7 (0)
         \\
@@ -680,7 +676,7 @@ test "retsub" {
         \\ let f = fn() = 10 - 1;
         \\ f();
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 900000000 (9)
         \\
@@ -703,7 +699,7 @@ test "sayhello" {
         \\ 
         \\ do_it_more();
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\hello 
@@ -728,7 +724,7 @@ test "get global" {
         \\ let n = 5;
         \\ f();
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 500000000 (5)
         \\
@@ -750,7 +746,7 @@ test "setglobal" {
         \\ f();
         \\ print(n);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\1 
@@ -778,7 +774,7 @@ test "while" {
         \\ 
         \\ fib(40);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 6197ecb00000000 (102334155)
         \\
@@ -794,7 +790,7 @@ test "division" {
         \\ print(f(7) == 2);
         \\ f(7);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 200000000 (2)
         \\true 
@@ -814,7 +810,7 @@ test "print multiple" {
         \\ f("a", 1);
         \\ f(1, "2");
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\1 a hello 
@@ -836,7 +832,7 @@ test "test runtime max" {
         \\ print(max(0, 200));
         \\ max(123, 123);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 7b00000000 (123)
         \\2 
@@ -859,7 +855,7 @@ test "test runtime isbigger/smaller" {
         \\ print(issmaller(1, 2));
         \\ isbigger(2, 2);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 8 (0)
         \\true 
@@ -880,7 +876,7 @@ test "field access" {
         \\ 
         \\ f(object {number: 41,});
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 2a00000000 (42)
         \\
@@ -904,7 +900,7 @@ test "field assign" {
         \\ let x = g();
         \\ x.number;
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: c00000000 (12)
         \\4 
@@ -930,7 +926,7 @@ test "bin ops" {
         \\ f(1, 1);
         \\ f(2, 2);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\3 
@@ -985,7 +981,7 @@ test "equal and not equals" {
         \\ f(1, x);
         \\ f(x, x);
     ;
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\true 
@@ -1064,7 +1060,7 @@ test "blocks" {
         \\ f();
     ;
 
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 500000000 (5)
         \\printing 6 
@@ -1090,7 +1086,7 @@ test "if-else chain" {
         \\ f();
     ;
 
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 200000000 (2)
         \\
@@ -1115,7 +1111,7 @@ test "allocations" {
         \\ f();
     ;
 
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 0 (0)
         \\1 
@@ -1282,7 +1278,7 @@ test "bin tree" {
         \\ tree.debug();
     ;
 
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\Size: 5 
@@ -1318,7 +1314,7 @@ test "order of args" {
         \\ print(o.c);
     ;
 
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\a 
@@ -1396,7 +1392,7 @@ test "reg stress test" {
         \\ g();
     ;
 
-    var res = try test_helper_all(code[0..]);
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1a00000000 (26)
         \\
