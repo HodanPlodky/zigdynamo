@@ -106,7 +106,7 @@ pub const SharedData = struct {
 
         self.post_orders[function_idx.get_usize()].appendAssumeCapacity(bb);
     }
-    
+
     pub fn update_all_emit_orders(self: *SharedData, compiler: *const Compiler) void {
         var iter = compiler.stores.idx_iter(ir.Function);
         while (iter.next()) |idx| {
@@ -142,6 +142,5 @@ pub const SharedData = struct {
         while (iter.next()) |succ| {
             self.dfs_emit(succ, function_idx, compiler);
         }
-
     }
 };

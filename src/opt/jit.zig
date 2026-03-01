@@ -260,9 +260,9 @@ pub const JitCompiler = struct {
                 try self.handle_binop(struct {
                     fn f(comp: *JitCompiler, output: ValuePlace) !void {
                         // shr rdi
-                        try comp.base.emit_slice(&.{0x48, 0xc1, 0xef, 0x20});
+                        try comp.base.emit_slice(&.{ 0x48, 0xc1, 0xef, 0x20 });
                         // shr rsi
-                        try comp.base.emit_slice(&.{0x48, 0xc1, 0xee, 0x20});
+                        try comp.base.emit_slice(&.{ 0x48, 0xc1, 0xee, 0x20 });
 
                         try comp.base.mov_reg_reg(GPR64.rax, GPR64.rdi);
 
@@ -271,7 +271,7 @@ pub const JitCompiler = struct {
 
                         // div rsi
                         try comp.base.emit_slice(&.{ 0x48, 0xf7, 0xf6 });
-                        
+
                         // shl rax, 0x20
                         try comp.base.emit_slice(&.{ 0x48, 0xc1, 0xe0, 0x20 });
 

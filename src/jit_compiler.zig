@@ -332,7 +332,7 @@ pub const JitCompiler = struct {
                 try self.base.mov_from_struct_64(GPR64.rcx, env_addr, @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "buffer"));
 
                 // load val from index
-                const signed : i32 = @intCast(index);
+                const signed: i32 = @intCast(index);
                 try self.base.mov_index_access64(GPR64.rbp, Scale.scale8, GPR64.rcx, GPR64.rax, signed * 8);
 
                 try self.stack_push(GPR64.rbp);
@@ -575,7 +575,7 @@ pub const JitCompiler = struct {
         // mov reg, [rax + rcx*8 - offset]
         // offset is calculated with two's complement
         const scale = Scale.from_size(@sizeOf(runtime.Value));
-        const signed : i32 = @intCast((offset + 1) * @sizeOf(runtime.Value));
+        const signed: i32 = @intCast((offset + 1) * @sizeOf(runtime.Value));
         try self.base.mov_index_access64(dst, scale, GPR64.rax, GPR64.rcx, -signed);
     }
 

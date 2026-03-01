@@ -503,7 +503,7 @@ pub fn JitCompilerBase(comptime StateType: type) type {
             // 0c = modrm 00_001_100
             // c8 = sib 11 001 000 = scale 8 | rcx | rax
 
-            const signed_offset : i32 = @intCast(offset);
+            const signed_offset: i32 = @intCast(offset);
 
             const src_val: u8 = @intFromEnum(src);
             const base_val: u8 = @intFromEnum(base);
@@ -532,7 +532,7 @@ pub fn JitCompilerBase(comptime StateType: type) type {
             // 89 = opcode
             // 4c = modrm 01_001_100
             // 24 = sib 00_100_100
-            
+
             const signed_offset: i32 = @intCast(offset);
 
             const rex = create_rex(src, base);
@@ -553,8 +553,8 @@ pub fn JitCompilerBase(comptime StateType: type) type {
         pub fn mov_from_offset(self: *Self, base: GPR64, offset: u32, dst: GPR64) !void {
             // mov r9, QWORD PTR [rsp - 0x10]
             // 4c 8b 4c 24 f1
-            
-            const signed_offset : i32 = @intCast(offset);
+
+            const signed_offset: i32 = @intCast(offset);
 
             const rex = create_rex(dst, base);
             const opcode = 0x8b;

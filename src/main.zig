@@ -135,8 +135,7 @@ pub fn main() !void {
             const res = try opt.ir_compile_ssa(source, &meta, bytecode.globals, alloc);
             std.debug.print("{f}\n", .{res});
         }
-    } 
-    else {
+    } else {
         @panic("incorect kind");
     }
 
