@@ -227,7 +227,7 @@ pub const JitCompiler = struct {
                 );
 
                 // load val from index
-                const signed : i32 = @intCast(idx * 8);
+                const signed: i32 = @intCast(idx * 8);
                 try self.base.mov_index_access64(GPR64.rdi, Scale.scale8, GPR64.rcx, GPR64.rax, signed);
 
                 const out_place = self.get_place(ir_reg);
@@ -252,7 +252,33 @@ pub const JitCompiler = struct {
                     }
                 }.f, out_place, left, right);
             },
-            .div => unreachable,
+            .div => |binop_idx| {
+                const binop = self.ir_compiler.get(ir.BinOpData, binop_idx);
+                const left = self.get_place(binop.left);
+                const right = self.get_place(binop.right);
+                const out_place = self.get_place(ir_reg);
+                try self.handle_binop(struct {
+                    fn f(comp: *JitCompiler, output: ValuePlace) !void {
+                        // shr rdi
+                        try comp.base.emit_slice(&.{0x48, 0xc1, 0xef, 0x20});
+                        // shr rsi
+                        try comp.base.emit_slice(&.{0x48, 0xc1, 0xee, 0x20});
+
+                        try comp.base.mov_reg_reg(GPR64.rax, GPR64.rdi);
+
+                        // xor rdx, rdx
+                        try comp.emit_basic_reg(0x31, GPR64.rdx, GPR64.rdx);
+
+                        // div rsi
+                        try comp.base.emit_slice(&.{ 0x48, 0xf7, 0xf6 });
+                        
+                        // shl rax, 0x20
+                        try comp.base.emit_slice(&.{ 0x48, 0xc1, 0xe0, 0x20 });
+
+                        try comp.mov_places(.{ .reg = GPR64.rax }, output);
+                    }
+                }.f, out_place, left, right);
+            },
             .gt => |binop_idx| {
                 const binop = self.ir_compiler.get(ir.BinOpData, binop_idx);
                 const left = self.get_place(binop.left);
@@ -425,7 +451,7 @@ pub const JitCompiler = struct {
                 try self.base.mov_from_struct_64(GPR64.rcx, GPR64.rdi, @offsetOf(Environment, "local") + @offsetOf(LocalEnv, "buffer"));
 
                 // load val from index
-                const signed : i32 = @intCast(index * 8);
+                const signed: i32 = @intCast(index * 8);
                 try self.base.mov_index_access64(GPR64.rdi, Scale.scale8, GPR64.rcx, GPR64.rsi, signed);
 
                 const out = self.get_place(ir_reg);
@@ -737,7 +763,7 @@ pub const JitCompiler = struct {
         // mov reg, [rax + rcx*8 - offset]
         // offset is calculated with two's complement
         const scale = Scale.from_size(@sizeOf(runtime.Value));
-        const signed : i32 = @intCast((offset + 1) * @sizeOf(runtime.Value));
+        const signed: i32 = @intCast((offset + 1) * @sizeOf(runtime.Value));
         try self.base.mov_index_access64(GPR64.rdi, scale, GPR64.rax, GPR64.rcx, -signed);
         try self.mov_places(.{ .reg = GPR64.rdi }, dst);
     }

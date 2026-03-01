@@ -794,7 +794,7 @@ test "division" {
         \\ print(f(7) == 2);
         \\ f(7);
     ;
-    var res = try test_helper(code[0..]);
+    var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 200000000 (2)
         \\true 
