@@ -1320,12 +1320,87 @@ test "order of args" {
 
     var res = try test_helper_all(code[0..]);
     try snap.Snap.init(@src(),
-       \\result: 1 (0)
-       \\a 
-       \\b 
-       \\c 
-       \\
-       \\
+        \\result: 1 (0)
+        \\a 
+        \\b 
+        \\c 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
+
+test "reg stress test" {
+    const code =
+        \\ let add = fn(a, b) = {
+        \\     a + b;
+        \\ };
+        \\ 
+        \\ let g = fn() = { 
+        \\     let a = 1;
+        \\     let b = 1;
+        \\     let c = 1;
+        \\     let d = 1;
+        \\     let e = 1;
+        \\     let f = 1;
+        \\     let g = 1;
+        \\     let h = 1;
+        \\     let i = 1;
+        \\     let j = 1;
+        \\     let k = 1;
+        \\     let l = 1;
+        \\     let m = 1;
+        \\     let n = 1;
+        \\     let o = 1;
+        \\     let p = 1;
+        \\     let q = 1;
+        \\     let r = 1;
+        \\     let s = 1;
+        \\     let t = 1;
+        \\     let u = 1;
+        \\     let v = 1;
+        \\     let w = 1;
+        \\     let x = 1;
+        \\     let y = 1;
+        \\     let z = 1;
+        \\ 
+        \\     let tmp = add(z, y);
+        \\     tmp = add(tmp, x);
+        \\     tmp = add(tmp, w);
+        \\     tmp = add(tmp, v);
+        \\     tmp = add(tmp, u);
+        \\     tmp = add(tmp, t);
+        \\     tmp = add(tmp, s);
+        \\     tmp = add(tmp, r);
+        \\     tmp = add(tmp, q);
+        \\     tmp = add(tmp, p);
+        \\     tmp = add(tmp, o);
+        \\     tmp = add(tmp, n);
+        \\     tmp = add(tmp, m);
+        \\     tmp = add(tmp, l);
+        \\     tmp = add(tmp, k);
+        \\     tmp = add(tmp, j);
+        \\     tmp = add(tmp, i);
+        \\     tmp = add(tmp, h);
+        \\     tmp = add(tmp, g);
+        \\     tmp = add(tmp, f);
+        \\     tmp = add(tmp, e);
+        \\     tmp = add(tmp, d);
+        \\     tmp = add(tmp, c);
+        \\     tmp = add(tmp, b);
+        \\     tmp = add(tmp, a);
+        \\ 
+        \\     tmp;
+        \\ };
+        \\ 
+        \\ g();
+    ;
+
+    var res = try test_helper_all(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1a00000000 (26)
+        \\
+        \\
     ).equal_fmt(res);
     res.deinit();
 }

@@ -92,7 +92,7 @@ pub const GC = struct {
                 },
             }
         }
-        
+
         std.debug.assert(done_ptr == self.to.curr_aligned());
         const tmp = self.from;
         self.from = self.to;
@@ -398,7 +398,7 @@ pub fn Interpreter(comptime JitType: ?type) type {
     return struct {
         const Self = @This();
         const JitState = jit_utils.JitState(Self);
-        const DBG: bool = false;
+        pub const DBG: bool = false;
         const DebuggerType = if (DBG) @import("bc_debugger.zig").BytecodeDebugger(Self) else struct {};
 
         bytecode: bc.Bytecode,
@@ -843,8 +843,22 @@ pub fn Interpreter(comptime JitType: ?type) type {
                 });
                 //const compiled = self.jit_compiler.compile_fn(function, function_source, meta);
                 if (compiled) |jitted| {
-                    jitted.run(JitState, jit_state);
-                    self.env.local.pop_locals();
+                    if (Self.DBG) {
+                        const curr_fn = self.curr_fn;
+
+                        self.bytecode.set_curr_function(closure.function_idx);
+                        self.curr_fn = closure.function_idx;
+
+                        self.pc = 0;
+                        jitted.run(JitState, jit_state);
+                        self.env.local.pop_locals();
+
+                        self.bytecode.set_curr_function(curr_fn);
+                        self.curr_fn = curr_fn;
+                    } else {
+                        jitted.run(JitState, jit_state);
+                        self.env.local.pop_locals();
+                    }
                 } else |err| {
                     switch (err) {
                         jit_utils.JitError.HeuristicNotMet => {},
@@ -998,6 +1012,7 @@ pub fn Interpreter(comptime JitType: ?type) type {
                     .binop_panic = &binop_panic,
                     .if_condition_panic = &if_condition_panic,
                     .string_panic = &string_panic,
+                    .bc_break = &bc_break(Self),
                 };
             } else {
                 const tmp: JitState = undefined;
@@ -1143,6 +1158,17 @@ fn dbg_inst(inst_val: u64) callconv(JitCallConv) void {
         const inst: bc.Instruction = @enumFromInt(inst_val);
         std.debug.print("INST: {f}\n", .{inst});
     }
+}
+
+fn bc_break(comptime I: type) fn (noalias *I, usize) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias self: *I, pc: usize) callconv(JitCallConv) void {
+            if (I.DBG) {
+                self.pc = pc;
+                self.bc_debugger.breakpoint();
+            }
+        }
+    }.do;
 }
 
 fn binop_panic(left: Value, right: Value) callconv(JitCallConv) void {

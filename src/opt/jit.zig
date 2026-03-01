@@ -227,7 +227,8 @@ pub const JitCompiler = struct {
                 );
 
                 // load val from index
-                try self.base.mov_index_access64(GPR64.rdi, Scale.scale8, GPR64.rcx, GPR64.rax, idx * 8);
+                const signed : i32 = @intCast(idx * 8);
+                try self.base.mov_index_access64(GPR64.rdi, Scale.scale8, GPR64.rcx, GPR64.rax, signed);
 
                 const out_place = self.get_place(ir_reg);
                 try self.mov_places(.{ .reg = GPR64.rdi }, out_place);
@@ -424,7 +425,8 @@ pub const JitCompiler = struct {
                 try self.base.mov_from_struct_64(GPR64.rcx, GPR64.rdi, @offsetOf(Environment, "local") + @offsetOf(LocalEnv, "buffer"));
 
                 // load val from index
-                try self.base.mov_index_access64(GPR64.rdi, Scale.scale8, GPR64.rcx, GPR64.rsi, index * 8);
+                const signed : i32 = @intCast(index * 8);
+                try self.base.mov_index_access64(GPR64.rdi, Scale.scale8, GPR64.rcx, GPR64.rsi, signed);
 
                 const out = self.get_place(ir_reg);
                 try self.mov_places(.{ .reg = GPR64.rdi }, out);
@@ -735,7 +737,8 @@ pub const JitCompiler = struct {
         // mov reg, [rax + rcx*8 - offset]
         // offset is calculated with two's complement
         const scale = Scale.from_size(@sizeOf(runtime.Value));
-        try self.base.mov_index_access64(GPR64.rdi, scale, GPR64.rax, GPR64.rcx, @intCast((~((offset + 1) * @sizeOf(runtime.Value))) + 1));
+        const signed : i32 = @intCast((offset + 1) * @sizeOf(runtime.Value));
+        try self.base.mov_index_access64(GPR64.rdi, scale, GPR64.rax, GPR64.rcx, -signed);
         try self.mov_places(.{ .reg = GPR64.rdi }, dst);
     }
 

@@ -72,6 +72,7 @@ pub fn JitState(Interpreter: type) type {
         dbg: *const fn (runtime.Value) callconv(JitCallConv) void,
         dbg_raw: *const fn (u64) callconv(JitCallConv) void,
         dbg_inst: *const fn (u64) callconv(JitCallConv) void,
+        bc_break: *const fn (noalias *Interpreter, usize) callconv(JitCallConv) void,
 
         // panics
         binop_panic: *const fn (runtime.Value, runtime.Value) callconv(JitCallConv) void,
@@ -449,7 +450,7 @@ pub fn JitCompilerBase(comptime StateType: type) type {
             }
         }
 
-        pub fn mov_index_access64(self: *Self, dst: GPR64, scale: Scale, base: GPR64, index: GPR64, offset: u32) !void {
+        pub fn mov_index_access64(self: *Self, dst: GPR64, scale: Scale, base: GPR64, index: GPR64, offset: i32) !void {
             // example:
             //      48 8b 74 d1 f8
             //      REX.W opcode 01_110_100
@@ -502,6 +503,8 @@ pub fn JitCompilerBase(comptime StateType: type) type {
             // 0c = modrm 00_001_100
             // c8 = sib 11 001 000 = scale 8 | rcx | rax
 
+            const signed_offset : i32 = @intCast(offset);
+
             const src_val: u8 = @intFromEnum(src);
             const base_val: u8 = @intFromEnum(base);
             const index_val: u8 = @intFromEnum(index);
@@ -512,13 +515,13 @@ pub fn JitCompilerBase(comptime StateType: type) type {
             // opcode
             try self.emit_byte(0x89);
 
-            const modrm = create_modrm_sib(src, offset);
+            const modrm = create_modrm_sib(src, signed_offset);
             try self.emit_byte(modrm);
 
             const sib = create_sib(scale, base, index);
             try self.emit_byte(sib);
 
-            try self.emit_offset(offset);
+            try self.emit_offset(signed_offset);
         }
 
         pub fn mov_to_offset(self: *Self, base: GPR64, offset: u32, src: GPR64) !void {
@@ -529,10 +532,12 @@ pub fn JitCompilerBase(comptime StateType: type) type {
             // 89 = opcode
             // 4c = modrm 01_001_100
             // 24 = sib 00_100_100
+            
+            const signed_offset: i32 = @intCast(offset);
 
             const rex = create_rex(src, base);
             const opcode = 0x89;
-            const modrm = create_modrm_reg_rm64(src, base, offset);
+            const modrm = create_modrm_reg_rm64(src, base, signed_offset);
 
             const data = get_modrm_data(modrm);
 
@@ -542,16 +547,18 @@ pub fn JitCompilerBase(comptime StateType: type) type {
             } else {
                 try self.emit_slice(&.{ rex, opcode, modrm });
             }
-            try self.emit_offset(offset);
+            try self.emit_offset(signed_offset);
         }
 
         pub fn mov_from_offset(self: *Self, base: GPR64, offset: u32, dst: GPR64) !void {
             // mov r9, QWORD PTR [rsp - 0x10]
             // 4c 8b 4c 24 f1
+            
+            const signed_offset : i32 = @intCast(offset);
 
             const rex = create_rex(dst, base);
             const opcode = 0x8b;
-            const modrm = create_modrm_reg_rm64(dst, base, offset);
+            const modrm = create_modrm_reg_rm64(dst, base, signed_offset);
 
             const data = get_modrm_data(modrm);
 
@@ -561,13 +568,13 @@ pub fn JitCompilerBase(comptime StateType: type) type {
             } else {
                 try self.emit_slice(&.{ rex, opcode, modrm });
             }
-            try self.emit_offset(offset);
+            try self.emit_offset(signed_offset);
         }
 
-        pub fn emit_offset(self: *Self, offset: u32) !void {
+        pub fn emit_offset(self: *Self, offset: i32) !void {
             // if offset is zero it is captured above
-            if (offset != 0) {
-                if (offset < 256) {
+            if (offset > 0) {
+                if (offset < 128) {
                     try self.emit_byte(@intCast(offset));
                 } else {
                     const offset_bytes: [4]u8 = .{
@@ -578,6 +585,24 @@ pub fn JitCompilerBase(comptime StateType: type) type {
                     };
                     try self.emit_slice(offset_bytes[0..]);
                 }
+            } else if (offset < 0) {
+                var tmp: u32 = @intCast(-offset);
+                tmp = (~tmp) + 1;
+                if (offset >= -128) {
+                    tmp &= 0xff;
+                    try self.emit_byte(@intCast(tmp));
+                } else {
+                    const offset_bytes: [4]u8 = .{
+                        @intCast(tmp & 0xff),
+                        @intCast((tmp >> 8) & 0xff),
+                        @intCast((tmp >> 16) & 0xff),
+                        @intCast((tmp >> 24) & 0xff),
+                    };
+                    try self.emit_slice(offset_bytes[0..]);
+                }
+            } else {
+                // sanity check
+                std.debug.assert(offset == 0);
             }
         }
 
@@ -664,7 +689,7 @@ pub fn create_modrm_regs(reg: GPR64, rm64: GPR64) u8 {
 }
 
 /// creates basic MODrm for reg and rm64
-pub fn create_modrm_reg_rm64(reg: GPR64, rm64: GPR64, offset: u32) u8 {
+pub fn create_modrm_reg_rm64(reg: GPR64, rm64: GPR64, offset: i32) u8 {
     const reg_val: u8 = @intFromEnum(reg);
     const rm64_val: u8 = @intFromEnum(rm64);
 
@@ -676,7 +701,7 @@ pub fn create_modrm_reg_rm64(reg: GPR64, rm64: GPR64, offset: u32) u8 {
     //      otherwise 10
     // reg = bottom 3 bits of to_reg_val
     // rm = 100 => the sib follows
-    const mod: u8 = if (offset >= 256)
+    const mod: u8 = if (offset >= 128 or offset < -128)
         0b1000_0000
     else if (offset != 0)
         0b0100_0000
@@ -688,7 +713,7 @@ pub fn create_modrm_reg_rm64(reg: GPR64, rm64: GPR64, offset: u32) u8 {
 }
 
 /// creates basic MODrm with sib
-pub fn create_modrm_sib(reg: GPR64, offset: u32) u8 {
+pub fn create_modrm_sib(reg: GPR64, offset: i32) u8 {
     const reg_val: u8 = @intFromEnum(reg);
 
     // ModRM
@@ -699,7 +724,7 @@ pub fn create_modrm_sib(reg: GPR64, offset: u32) u8 {
     //      otherwise 10
     // reg = bottom 3 bits of to_reg_val
     // rm = 100 => the sib follows
-    const mod: u8 = if (offset >= 256)
+    const mod: u8 = if (offset >= 128 or offset < -128)
         0b1000_0000
     else if (offset != 0)
         0b0100_0000

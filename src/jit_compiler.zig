@@ -86,8 +86,13 @@ pub const JitCompiler = struct {
 
         if (DGB) {
             const inst_raw: u64 = @intFromEnum(inst);
-            try self.set_reg_64(GPR64.rdi, inst_raw);
-            try self.call("dbg_inst");
+            try self.base.set_reg_64(GPR64.rdi, inst_raw);
+            try self.base.call("dbg_inst");
+        }
+        if (JitIntepreter.DBG) {
+            try self.base.mov_reg_reg(GPR64.rdi, JitCompiler.intepret_addr);
+            try self.base.set_reg_64(GPR64.rsi, self.pc);
+            try self.base.call("bc_break");
         }
         switch (inst) {
             bytecode.Instruction.pop => {
@@ -327,7 +332,8 @@ pub const JitCompiler = struct {
                 try self.base.mov_from_struct_64(GPR64.rcx, env_addr, @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "buffer"));
 
                 // load val from index
-                try self.base.mov_index_access64(GPR64.rbp, Scale.scale8, GPR64.rcx, GPR64.rax, index * 8);
+                const signed : i32 = @intCast(index);
+                try self.base.mov_index_access64(GPR64.rbp, Scale.scale8, GPR64.rcx, GPR64.rax, signed * 8);
 
                 try self.stack_push(GPR64.rbp);
             },
@@ -341,7 +347,7 @@ pub const JitCompiler = struct {
                 try self.base.mov_from_struct_64(GPR64.rcx, env_addr, @offsetOf(bc_interpret.Environment, "local") + @offsetOf(bc_interpret.LocalEnv, "buffer"));
 
                 // load val from index
-                try self.base.mov_index_access64(GPR64.rbp, Scale.scale8, GPR64.rcx, GPR64.rax, index * 8);
+                try self.base.mov_index_access64(GPR64.rbp, Scale.scale8, GPR64.rcx, GPR64.rax, @intCast(index * 8));
 
                 try self.stack_push(GPR64.rbp);
             },
@@ -569,7 +575,8 @@ pub const JitCompiler = struct {
         // mov reg, [rax + rcx*8 - offset]
         // offset is calculated with two's complement
         const scale = Scale.from_size(@sizeOf(runtime.Value));
-        try self.base.mov_index_access64(dst, scale, GPR64.rax, GPR64.rcx, @intCast((~((offset + 1) * @sizeOf(runtime.Value))) + 1));
+        const signed : i32 = @intCast((offset + 1) * @sizeOf(runtime.Value));
+        try self.base.mov_index_access64(dst, scale, GPR64.rax, GPR64.rcx, -signed);
     }
 
     /// clobers rax
