@@ -123,6 +123,57 @@ test "fib" {
     res.deinit();
 }
 
+test "factorial" {
+    const code =
+        \\ let factorial = fn(n) = 
+        \\     if (n < 1)
+        \\         1
+        \\     else
+        \\         n * factorial(n - 1);
+        \\ 
+        \\ print(factorial(5));
+        \\ print(factorial(0));
+        \\ print(factorial(10));
+    ;
+    var res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1 (0)
+        \\120 
+        \\1 
+        \\3628800 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
+
+test "factorial_loop" {
+    const code =
+        \\ let factorial = fn(n) = {
+        \\     let result = 1;
+        \\     while (n > 1) {
+        \\         result = result * n;
+        \\         n = n - 1;
+        \\     };
+        \\     result;
+        \\ };
+        \\ 
+        \\ print(factorial(5));
+        \\ print(factorial(0));
+        \\ print(factorial(10));
+    ;
+    var res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1 (0)
+        \\120 
+        \\1 
+        \\3628800 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
+
 test "assign" {
     const code =
         \\ let a = 5;

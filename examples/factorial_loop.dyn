@@ -1,0 +1,12 @@
+let factorial = fn(n) = {
+    let result = 1;
+    while (n > 1) {
+        result = result * n;
+        n = n - 1;
+    };
+    result;
+};
+
+print(factorial(5));
+print(factorial(0));
+print(factorial(10));
