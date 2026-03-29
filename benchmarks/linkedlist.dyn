@@ -28,9 +28,9 @@ let createlist = fn() = object {
         if (this.head == nil) {
 
         } else if (this.head.next == nil) {
-            let tmp = this.head;
+            let res = this.head.val;
             this.head == nil;
-            tmp.val;
+            res;
         } else {
             let tmp = this.head;
             while (tmp.next.next != nil) {
@@ -53,17 +53,29 @@ let createlist = fn() = object {
 
 let list = createlist();
 
-let i = 0;
-while (i < 1000) {
-    list.append(1);
-    list.append(2);
-    list.append(3);
-    list.prepend(42);
-    print(list.pop());
-    print(list.pop());
-    print(list.pop());
-    i = i + 1;
+
+let f = fn(n) = {
+    let i = 0;
+    while(i < n) {
+        list.append(1);
+        list.append(2);
+        list.append(3);
+        list.prepend(42);
+        list.pop();
+        list.pop();
+        list.pop();
+        i = i + 1;
+    };
+
+    i = 0;
+    while (i < n) {
+        list.pop();
+        i = i + 1;
+    };
 };
 
-list.debug();
-
+let i = 10;
+while (i < 400) {
+    f(i);
+    i = i + 1;
+};

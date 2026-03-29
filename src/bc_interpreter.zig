@@ -2,6 +2,8 @@ const std = @import("std");
 const runtime = @import("runtime.zig");
 const bc = @import("bytecode.zig");
 const jit = @import("jit_compiler.zig");
+const jit_utils = @import("jit_utils.zig");
+const optjit = @import("opt/jit.zig");
 
 const Value = runtime.Value;
 const ValueType = runtime.ValueType;
@@ -14,21 +16,41 @@ const Roots = struct {
 /// Garbage collection
 /// implemeted via copying semispaces
 pub const GC = struct {
+    const DBG: bool = false;
+    const DBGData: type = if (DBG)
+        struct {
+            start: i128,
+        }
+    else
+        struct {};
+
     from: runtime.Heap,
     to: runtime.Heap,
+
+    dbg_data: DBGData,
 
     pub fn init(heap_data: []u8) GC {
         // this is to make sure that all the aligns are ok
         std.debug.assert(heap_data.len % 16 == 0);
-        return GC{
-            .from = runtime.Heap.init(heap_data[0 .. heap_data.len / 2]),
-            .to = runtime.Heap.init(heap_data[heap_data.len / 2 ..]),
-        };
+        const dbg_data: DBGData = if (comptime DBG)
+            .{ .start = std.time.nanoTimestamp() }
+        else
+            .{};
+        if (comptime DBG) {
+            std.debug.print("time, heap_size\n", .{});
+        }
+        return GC{ .from = runtime.Heap.init(heap_data[0 .. heap_data.len / 2]), .to = runtime.Heap.init(heap_data[heap_data.len / 2 ..]), .dbg_data = dbg_data };
     }
 
     pub fn alloc_with_additional(self: *GC, comptime T: type, count: usize, roots: Roots) *T {
         if (!self.from.check_available(T, count)) {
+            if (comptime DBG) {
+                std.debug.print("{}, {}\n", .{ std.time.nanoTimestamp() - self.dbg_data.start, self.from.curr_ptr });
+            }
             self.collect(roots);
+            if (comptime DBG) {
+                std.debug.print("{}, {}\n", .{ std.time.nanoTimestamp() - self.dbg_data.start, self.from.curr_ptr });
+            }
         }
         return self.from.alloc_with_additional(T, count);
     }
@@ -70,8 +92,8 @@ pub const GC = struct {
                 },
             }
         }
-
-        std.debug.assert(done_ptr == self.to.curr_ptr);
+        
+        std.debug.assert(done_ptr == self.to.curr_aligned());
         const tmp = self.from;
         self.from = self.to;
         self.to = tmp;
@@ -162,7 +184,7 @@ pub const GC = struct {
                 dst.tag = closure.tag;
                 dst.local_count = closure.local_count;
                 dst.param_count = closure.param_count;
-                dst.constant_idx = closure.constant_idx;
+                dst.function_idx = closure.function_idx;
                 dst.env.count = closure.env.count;
                 for (0..closure.env.count) |idx| {
                     const val = closure.env.get(idx);
@@ -184,15 +206,24 @@ pub const GC = struct {
 
 pub const Stack = struct {
     stack: std.ArrayList(runtime.Value),
+    alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator) Stack {
         return Stack{
-            .stack = std.ArrayList(runtime.Value).init(alloc),
+            .stack = std.ArrayList(runtime.Value){},
+            .alloc = alloc,
         };
     }
 
     pub fn push(self: *Stack, value: runtime.Value) void {
-        self.stack.append(value) catch unreachable;
+        // for some reason this would not be
+        // already optimized out like that
+        // the fuck
+        if (self.stack.items.len < self.stack.capacity) {
+            self.push_unsafe(value);
+        } else {
+            self.stack.append(self.alloc, value) catch unreachable;
+        }
     }
 
     pub fn push_unsafe(self: *Stack, value: runtime.Value) void {
@@ -234,8 +265,8 @@ pub const LocalEnv = struct {
     };
 
     pub fn init(alloc: std.mem.Allocator) LocalEnv {
-        var buffer = std.ArrayList(Value).init(alloc);
-        buffer.ensureTotalCapacity(8) catch unreachable;
+        var buffer = std.ArrayList(Value){};
+        buffer.ensureTotalCapacity(alloc, 8) catch unreachable;
         return LocalEnv{
             .buffer = buffer,
             .current_ptr = 0,
@@ -247,24 +278,24 @@ pub const LocalEnv = struct {
         self.alloc.free(self.buffer);
     }
 
-    pub fn push_locals(self: *LocalEnv, args: []Value, local_count: u32, ret_pc: u32, ret_const: bc.ConstantIndex) void {
+    pub fn push_locals(self: *LocalEnv, args: []Value, local_count: u32, ret_pc: u32, ret_fn: bc.FunctionIndex) void {
         const old_fp: Value = Value.new_raw(@intCast(self.current_ptr));
         const tmp_pc: usize = @intCast(ret_pc);
-        const ret = Value.new_raw(tmp_pc << 32 | ret_const.index);
+        const ret = Value.new_raw(tmp_pc << 32 | ret_fn.index);
         self.current_ptr = @intCast(self.buffer.items.len);
-        self.buffer.ensureTotalCapacity(self.buffer.items.len + args.len + local_count + 2) catch unreachable;
+        self.buffer.ensureTotalCapacity(self.alloc, self.buffer.items.len + args.len + local_count + 2) catch unreachable;
         self.buffer.appendSliceAssumeCapacity(args);
         self.buffer.appendNTimesAssumeCapacity(Value.new_nil(), local_count);
         self.buffer.appendAssumeCapacity(old_fp);
         self.buffer.appendAssumeCapacity(ret);
     }
 
-    pub fn push_locals_this(self: *LocalEnv, this: Value, args: []Value, local_count: u32, ret_pc: u32, ret_const: bc.ConstantIndex) void {
+    pub fn push_locals_this(self: *LocalEnv, this: Value, args: []Value, local_count: u32, ret_pc: u32, ret_fn: bc.FunctionIndex) void {
         const old_fp: Value = Value.new_raw(@intCast(self.current_ptr));
         const tmp_pc: usize = @intCast(ret_pc);
-        const ret = Value.new_raw(tmp_pc << 32 | ret_const.index);
+        const ret = Value.new_raw(tmp_pc << 32 | ret_fn.index);
         self.current_ptr = @intCast(self.buffer.items.len);
-        self.buffer.ensureTotalCapacity(self.buffer.items.len + args.len + local_count + 2 + 1) catch unreachable;
+        self.buffer.ensureTotalCapacity(self.alloc, self.buffer.items.len + args.len + local_count + 2 + 1) catch unreachable;
         self.buffer.appendAssumeCapacity(this);
         self.buffer.appendSliceAssumeCapacity(args);
         self.buffer.appendNTimesAssumeCapacity(Value.new_nil(), local_count);
@@ -305,14 +336,21 @@ pub const LocalEnv = struct {
         };
     }
 
-    pub fn get_ret(self: *const LocalEnv) struct { ret_pc: u32, ret_const: bc.ConstantIndex } {
+    pub fn get_ret(self: *const LocalEnv) struct { ret_pc: u32, ret_fn: bc.FunctionIndex } {
         const ret = self.buffer.items[self.buffer.items.len - 1];
         const ret_pc: u32 = @intCast((ret.data >> 32));
-        const ret_const: u32 = @intCast(ret.data & 0xffffffff);
+        const ret_fn: u32 = @intCast(ret.data & 0xffffffff);
         return .{
             .ret_pc = ret_pc,
-            .ret_const = bc.ConstantIndex.new(ret_const),
+            .ret_fn = bc.FunctionIndex.new(ret_fn),
         };
+    }
+
+    pub fn get_current_count(self: *const LocalEnv) usize {
+        if (self.buffer.items.len == 0) {
+            return 0;
+        }
+        return self.buffer.items.len - self.current_ptr - 2;
     }
 
     pub fn get(self: *const LocalEnv, idx: u32) Value {
@@ -356,140 +394,242 @@ pub const Environment = struct {
     }
 };
 
-pub fn Interpreter(comptime use_jit: bool) type {
+pub fn Interpreter(comptime JitType: ?type) type {
     return struct {
         const Self = @This();
+        const JitState = jit_utils.JitState(Self);
+        const DBG: bool = false;
+        const DebuggerType = if (DBG) @import("bc_debugger.zig").BytecodeDebugger(Self) else struct {};
+
         bytecode: bc.Bytecode,
         pc: usize,
-        curr_const: bc.ConstantIndex,
+        curr_fn: bc.FunctionIndex,
         gc: GC,
         stack: Stack,
         env: Environment,
-        writer: std.io.AnyWriter,
-        jit_compiler: jit.JitCompiler,
+        writer: *std.io.Writer,
+        function_meta: []runtime.FunctionMetadata,
+        jit_compiler: if (JitType) |Jit| Jit else struct {},
 
-        pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: std.io.AnyWriter, heuristic: jit.Heuristic) Self {
-            return Self{
-                .bytecode = bytecode,
-                .pc = 5,
-                .curr_const = bc.ConstantIndex.new(0),
-                .gc = GC.init(heap_data),
-                .stack = Stack.init(alloc),
-                .env = Environment.init(bytecode.global_count, alloc),
-                .jit_compiler = jit.JitCompiler.init(4096 * 1024, heuristic),
-                .writer = writer,
-            };
+        bc_debugger: DebuggerType,
+
+        inline fn dprint_basic(msg: []const u8, inter: *Self) void {
+            _ = inter;
+            if (DBG) {
+                std.debug.print(msg, .{});
+                std.debug.print("\n", .{});
+            }
+        }
+
+        inline fn dprint_small_info(msg: []const u8, inter: *Self) void {
+            if (DBG) {
+                std.debug.print("pc: {}, ", .{inter.pc});
+                std.debug.print(msg, .{});
+                std.debug.print("\n", .{});
+            }
+        }
+
+        inline fn debugger(msg: []const u8, inter: *Self) void {
+            _ = msg;
+            if (DBG) {
+                inter.bc_debugger.breakpoint();
+            }
+        }
+
+        const inter_dbg = debugger;
+
+        pub fn init(alloc: std.mem.Allocator, bytecode: bc.Bytecode, heap_data: []u8, writer: *std.io.Writer, heuristic: jit_utils.Heuristic) Self {
+            const meta = alloc.alloc(runtime.FunctionMetadata, bytecode.functions.count()) catch unreachable;
+            @memset(meta, runtime.FunctionMetadata{ .call_counter = 0, .jit_state = 0 });
+            return Self{ .bytecode = bytecode, .pc = 0, .curr_fn = bc.FunctionIndex.new(0), .gc = GC.init(heap_data), .stack = Stack.init(alloc), .env = Environment.init(bytecode.globals.len, alloc), .function_meta = meta, .jit_compiler = if (JitType) |Jit| Jit.init(4096 * 1024, heuristic) else undefined, .writer = writer, .bc_debugger = undefined };
         }
 
         pub fn run(self: *Self) runtime.Value {
+            if (DBG) {
+                // initialized here because it needs pointer
+                self.bc_debugger = @import("bc_debugger.zig").BytecodeDebugger(Self).init(self, self.writer);
+            }
             while (true) {
                 const inst = self.read_inst();
                 std.debug.assert(self.stack.stack.items.len <= self.stack.stack.capacity);
-                switch (inst) {
+                sw: switch (inst) {
                     bc.Instruction.push => {
+                        inter_dbg("push", self);
                         const num = self.read_u32();
                         const val = Value.new_num(num);
                         self.stack.push(val);
+
+                        // this continues is present
+                        // in all instruction and it should force
+                        // the compiler to generate threaded
+                        // intepreter loop and not clasic while
+                        // with switch
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.push_byte => {
+                        inter_dbg("push_byte", self);
                         const num = self.read_u8();
                         const val = Value.new_num(@intCast(num));
                         self.stack.push(val);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.pop => {
+                        inter_dbg("pop", self);
                         _ = self.stack.pop();
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.dup => {
+                        inter_dbg("dup", self);
                         self.stack.push(self.stack.top());
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.true => {
+                        inter_dbg("true", self);
                         const val = Value.new_true();
                         self.stack.push(val);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.false => {
+                        inter_dbg("false", self);
                         const val = Value.new_false();
                         self.stack.push(val);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.nil => {
+                        inter_dbg("nil", self);
                         const val = Value.new_nil();
                         self.stack.push(val);
+                        continue :sw self.read_inst();
                     },
 
                     // should not create call
-                    bc.Instruction.add => self.handle_binop(Value.add),
-                    bc.Instruction.sub => self.handle_binop(Value.sub),
-                    bc.Instruction.mul => self.handle_binop(Value.mul),
-                    bc.Instruction.div => self.handle_binop(Value.div),
-                    bc.Instruction.gt => self.handle_binop(Value.gt),
-                    bc.Instruction.lt => self.handle_binop(Value.lt),
+                    bc.Instruction.add => {
+                        inter_dbg("add", self);
+                        self.handle_binop(Value.add);
+                        continue :sw self.read_inst();
+                    },
+                    bc.Instruction.sub => {
+                        inter_dbg("sub", self);
+                        self.handle_binop(Value.sub);
+                        continue :sw self.read_inst();
+                    },
+                    bc.Instruction.mul => {
+                        inter_dbg("mul", self);
+                        self.handle_binop(Value.mul);
+                        continue :sw self.read_inst();
+                    },
+                    bc.Instruction.div => {
+                        inter_dbg("div", self);
+                        self.handle_binop(Value.div);
+                        continue :sw self.read_inst();
+                    },
+                    bc.Instruction.gt => {
+                        inter_dbg("gt", self);
+                        self.handle_binop(Value.gt);
+                        continue :sw self.read_inst();
+                    },
+                    bc.Instruction.lt => {
+                        inter_dbg("lt", self);
+                        self.handle_binop(Value.lt);
+                        continue :sw self.read_inst();
+                    },
                     bc.Instruction.eq => {
+                        inter_dbg("eq", self);
                         const right = self.stack.pop();
                         const left = self.stack.top();
                         self.stack.set_top(Value.eq(left, right));
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.ne => {
+                        inter_dbg("ne", self);
                         const right = self.stack.pop();
                         const left = self.stack.top();
                         self.stack.set_top(Value.ne(left, right));
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.ret => {
+                        inter_dbg("ret", self);
                         const restore_data = self.env.local.get_ret();
                         self.pc = restore_data.ret_pc;
-                        self.curr_const = restore_data.ret_const;
-                        self.bytecode.set_curr_const(restore_data.ret_const);
+                        self.curr_fn = restore_data.ret_fn;
+                        self.bytecode.set_curr_function(restore_data.ret_fn);
                         self.env.local.pop_locals();
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.ret_main => {
+                        inter_dbg("ret_main", self);
+                        if (DBG) {
+                            self.bc_debugger.deinit();
+                        }
                         return self.stack.top();
                     },
 
                     bc.Instruction.set_global => {
+                        inter_dbg("set_global", self);
                         const value = self.stack.top();
                         const idx = self.read_u32();
                         self.env.set_global(idx, value);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.set => {
+                        inter_dbg("set", self);
                         const value = self.stack.top();
                         const idx = self.read_u32();
                         self.env.local.set(idx, value);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.set_global_small => {
+                        inter_dbg("set_global_small", self);
                         const value = self.stack.top();
                         const idx = self.read_u8();
                         self.env.set_global(@intCast(idx), value);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.set_small => {
+                        inter_dbg("set_small", self);
                         const value = self.stack.top();
                         const idx = self.read_u8();
                         self.env.local.set(@intCast(idx), value);
+                        continue :sw self.read_inst();
                     },
 
                     bc.Instruction.get_global => {
+                        inter_dbg("get_global", self);
                         const idx = self.read_u32();
                         const value = self.env.get_global(idx);
                         self.stack.push(value);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.get_global_small => {
+                        inter_dbg("get_global_small", self);
                         const idx = self.read_u8();
                         const value = self.env.get_global(@intCast(idx));
                         self.stack.push(value);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.get => {
+                        inter_dbg("get", self);
                         const idx = self.read_u32();
                         const value = self.env.local.get(idx);
                         self.stack.push(value);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.get_small => {
+                        inter_dbg("get_small", self);
                         const idx = self.read_u8();
                         const value = self.env.local.get(@intCast(idx));
                         self.stack.push(value);
+                        continue :sw self.read_inst();
                     },
 
                     bc.Instruction.jump => {
+                        inter_dbg("jump", self);
                         const pc = self.read_u32();
                         self.pc = pc;
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.branch => {
+                        inter_dbg("branch", self);
                         const pc = self.read_u32();
                         const cond = self.stack.pop();
                         switch (cond.get_type()) {
@@ -497,52 +637,69 @@ pub fn Interpreter(comptime use_jit: bool) type {
                             ValueType.false => {},
                             else => @panic("If condition must be boolean"),
                         }
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.closure => {
+                        inter_dbg("closure", self);
                         const constant_idx: u64 = self.read_u32();
                         const unbound_count: u64 = self.read_u32();
                         self.do_closure(constant_idx, unbound_count);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.call => {
+                        inter_dbg("call", self);
                         const jit_state = self.get_jit_state();
                         const target = self.stack.pop();
 
                         // dont ask just trust lol
-                        if (use_jit) {
+                        if (JitType != null) {
                             self.do_value_call(null, &jit_state, target);
                         } else {
                             @call(.always_inline, Self.do_value_call, .{ self, null, &jit_state, target });
                         }
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.print => {
+                        inter_dbg("print", self);
                         const arg_count: u64 = @intCast(self.read_u32());
                         self.do_print(arg_count);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.string => {
+                        inter_dbg("string", self);
                         const idx = bc.ConstantIndex.new(self.read_u32());
                         if (self.bytecode.get_type(idx) != bc.ConstantType.string) {
                             @panic("Incorrect string");
                         }
                         const val = Value.new_string(idx.index);
                         self.stack.push(val);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.object => {
+                        inter_dbg("object", self);
                         const class_idx = bc.ConstantIndex.new(self.read_u32());
                         self.do_object(class_idx);
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.get_field => {
+                        inter_dbg("get_field", self);
                         const field_idx = self.read_u32();
 
                         self.do_get_field(bc.ConstantIndex.new(field_idx));
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.set_field => {
+                        inter_dbg("set_field", self);
                         const field_idx = self.read_u32();
                         self.do_set_field(bc.ConstantIndex.new(field_idx));
+                        continue :sw self.read_inst();
                     },
                     bc.Instruction.methodcall => {
+                        inter_dbg("methodcall", self);
                         const field_idx = self.read_u32();
                         const jit_state = self.get_jit_state();
                         self.do_method_call(&jit_state, bc.ConstantIndex.new(field_idx));
+                        continue :sw self.read_inst();
                     },
                 }
             }
@@ -589,13 +746,13 @@ pub fn Interpreter(comptime use_jit: bool) type {
                 const res = oper(left, right);
                 self.stack.set_top(res);
             } else {
-                std.debug.print("left: {}, right: {}\n", .{ left, right });
+                std.debug.print("left: {f}, right: {f}\n", .{ left, right });
                 @panic("Unimplemented dispatch");
             }
         }
 
-        fn do_closure(self: *Self, constant_idx: u64, unbound_count: u64) void {
-            const constant_idx_tmp: u32 = @intCast(constant_idx);
+        fn do_closure(self: *Self, function_idx: u64, unbound_count: u64) void {
+            const function_idx_tmp: u32 = @intCast(function_idx);
             const unbound_count_tmp: u32 = @intCast(unbound_count);
             const env = self.stack.slice_top(unbound_count_tmp);
             const closure = self.gc.alloc_with_additional(bc.Closure, unbound_count_tmp, self.get_roots());
@@ -604,10 +761,10 @@ pub fn Interpreter(comptime use_jit: bool) type {
                 closure.env.set(idx, val);
             }
             self.stack.pop_n(unbound_count_tmp);
-            closure.constant_idx = bc.ConstantIndex.new(constant_idx_tmp);
-            const code = self.bytecode.get_constant(closure.constant_idx);
-            closure.local_count = code.get_u32(5);
-            closure.param_count = code.get_u32(9);
+            closure.function_idx = bc.FunctionIndex.new(function_idx_tmp);
+            const code = self.bytecode.get_function(closure.function_idx);
+            closure.local_count = code.locals_count;
+            closure.param_count = code.param_count;
             const val = Value.new_ptr(bc.Closure, closure, ValueType.closure);
             self.stack.push(val);
         }
@@ -634,7 +791,7 @@ pub fn Interpreter(comptime use_jit: bool) type {
         fn do_value_call(
             self: *Self,
             this: ?Value,
-            jit_state: *const jit.JitState,
+            jit_state: *const JitState,
             target: Value,
         ) void {
             if (target.get_type() != runtime.ValueType.closure) {
@@ -646,9 +803,20 @@ pub fn Interpreter(comptime use_jit: bool) type {
             const param_count = closure.param_count;
             const arg_slice = self.stack.slice_top(param_count);
             if (this) |this_val| {
-                self.env.local.push_locals_this(this_val, arg_slice, local_count, @intCast(self.pc), self.curr_const);
+                self.env.local.push_locals_this(
+                    this_val,
+                    arg_slice,
+                    local_count,
+                    @intCast(self.pc),
+                    self.curr_fn,
+                );
             } else {
-                self.env.local.push_locals(arg_slice, local_count, @intCast(self.pc), self.curr_const);
+                self.env.local.push_locals(
+                    arg_slice,
+                    local_count,
+                    @intCast(self.pc),
+                    self.curr_fn,
+                );
             }
             for (0..closure.env.count) |idx| {
                 const index: u32 = @intCast(idx);
@@ -657,36 +825,51 @@ pub fn Interpreter(comptime use_jit: bool) type {
             }
             self.stack.pop_n(param_count);
 
-            if (use_jit) {
-                const function_constant = self.bytecode.get_constant(closure.constant_idx);
-                const compiled = self.jit_compiler.compile_fn(function_constant);
+            if (JitType) |Compiler| {
+                const function = self.bytecode.get_function(closure.function_idx);
+                const function_source = self.bytecode.get_function_source(closure.function_idx);
+                const meta = &self.function_meta[closure.function_idx.index];
+                if (meta.is_jitted()) {
+                    meta.get_code(Compiler, &self.jit_compiler).run(JitState, jit_state);
+                    self.env.local.pop_locals();
+                    return;
+                }
+                const compiled = @call(.never_inline, Compiler.compile_fn, .{
+                    &self.jit_compiler,
+                    function,
+                    function_source,
+                    meta,
+                    self.bytecode.globals,
+                });
+                //const compiled = self.jit_compiler.compile_fn(function, function_source, meta);
                 if (compiled) |jitted| {
-                    jitted.run(jit_state);
+                    jitted.run(JitState, jit_state);
+                    self.env.local.pop_locals();
                 } else |err| {
                     switch (err) {
-                        jit.JitError.HeuristicNotMet => {},
-                        jit.JitError.OutOfMem => {},
+                        jit_utils.JitError.HeuristicNotMet => {},
+                        jit_utils.JitError.OutOfMem => {},
                         else => @panic("cannot compile"),
                     }
 
-                    self.bytecode.set_curr_const(closure.constant_idx);
-                    self.curr_const = closure.constant_idx;
+                    self.bytecode.set_curr_function(closure.function_idx);
+                    self.curr_fn = closure.function_idx;
 
                     // header size of the closure
-                    self.pc = bc.Constant.function_header_size;
+                    self.pc = 0;
                 }
             } else {
-                self.bytecode.set_curr_const(closure.constant_idx);
-                self.curr_const = closure.constant_idx;
+                self.bytecode.set_curr_function(closure.function_idx);
+                self.curr_fn = closure.function_idx;
 
                 // header size of the closure
-                self.pc = bc.Constant.function_header_size;
+                self.pc = 0;
             }
         }
 
         fn do_method_call(
             self: *Self,
-            jit_state: *const jit.JitState,
+            jit_state: *const JitState,
             method_idx: bc.ConstantIndex,
         ) void {
             const target = self.stack.pop();
@@ -724,17 +907,22 @@ pub fn Interpreter(comptime use_jit: bool) type {
                     ValueType.false => {
                         self.writer.print("false ", .{}) catch unreachable;
                     },
+                    ValueType.nil => {
+                        self.writer.print("nil ", .{}) catch unreachable;
+                    },
                     else => @panic("Cannot print"),
                 }
             }
             self.stack.pop_n(arg_count_tmp);
             self.writer.print("\n", .{}) catch unreachable;
+            self.writer.flush() catch unreachable;
             self.stack.push(Value.new_nil());
         }
 
         fn do_get_field(self: *Self, string_idx: bc.ConstantIndex) void {
             const val = self.stack.top();
             if (val.get_type() != ValueType.object) {
+                std.debug.print("tried calling on {f}\n", .{val});
                 @panic("invalid object");
             }
             const object = val.get_ptr(bc.Object);
@@ -789,21 +977,21 @@ pub fn Interpreter(comptime use_jit: bool) type {
             };
         }
 
-        fn get_jit_state(self: *const Self) jit.JitState {
-            if (use_jit) {
-                return jit.JitState{
+        fn get_jit_state(self: *const Self) JitState {
+            if (JitType) |_| {
+                return JitState{
                     .intepreter = self,
                     .stack = &self.stack,
                     .env = &self.env,
                     .gc = &self.gc,
                     .alloc_stack = &alloc_stack,
-                    .create_closure = &create_closure,
-                    .create_object = &create_object,
-                    .get_field = &do_get_field_jit,
-                    .set_field = &do_set_field_jit,
-                    .call = &do_call,
-                    .method_call = &do_method_call_jit,
-                    .print = &do_jit_print,
+                    .create_closure = &create_closure(Self),
+                    .create_object = &create_object(Self),
+                    .get_field = &do_get_field_jit(Self),
+                    .set_field = &do_set_field_jit(Self),
+                    .call = &do_call(Self),
+                    .method_call = &do_method_call_jit(Self),
+                    .print = &do_jit_print(Self),
                     .dbg = &dbg,
                     .dbg_raw = &dbg_raw,
                     .dbg_inst = &dbg_inst,
@@ -812,125 +1000,160 @@ pub fn Interpreter(comptime use_jit: bool) type {
                     .string_panic = &string_panic,
                 };
             } else {
-                const tmp: jit.JitState = undefined;
+                const tmp: JitState = undefined;
                 return tmp;
             }
         }
     };
 }
 
-pub const JitInterpreter = Interpreter(true);
-pub const BcInterpreter = Interpreter(false);
+pub const JitInterpreter = Interpreter(jit.JitCompiler);
+pub const OptJitInterpreter = Interpreter(optjit.JitCompiler);
+pub const BcInterpreter = Interpreter(null);
 
 // JIT helper functions
 
-fn alloc_stack(stack: *Stack, new_len: usize) callconv(.C) void {
-    stack.stack.ensureTotalCapacity(new_len) catch unreachable;
+const JitCallConv = jit_utils.JitCallConv;
+
+fn alloc_stack(stack: *Stack, new_len: usize) callconv(JitCallConv) void {
+    stack.stack.ensureTotalCapacity(stack.alloc, new_len) catch unreachable;
 }
 
-fn get_local(env: *const Environment, idx: u32) callconv(.C) Value {
+fn get_local(env: *const Environment, idx: u32) callconv(JitCallConv) Value {
     return env.local.get(idx);
 }
 
-fn set_local(env: *Environment, idx: u32, value: Value) callconv(.C) void {
+fn set_local(env: *Environment, idx: u32, value: Value) callconv(JitCallConv) void {
     env.local.set(idx, value);
 }
 
-fn pop_locals(env: *Environment) callconv(.C) void {
+fn pop_locals(env: *Environment) callconv(JitCallConv) void {
     env.local.pop_locals();
 }
 
-fn push_locals(env: *Environment, args_ptr: u64, args_len: usize, local_count: u32) callconv(.C) void {
+fn push_locals(env: *Environment, args_ptr: u64, args_len: usize, local_count: u32) callconv(JitCallConv) void {
     const args_tmp: [*]Value = @ptrFromInt(args_ptr);
     const args = args_tmp[0..args_len];
     env.local.push_locals(args, local_count, 0, bc.ConstantIndex.new(0));
 }
 
-fn gc_alloc_object(intepreter: *JitInterpreter, field_count: usize) callconv(.C) *bc.Object {
-    return intepreter.gc.alloc_with_additional(bc.Object, field_count, intepreter.get_roots());
+fn gc_alloc_object(comptime I: type) fn (*I, usize) callconv(JitCallConv) *bc.Object {
+    return struct {
+        fn do(intepreter: *I, field_count: usize) callconv(JitCallConv) *bc.Object {
+            return intepreter.gc.alloc_with_additional(bc.Object, field_count, intepreter.get_roots());
+        }
+    }.do;
 }
 
-fn gc_alloc_closure(intepreter: *JitInterpreter, env_size: usize) callconv(.C) *bc.Closure {
-    return intepreter.gc.alloc_with_additional(bc.Closure, env_size, intepreter.get_roots());
+fn gc_alloc_closure(comptime I: type) fn (*I, usize) callconv(JitCallConv) *bc.Closure {
+    return struct {
+        fn do(intepreter: *I, env_size: usize) callconv(JitCallConv) *bc.Closure {
+            return intepreter.gc.alloc_with_additional(bc.Closure, env_size, intepreter.get_roots());
+        }
+    }.do;
 }
 
-fn do_call(noalias interpret: *JitInterpreter, noalias jit_state: *const jit.JitState) callconv(.C) void {
-    const target = interpret.stack.pop();
-    interpret.do_value_call(null, jit_state, target);
+fn do_call(comptime I: type) fn (noalias *I, noalias *const I.JitState) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias interpret: *I, noalias jit_state: *const I.JitState) callconv(JitCallConv) void {
+            const target = interpret.stack.pop();
+            interpret.do_value_call(null, jit_state, target);
+        }
+    }.do;
 }
 
-fn do_method_call_jit(
-    noalias self: *JitInterpreter,
-    noalias jit_state: *const jit.JitState,
-    method_idx: bc.ConstantIndex,
-) callconv(.C) void {
-    const target = self.stack.pop();
-    if (target.get_type() != ValueType.object) {
-        @panic("cannot call method on non object");
-    }
+fn do_method_call_jit(comptime I: type) fn (noalias *I, noalias jit_state: *const I.JitState, method_idx: bc.ConstantIndex) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias self: *I, noalias jit_state: *const I.JitState, method_idx: bc.ConstantIndex) callconv(JitCallConv) void {
+            const target = self.stack.pop();
+            if (target.get_type() != ValueType.object) {
+                @panic("cannot call method on non object");
+            }
 
-    const object = target.get_ptr(bc.Object);
-    const field: ?runtime.Value = self.get_field(object, method_idx);
-    if (field) |item| {
-        self.do_value_call(target, jit_state, item);
-    } else {
-        @panic("non existant field");
-    }
+            const object = target.get_ptr(bc.Object);
+            const field: ?runtime.Value = self.get_field(object, method_idx);
+            if (field) |item| {
+                self.do_value_call(target, jit_state, item);
+            } else {
+                @panic("non existant field");
+            }
+        }
+    }.do;
 }
 
-fn do_jit_print(noalias interpret: *JitInterpreter, arg_count: u64) callconv(.C) void {
-    interpret.do_print(arg_count);
+fn do_jit_print(comptime I: type) fn (noalias *I, u64) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias interpret: *I, arg_count: u64) callconv(JitCallConv) void {
+            interpret.do_print(arg_count);
+        }
+    }.do;
 }
 
-fn create_closure(noalias self: *JitInterpreter, constant_idx: u64, unbound_count: u64) callconv(.C) void {
-    self.do_closure(constant_idx, unbound_count);
+fn create_closure(comptime I: type) fn (noalias *I, u64, u64) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias self: *I, constant_idx: u64, unbound_count: u64) callconv(JitCallConv) void {
+            self.do_closure(constant_idx, unbound_count);
+        }
+    }.do;
 }
 
-fn create_object(noalias self: *JitInterpreter, class_idx: bc.ConstantIndex) callconv(.C) void {
-    self.do_object(class_idx);
+fn create_object(comptime I: type) fn (noalias *I, bc.ConstantIndex) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias self: *I, class_idx: bc.ConstantIndex) callconv(JitCallConv) void {
+            self.do_object(class_idx);
+        }
+    }.do;
 }
 
-fn do_get_field_jit(noalias self: *JitInterpreter, string_idx: bc.ConstantIndex) callconv(.C) void {
-    self.do_get_field(string_idx);
+fn do_get_field_jit(comptime I: type) fn (noalias *I, bc.ConstantIndex) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias self: *I, string_idx: bc.ConstantIndex) callconv(JitCallConv) void {
+            self.do_get_field(string_idx);
+        }
+    }.do;
 }
 
-fn do_set_field_jit(noalias self: *JitInterpreter, string_idx: bc.ConstantIndex) callconv(.C) void {
-    self.do_set_field(string_idx);
+fn do_set_field_jit(comptime I: type) fn (noalias *I, bc.ConstantIndex) callconv(JitCallConv) void {
+    return struct {
+        fn do(noalias self: *I, string_idx: bc.ConstantIndex) callconv(JitCallConv) void {
+            self.do_set_field(string_idx);
+        }
+    }.do;
 }
 
 const DBG_VALUE: bool = false;
 const DBG_RAW: bool = false;
 const DBG_INST: bool = true;
 
-fn dbg(value: Value) callconv(.C) void {
+fn dbg(value: Value) callconv(JitCallConv) void {
     if (DBG_VALUE) {
         std.debug.print("VALUE {x} ", .{value.data});
         std.debug.print("{}\n", .{value});
     }
 }
 
-fn dbg_raw(val: u64) callconv(.C) void {
+fn dbg_raw(val: u64) callconv(JitCallConv) void {
     if (DBG_RAW) {
         std.debug.print("RAW {x}\n", .{val});
     }
 }
 
-fn dbg_inst(inst_val: u64) callconv(.C) void {
+fn dbg_inst(inst_val: u64) callconv(JitCallConv) void {
     if (DBG_INST) {
         const inst: bc.Instruction = @enumFromInt(inst_val);
-        std.debug.print("INST: {}\n", .{inst});
+        std.debug.print("INST: {f}\n", .{inst});
     }
 }
 
-fn binop_panic(left: Value, right: Value) callconv(.C) void {
-    std.debug.print("left: {}, right: {}\n", .{ left, right });
+fn binop_panic(left: Value, right: Value) callconv(JitCallConv) void {
+    std.debug.print("left: {f}, right: {f}\n", .{ left, right });
     @panic("Unimplemented dispatch");
 }
 
-fn if_condition_panic() callconv(.C) void {
+fn if_condition_panic() callconv(JitCallConv) void {
     @panic("If condition must be boolean");
 }
 
-fn string_panic() callconv(.C) void {
+fn string_panic() callconv(JitCallConv) void {
     @panic("Incorrect string");
 }

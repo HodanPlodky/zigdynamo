@@ -1,13 +1,15 @@
+const std = @import("std");
+
 pub const Program = struct {
     data: []Ast,
 };
 
 pub const Ast = union(enum) {
     number: u32,
-    string: []const u8,
+    string: String,
     bool: bool,
     nil,
-    ident: []const u8,
+    ident: String,
     binop: BinOp,
     call: Call,
     function: Function,
@@ -25,6 +27,12 @@ pub const Ast = union(enum) {
     print_fn,
 };
 
+pub const String = struct {
+    value: []const u8,
+    // is overriden during bc compilation
+    constant_idx: u32 = std.math.maxInt(u32),
+};
+
 pub const BinOp = struct {
     op: u8, // as str
     left: *Ast,
@@ -37,44 +45,53 @@ pub const Call = struct {
 };
 
 pub const Function = struct {
-    params: [][]const u8,
+    params: []String,
     body: *Ast,
+
+    // calculated after the parsing
+    function_idx: u32 = std.math.maxInt(u32),
+    env_vars: []String = &.{},
+    env_start: u32 = std.math.maxInt(u32),
+    is_method: bool = false,
 };
 
 pub const Assign = struct {
-    target: []const u8,
+    target: String,
     value: *Ast,
 };
 
 pub const Let = struct {
-    target: []const u8,
+    target: String,
     value: *Ast,
 };
 
 pub const Field = struct {
-    name: []const u8,
+    name: String,
     value: *Ast,
 };
 
 pub const Object = struct {
     prototype: ?*Ast,
     fields: []Field,
+
+    // set afterwards
+    class_idx: u32 = std.math.maxInt(u32),
 };
 
 pub const FieldAccess = struct {
     target: *Ast,
-    field: []const u8,
+    field: String,
 };
 
 pub const FieldCall = struct {
     target: *Ast,
-    field: []const u8,
+    field: String,
     args: []Ast,
 };
 
 pub const FieldAssign = struct {
     object: *Ast,
-    field: []const u8,
+    field: String,
     value: *Ast,
 };
 

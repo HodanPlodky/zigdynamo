@@ -2,6 +2,7 @@ const std = @import("std");
 const ast = @import("ast.zig");
 const bytecode = @import("bytecode.zig");
 const I = bytecode.Instruction;
+const rev = @import("utils.zig").ReversedSlice;
 
 pub fn compile(program: ast.Program, alloc: std.mem.Allocator) !bytecode.Bytecode {
     var scratch_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -13,16 +14,18 @@ pub fn compile(program: ast.Program, alloc: std.mem.Allocator) !bytecode.Bytecod
 
 const CompilerFrame = struct {
     vars: std.ArrayList([]const u8),
+    alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator) CompilerFrame {
         return CompilerFrame{
-            .vars = std.ArrayList([]const u8).init(alloc),
+            .vars = std.ArrayList([]const u8){},
+            .alloc = alloc,
         };
     }
 
-    pub fn get_index(self: *const CompilerFrame, var_name: []const u8) ?usize {
+    pub fn get_index(self: *const CompilerFrame, var_name: ast.String) ?usize {
         for (self.vars.items, 0..) |item, index| {
-            if (std.mem.eql(u8, item, var_name)) {
+            if (std.mem.eql(u8, item, var_name.value)) {
                 return index;
             }
         }
@@ -33,22 +36,23 @@ const CompilerFrame = struct {
         return self.vars.items.len;
     }
 
-    pub fn add_var(self: *CompilerFrame, var_name: []const u8) void {
+    pub fn add_var(self: *CompilerFrame, var_name: ast.String) void {
         if (self.get_index(var_name) == null) {
-            self.vars.append(var_name) catch unreachable;
+            self.vars.append(self.alloc, var_name.value) catch unreachable;
         }
     }
 };
 
 const CompilerFnFrame = struct {
+    /// uses alloc in struct
     frames: std.ArrayList(CompilerFrame),
     max_size: usize,
     current_size: usize,
     alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator) CompilerFnFrame {
-        var frames = std.ArrayList(CompilerFrame).init(alloc);
-        frames.append(CompilerFrame.init(alloc)) catch unreachable;
+        var frames = std.ArrayList(CompilerFrame){};
+        frames.append(alloc, CompilerFrame.init(alloc)) catch unreachable;
         return CompilerFnFrame{
             .frames = frames,
             .max_size = 0,
@@ -57,18 +61,19 @@ const CompilerFnFrame = struct {
         };
     }
 
-    pub fn get_place(self: *const CompilerFnFrame, var_name: []const u8) ?Place {
-        var offset: usize = 0;
-        for (self.frames.items) |frame| {
+    pub fn get_place(self: *const CompilerFnFrame, var_name: ast.String) ?Place {
+        var offset: usize = self.current_size;
+        var iter = rev(CompilerFrame).init(self.frames.items);
+        while (iter.next()) |frame| {
+            offset -= frame.len();
             if (frame.get_index(var_name)) |idx| {
                 return Place{ .local = @intCast(offset + idx) };
             }
-            offset += frame.len();
         }
         return null;
     }
 
-    pub fn add_var(self: *CompilerFnFrame, var_name: []const u8) u32 {
+    pub fn add_var(self: *CompilerFnFrame, var_name: ast.String) u32 {
         self.get_current().add_var(var_name);
         const res = self.current_size;
         self.current_size += 1;
@@ -76,6 +81,15 @@ const CompilerFnFrame = struct {
             self.max_size = self.current_size;
         }
         return @intCast(res);
+    }
+
+    pub fn push(self: *CompilerFnFrame) void {
+        self.frames.append(self.alloc, CompilerFrame.init(self.alloc)) catch unreachable;
+    }
+
+    pub fn pop(self: *CompilerFnFrame) void {
+        const tmp = self.frames.pop();
+        self.current_size -= tmp.?.vars.items.len;
     }
 
     pub fn get_current(self: *CompilerFnFrame) *CompilerFrame {
@@ -106,7 +120,7 @@ const CompilerEnv = struct {
 
     pub fn init(alloc: std.mem.Allocator) CompilerEnv {
         return CompilerEnv{
-            .function_frames = std.ArrayList(CompilerFnFrame).init(alloc),
+            .function_frames = std.ArrayList(CompilerFnFrame){},
             .global = CompilerFrame.init(alloc),
             .alloc = alloc,
         };
@@ -116,7 +130,7 @@ const CompilerEnv = struct {
         return self.global.len();
     }
 
-    pub fn get_place(self: *const CompilerEnv, var_name: []const u8) ?Place {
+    pub fn get_place(self: *const CompilerEnv, var_name: ast.String) ?Place {
         if (self.get_current_const()) |frame| {
             if (frame.get_place(var_name)) |place| {
                 return place;
@@ -130,12 +144,12 @@ const CompilerEnv = struct {
         return null;
     }
 
-    pub fn add_var(self: *CompilerEnv, var_name: []const u8) u32 {
+    pub fn add_var(self: *CompilerEnv, var_name: ast.String) u32 {
         var current = self.get_current().?;
         return current.add_var(var_name);
     }
 
-    pub fn add_global(self: *CompilerEnv, var_name: []const u8) void {
+    pub fn add_global(self: *CompilerEnv, var_name: ast.String) void {
         self.global.add_var(var_name);
     }
 
@@ -154,11 +168,20 @@ const CompilerEnv = struct {
     }
 
     pub fn push(self: *CompilerEnv) void {
-        self.function_frames.append(CompilerFnFrame.init(self.alloc)) catch unreachable;
+        self.function_frames.append(self.alloc, CompilerFnFrame.init(self.alloc)) catch unreachable;
+    }
+
+    pub fn push_frame(self: *CompilerEnv) void {
+        // the globals dont have scoped blocks
+        if (self.get_current()) |curr| curr.push();
     }
 
     pub fn pop(self: *CompilerEnv) void {
         _ = self.function_frames.pop();
+    }
+
+    pub fn pop_frame(self: *CompilerEnv) void {
+        if (self.get_current()) |curr| curr.pop();
     }
 };
 
@@ -169,38 +192,34 @@ const Label = struct {
 const LabelData = struct {
     position: u32,
     uses: std.ArrayList(u32),
+    alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator) LabelData {
         return LabelData{
             .position = 0,
-            .uses = std.ArrayList(u32).init(alloc),
+            .uses = std.ArrayList(u32){},
+            .alloc = alloc,
         };
     }
 
     pub fn add_use(self: *LabelData, pos: u32) void {
-        self.uses.append(pos) catch unreachable;
+        self.uses.append(self.alloc, pos) catch unreachable;
     }
 };
 
 const ConstantBuffer = struct {
     buffer: std.ArrayList(u8),
-    labels: std.ArrayList(LabelData),
-    label_alloc: std.mem.Allocator,
+    alloc: std.mem.Allocator,
 
-    pub fn init(buffer_alloc: std.mem.Allocator, label_alloc: std.mem.Allocator) ConstantBuffer {
+    pub fn init(buffer_alloc: std.mem.Allocator) ConstantBuffer {
         return ConstantBuffer{
-            .buffer = std.ArrayList(u8).init(buffer_alloc),
-            .labels = std.ArrayList(LabelData).init(label_alloc),
-            .label_alloc = label_alloc,
+            .buffer = std.ArrayList(u8){},
+            .alloc = buffer_alloc,
         };
     }
 
-    pub fn add_inst(self: *ConstantBuffer, inst: bytecode.Instruction) void {
-        self.buffer.append(@intFromEnum(inst)) catch unreachable;
-    }
-
     pub fn add_u32(self: *ConstantBuffer, value: u32) void {
-        self.buffer.ensureTotalCapacity(self.buffer.items.len + 4) catch unreachable;
+        self.buffer.ensureTotalCapacity(self.alloc, self.buffer.items.len + 4) catch unreachable;
         self.buffer.appendAssumeCapacity(@intCast((value >> 24) & 0xff));
         self.buffer.appendAssumeCapacity(@intCast((value >> 16) & 0xff));
         self.buffer.appendAssumeCapacity(@intCast((value >> 8) & 0xff));
@@ -208,7 +227,7 @@ const ConstantBuffer = struct {
     }
 
     pub fn add_u8(self: *ConstantBuffer, value: u8) void {
-        self.buffer.append(value) catch unreachable;
+        self.buffer.append(self.alloc, value) catch unreachable;
     }
 
     pub fn set_u32(self: *const ConstantBuffer, idx: u32, value: u32) void {
@@ -218,30 +237,104 @@ const ConstantBuffer = struct {
         self.buffer.items[idx + 3] = @intCast(value & 0xff);
     }
 
-    fn create_label(self: *ConstantBuffer) Label {
+    pub fn patch_len(self: *const ConstantBuffer) void {
+        const len: u32 = @intCast(self.buffer.items.len - 4);
+        self.set_u32(0, len);
+    }
+
+    pub fn append_slice(self: *ConstantBuffer, slice: []const u8) void {
+        self.buffer.appendSlice(self.alloc, slice) catch unreachable;
+    }
+};
+
+const FunctionBuffer = struct {
+    const BufferType = std.ArrayListAligned(u8, std.mem.Alignment.fromByteUnits(@alignOf(bytecode.Function)));
+    const functionHeader: usize = 12;
+
+    buffer: BufferType,
+    labels: std.ArrayList(LabelData),
+    label_alloc: std.mem.Allocator,
+    buffer_alloc: std.mem.Allocator,
+    source: ?*const ast.Function,
+
+    pub fn init(
+        buffer_alloc: std.mem.Allocator,
+        label_alloc: std.mem.Allocator,
+        source: ?*const ast.Function,
+    ) FunctionBuffer {
+        var res = FunctionBuffer{
+            .buffer = BufferType{},
+            .labels = std.ArrayList(LabelData){},
+            .label_alloc = label_alloc,
+            .buffer_alloc = buffer_alloc,
+            .source = source,
+        };
+
+        // param count
+        res.buffer.appendNTimes(buffer_alloc, 0, 4) catch unreachable;
+        // local count
+        res.buffer.appendNTimes(buffer_alloc, 0, 4) catch unreachable;
+        // size padding
+        res.buffer.appendNTimes(buffer_alloc, 0, 4) catch unreachable;
+        return res;
+    }
+
+    pub fn get_fn_ptr(self: *const FunctionBuffer) *const bytecode.Function {
+        return @ptrCast(@alignCast(self.buffer.items.ptr));
+    }
+
+    pub fn get_fn_ptr_mut(self: *FunctionBuffer) *bytecode.Function {
+        return @ptrCast(@alignCast(self.buffer.items.ptr));
+    }
+
+    pub fn add_inst(self: *FunctionBuffer, inst: bytecode.Instruction) void {
+        self.buffer.append(self.buffer_alloc, @intFromEnum(inst)) catch unreachable;
+    }
+
+    pub fn add_u32(self: *FunctionBuffer, value: u32) void {
+        self.buffer.ensureTotalCapacity(self.buffer_alloc, self.buffer.items.len + 4) catch unreachable;
+        self.buffer.appendAssumeCapacity(@intCast((value >> 24) & 0xff));
+        self.buffer.appendAssumeCapacity(@intCast((value >> 16) & 0xff));
+        self.buffer.appendAssumeCapacity(@intCast((value >> 8) & 0xff));
+        self.buffer.appendAssumeCapacity(@intCast(value & 0xff));
+    }
+
+    pub fn add_u8(self: *FunctionBuffer, value: u8) void {
+        self.buffer.append(self.buffer_alloc, value) catch unreachable;
+    }
+
+    pub fn set_u32(self: *const FunctionBuffer, idx: u32, value: u32) void {
+        self.buffer.items[idx] = @intCast((value >> 24) & 0xff);
+        self.buffer.items[idx + 1] = @intCast((value >> 16) & 0xff);
+        self.buffer.items[idx + 2] = @intCast((value >> 8) & 0xff);
+        self.buffer.items[idx + 3] = @intCast(value & 0xff);
+    }
+
+    fn create_label(self: *FunctionBuffer) Label {
         const idx = self.labels.items.len;
-        self.labels.append(LabelData.init(self.label_alloc)) catch unreachable;
+        self.labels.append(self.label_alloc, LabelData.init(self.label_alloc)) catch unreachable;
         return Label{ .idx = idx };
     }
 
-    fn set_label_position(self: *ConstantBuffer, label: Label) void {
+    fn set_label_position(self: *FunctionBuffer, label: Label) void {
         const pos = self.buffer.items.len;
-        self.labels.items[label.idx].position = @intCast(pos);
+        self.labels.items[label.idx].position = @intCast(pos - functionHeader);
     }
 
-    fn add_label_use(self: *ConstantBuffer, label: Label) void {
+    fn add_label_use(self: *FunctionBuffer, label: Label) void {
         const pos = self.buffer.items.len;
         self.labels.items[label.idx].add_use(@intCast(pos));
         // dummy label value
         self.add_u32(0xfefefefe);
     }
 
-    pub fn patch_len(self: *const ConstantBuffer) void {
-        const len: u32 = @intCast(self.buffer.items.len - 4);
-        self.set_u32(0, len);
+    pub fn patch_len(self: *FunctionBuffer) void {
+        const len: u32 = @intCast(self.buffer.items.len - functionHeader);
+        var tmp = self.get_fn_ptr_mut();
+        tmp.code.count = len;
     }
 
-    pub fn patch_labels(self: *const ConstantBuffer) void {
+    pub fn patch_labels(self: *const FunctionBuffer) void {
         for (self.labels.items) |label| {
             for (label.uses.items) |use| {
                 self.set_u32(use, label.position);
@@ -249,39 +342,81 @@ const ConstantBuffer = struct {
         }
     }
 
-    pub fn fix_locals(self: *ConstantBuffer, unbound_vars: *const std.ArrayList(UnboundIdent), offset: u32) void {
-        for (unbound_vars.items, 0..) |unbound, order| {
-            const tmp: u32 = @intCast(order);
+    pub fn fix_locals(self: *FunctionBuffer, unbound_vars: *const UnboundIdents, offset: u32) void {
+        var iter = unbound_vars.iter();
+        while (iter.next()) |unbound| {
             for (unbound.positions.items) |pos| {
-                self.set_u32(pos, offset + tmp);
+                self.set_u32(pos, offset + unbound.order);
             }
         }
     }
 };
 
-const UnboundIdent = struct {
-    ident: []const u8,
-    positions: std.ArrayListUnmanaged(u32),
+const UnboundIdents = struct {
+    idents: std.ArrayList(ast.String) = .{},
+    positions: std.ArrayList(std.ArrayList(u32)) = .{},
 
-    pub fn init(ident: []const u8) UnboundIdent {
-        return UnboundIdent{
-            .ident = ident,
-            .positions = std.ArrayListUnmanaged(u32){},
-        };
+    fn len(self: *const UnboundIdents) usize {
+        return self.idents.items.len;
+    }
+
+    const UnboundIter = struct {
+        data: *const UnboundIdents,
+        position: usize = 0,
+
+        fn next(self: *UnboundIter) ?struct {
+            ident: ast.String,
+            positions: *std.ArrayList(u32),
+            order: u32,
+        } {
+            if (self.position >= self.data.idents.items.len) {
+                return null;
+            }
+
+            const curr = self.position;
+            self.position += 1;
+            return .{
+                .ident = self.data.idents.items[curr],
+                .positions = &self.data.positions.items[curr],
+                .order = @intCast(curr),
+            };
+        }
+    };
+
+    fn iter(self: *const UnboundIdents) UnboundIter {
+        return .{ .data = self };
+    }
+
+    fn new_ident(
+        self: *UnboundIdents,
+        ident: ast.String,
+        position: u32,
+        permanent: std.mem.Allocator,
+        scratch: std.mem.Allocator,
+    ) void {
+        self.idents.append(permanent, ident) catch unreachable;
+        self.positions.append(scratch, .{}) catch unreachable;
+        self.positions.items[self.len() - 1].append(scratch, position) catch unreachable;
     }
 };
 
 const Compiler = struct {
     pernament_alloc: std.mem.Allocator,
     scratch_alloc: std.mem.Allocator,
+
+    /// uses scratch alloc
     constant_buffers: std.ArrayList(ConstantBuffer),
+    /// uses scratch alloc
+    function_buffers: std.ArrayList(FunctionBuffer),
+
     env: CompilerEnv,
 
     pub fn init(pernament_alloc: std.mem.Allocator, scratch_alloc: std.mem.Allocator) Compiler {
         return Compiler{
             .pernament_alloc = pernament_alloc,
             .scratch_alloc = scratch_alloc,
-            .constant_buffers = std.ArrayList(ConstantBuffer).init(pernament_alloc),
+            .constant_buffers = std.ArrayList(ConstantBuffer){},
+            .function_buffers = std.ArrayList(FunctionBuffer){},
             .env = CompilerEnv.init(scratch_alloc),
         };
     }
@@ -291,12 +426,10 @@ const Compiler = struct {
         // run since the global env
         // behaves dynamically
         self.gather_globals(program);
-        // padding main
-        self.constant_buffers.append(ConstantBuffer.init(self.scratch_alloc, self.scratch_alloc)) catch unreachable;
-        var main_buffer = self.create_constant(bytecode.ConstantType.main_function);
-        var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
-        for (program.data, 0..) |expr, i| {
-            switch (expr) {
+        var main_buffer = self.create_main_buffer();
+        var unbound_vars = UnboundIdents{};
+        for (program.data, 0..) |*expr, i| {
+            switch (expr.*) {
                 ast.Ast.let => |let| {
                     self.compile_expr(&main_buffer, &unbound_vars, false, let.value);
                     main_buffer.add_inst(I.set_global);
@@ -305,7 +438,7 @@ const Compiler = struct {
                     const target_idx = target_place.get_index();
                     main_buffer.add_u32(target_idx);
                 },
-                else => self.compile_expr(&main_buffer, &unbound_vars, false, &expr),
+                else => self.compile_expr(&main_buffer, &unbound_vars, false, expr),
             }
             if (program.data.len - 1 > i) {
                 main_buffer.add_inst(I.pop);
@@ -314,38 +447,56 @@ const Compiler = struct {
         main_buffer.add_inst(I.ret_main);
         self.add_constant_main(main_buffer);
 
-        for (self.constant_buffers.items) |*buffer| {
+        for (self.function_buffers.items) |*buffer| {
             buffer.patch_len();
             buffer.patch_labels();
         }
 
-        std.debug.assert(unbound_vars.items.len == 0);
+        for (self.constant_buffers.items) |*buffer| {
+            buffer.patch_len();
+        }
+
+        std.debug.assert(unbound_vars.len() == 0);
 
         var constants = try self.pernament_alloc.alloc(bytecode.Constant, self.constant_buffers.items.len);
+        var functions = try self.pernament_alloc.alloc(*const bytecode.Function, self.function_buffers.items.len);
+        var sources = try self.pernament_alloc.alloc(*const ast.Function, self.function_buffers.items.len - 1);
 
         for (self.constant_buffers.items, 0..) |item, index| {
             constants[index] = bytecode.Constant.new(@ptrCast(item.buffer.items));
         }
 
+        for (self.function_buffers.items, 0..) |*item, index| {
+            functions[index] = item.get_fn_ptr();
+            if (item.source) |source| {
+                // only main should not have source
+                std.debug.assert(index > 0);
+                sources[index - 1] = source;
+            }
+        }
+
+        // move to permanent allocation
+        const globals = try self.pernament_alloc.alloc([]const u8, self.env.get_global_count());
+        @memcpy(globals, self.env.global.vars.items);
         const res = bytecode.Bytecode{
+            .functions = bytecode.Functions.new(functions, sources),
             .constants = constants,
-            .current = constants[0],
-            .global_count = self.env.get_global_count(),
+            .current = functions[0].code.get_unchecked_slice_const(),
+            .globals = globals,
         };
         return res;
     }
 
-    pub fn compile_fn(self: *Compiler, buffer: *ConstantBuffer, method: bool, function: ast.Function) void {
-        var function_constant = self.create_constant(bytecode.ConstantType.function);
+    pub fn compile_fn(self: *Compiler, buffer: *FunctionBuffer, method: bool, function: *ast.Function) void {
+        var function_constant = self.create_function_buffer(function);
         // local count padding
-        function_constant.add_u32(0);
-        function_constant.add_u32(@intCast(function.params.len));
-        // jit offset set to 0 which is always panic handler
-        function_constant.add_u32(0);
-        var unbound_vars = std.ArrayList(UnboundIdent).init(self.scratch_alloc);
+        function_constant.get_fn_ptr_mut().param_count = @intCast(function.params.len);
+        var unbound_vars = UnboundIdents{};
         self.env.push();
+        function.is_method = method;
         if (method) {
-            _ = self.env.add_var("this");
+            // TODO: this is a hack
+            _ = self.env.add_var(.{ .value = "this" });
         }
         for (function.params) |param| {
             _ = self.env.add_var(param);
@@ -354,27 +505,37 @@ const Compiler = struct {
         const max_size: u32 = @intCast(self.env.get_current().?.max_size);
         self.env.pop();
 
-        const unbound_count: u32 = @intCast(unbound_vars.items.len);
-        function_constant.set_u32(5, max_size + unbound_count);
+        const unbound_count: u32 = @intCast(unbound_vars.idents.items.len);
+        function_constant.get_fn_ptr_mut().locals_count = max_size + unbound_count;
         function_constant.add_inst(I.ret);
 
-        for (unbound_vars.items) |unbound| {
+        var iter = unbound_vars.iter();
+        while (iter.next()) |unbound| {
             if (self.compile_ident(buffer, unbound.ident)) {
-                std.debug.print("{s}\n", .{unbound.ident});
+                std.debug.print("{s}\n", .{unbound.ident.value});
                 @panic("non existant var");
             }
         }
 
         function_constant.fix_locals(&unbound_vars, max_size);
 
-        const function_constant_idx = self.add_constant(function_constant);
+        const function_constant_idx = self.add_function(function_constant);
+        function.function_idx = function_constant_idx.index;
+        function.env_vars = unbound_vars.idents.items;
+        function.env_start = max_size;
 
         buffer.add_inst(I.closure);
         buffer.add_u32(function_constant_idx.index);
-        buffer.add_u32(@intCast(unbound_vars.items.len));
+        buffer.add_u32(@intCast(unbound_vars.len()));
     }
 
-    pub fn compile_expr(self: *Compiler, buffer: *ConstantBuffer, unbound_vars: *std.ArrayList(UnboundIdent), tailcall: bool, expr: *const ast.Ast) void {
+    pub fn compile_expr(
+        self: *Compiler,
+        buffer: *FunctionBuffer,
+        unbound_vars: *UnboundIdents,
+        tailcall: bool,
+        expr: *ast.Ast,
+    ) void {
         switch (expr.*) {
             ast.Ast.number => |num| {
                 if (num >= 256) {
@@ -439,7 +600,7 @@ const Compiler = struct {
                 self.compile_expr(buffer, unbound_vars, false, condition.then_block);
                 buffer.set_label_position(after_label);
             },
-            ast.Ast.function => |function| self.compile_fn(buffer, false, function),
+            ast.Ast.function => |*function| self.compile_fn(buffer, false, function),
             ast.Ast.call => |call| {
                 for (call.args) |*arg| {
                     self.compile_expr(buffer, unbound_vars, false, arg);
@@ -455,7 +616,7 @@ const Compiler = struct {
                     },
                 }
             },
-            ast.Ast.string => |string| {
+            ast.Ast.string => |*string| {
                 const string_idx = self.create_string_constant(string);
                 buffer.add_inst(I.string);
                 buffer.add_u32(string_idx.index);
@@ -479,8 +640,10 @@ const Compiler = struct {
                 buffer.set_label_position(after_label);
             },
             ast.Ast.block => |exprs| {
+                self.env.push_frame();
                 if (exprs.len == 0) {
                     buffer.add_inst(I.nil);
+                    self.env.pop_frame();
                     return;
                 }
                 for (exprs[0..(exprs.len - 1)]) |*item| {
@@ -488,6 +651,7 @@ const Compiler = struct {
                     buffer.add_inst(I.pop);
                 }
                 self.compile_expr(buffer, unbound_vars, false, &exprs[exprs.len - 1]);
+                self.env.pop_frame();
             },
             ast.Ast.let => |let| {
                 self.compile_expr(buffer, unbound_vars, false, let.value);
@@ -517,37 +681,38 @@ const Compiler = struct {
                     buffer.add_inst(I.nil);
                 }
                 var class_const = self.create_constant(bytecode.ConstantType.class);
-                for (object.fields) |field| {
-                    const string_idx = self.create_string_constant(field.name);
+                for (object.fields) |*field| {
+                    const string_idx = self.create_string_constant(&field.name);
                     class_const.add_u32(string_idx.index);
                     switch (field.value.*) {
-                        ast.Ast.function => |function| self.compile_fn(buffer, true, function),
+                        ast.Ast.function => |*function| self.compile_fn(buffer, true, function),
                         else => self.compile_expr(buffer, unbound_vars, false, field.value),
                     }
                 }
                 const class_idx = self.add_constant(class_const);
+                expr.object.class_idx = class_idx.index;
                 buffer.add_inst(I.object);
                 buffer.add_u32(class_idx.index);
             },
-            ast.Ast.field_access => |access| {
+            ast.Ast.field_access => |*access| {
                 self.compile_expr(buffer, unbound_vars, false, access.target);
-                const string_idx = self.create_string_constant(access.field);
+                const string_idx = self.create_string_constant(&access.field);
                 buffer.add_inst(I.get_field);
                 buffer.add_u32(string_idx.index);
             },
-            ast.Ast.field_assign => |assign| {
+            ast.Ast.field_assign => |*assign| {
                 self.compile_expr(buffer, unbound_vars, false, assign.value);
                 self.compile_expr(buffer, unbound_vars, false, assign.object);
-                const string_idx = self.create_string_constant(assign.field);
+                const string_idx = self.create_string_constant(&assign.field);
                 buffer.add_inst(I.set_field);
                 buffer.add_u32(string_idx.index);
             },
-            ast.Ast.field_call => |methodcall| {
+            ast.Ast.field_call => |*methodcall| {
                 for (methodcall.args) |*arg| {
                     self.compile_expr(buffer, unbound_vars, false, arg);
                 }
                 self.compile_expr(buffer, unbound_vars, false, methodcall.target);
-                const string_idx = self.create_string_constant(methodcall.field);
+                const string_idx = self.create_string_constant(&methodcall.field);
                 buffer.add_inst(I.methodcall);
                 buffer.add_u32(string_idx.index);
             },
@@ -558,7 +723,7 @@ const Compiler = struct {
         }
     }
 
-    fn compile_ident(self: *Compiler, buffer: *ConstantBuffer, ident: []const u8) bool {
+    fn compile_ident(self: *Compiler, buffer: *FunctionBuffer, ident: ast.String) bool {
         if (self.env.get_place(ident)) |place| {
             const idx = place.get_index();
             switch (place) {
@@ -581,43 +746,68 @@ const Compiler = struct {
         return true;
     }
 
-    fn set_unbound(self: *const Compiler, buffer: *const ConstantBuffer, unbound_vars: *std.ArrayList(UnboundIdent), ident: []const u8) void {
+    fn set_unbound(
+        self: *const Compiler,
+        buffer: *const FunctionBuffer,
+        unbound_vars: *UnboundIdents,
+        ident: ast.String,
+    ) void {
         const position: u32 = @intCast(buffer.buffer.items.len);
-        for (unbound_vars.items) |*unbound| {
-            if (std.mem.eql(u8, unbound.ident, ident)) {
+
+        var iter = unbound_vars.iter();
+        while (iter.next()) |unbound| {
+            if (std.mem.eql(u8, unbound.ident.value, ident.value)) {
                 unbound.positions.append(self.scratch_alloc, position) catch unreachable;
             }
         }
 
-        var new_unbound = UnboundIdent.init(ident);
-        new_unbound.positions.append(self.scratch_alloc, position) catch unreachable;
-        unbound_vars.append(new_unbound) catch unreachable;
+        unbound_vars.new_ident(ident, position, self.pernament_alloc, self.scratch_alloc);
+    }
+
+    fn create_function_buffer(self: *Compiler, function: *const ast.Function) FunctionBuffer {
+        const buffer = FunctionBuffer.init(self.pernament_alloc, self.scratch_alloc, function);
+        return buffer;
+    }
+
+    fn create_main_buffer(self: *Compiler) FunctionBuffer {
+        std.debug.assert(self.function_buffers.items.len == 0);
+        const buffer = FunctionBuffer.init(self.pernament_alloc, self.scratch_alloc, null);
+        // add padding for later addition
+        _ = self.add_function(buffer);
+        return buffer;
     }
 
     fn create_constant(self: *Compiler, const_type: bytecode.ConstantType) ConstantBuffer {
-        var constant_buffer = ConstantBuffer.init(self.pernament_alloc, self.scratch_alloc);
+        var constant_buffer = ConstantBuffer.init(self.pernament_alloc);
         // pad length
         constant_buffer.add_u32(0);
-        constant_buffer.buffer.append(@intFromEnum(const_type)) catch unreachable;
+        constant_buffer.add_u8(@intFromEnum(const_type));
         return constant_buffer;
     }
 
-    fn create_string_constant(self: *Compiler, string: []const u8) bytecode.ConstantIndex {
+    fn create_string_constant(self: *Compiler, string: *ast.String) bytecode.ConstantIndex {
         var string_buffer = self.create_constant(bytecode.ConstantType.string);
-        string_buffer.buffer.appendSlice(string) catch unreachable;
-        return self.add_constant(string_buffer);
+        string_buffer.append_slice(string.value);
+        const idx = self.add_constant(string_buffer);
+        string.constant_idx = idx.index;
+        return idx;
     }
 
     fn add_constant(self: *Compiler, constant_buffer: ConstantBuffer) bytecode.ConstantIndex {
         if (self.dedupe_constant(constant_buffer)) |idx| {
             return idx;
         }
-        self.constant_buffers.append(constant_buffer) catch unreachable;
+        self.constant_buffers.append(self.scratch_alloc, constant_buffer) catch unreachable;
         return bytecode.ConstantIndex.new(@intCast(self.constant_buffers.items.len - 1));
     }
 
-    fn add_constant_main(self: *Compiler, constant_buffer: ConstantBuffer) void {
-        self.constant_buffers.items[0] = constant_buffer;
+    fn add_function(self: *Compiler, function: FunctionBuffer) bytecode.FunctionIndex {
+        self.function_buffers.append(self.scratch_alloc, function) catch unreachable;
+        return bytecode.FunctionIndex.new(@intCast(self.function_buffers.items.len - 1));
+    }
+
+    fn add_constant_main(self: *Compiler, constant_buffer: FunctionBuffer) void {
+        self.function_buffers.items[0] = constant_buffer;
     }
 
     fn dedupe_constant(self: *Compiler, checked_constant: ConstantBuffer) ?bytecode.ConstantIndex {
@@ -629,7 +819,7 @@ const Compiler = struct {
         return null;
     }
 
-    fn get_constant(self: *Compiler, idx: bytecode.ConstantIndex) *ConstantBuffer {
+    fn get_constant(self: *Compiler, idx: bytecode.ConstantIndex) *FunctionBuffer {
         return &self.constant_buffers.items[@intCast(idx.index)];
     }
 
@@ -643,10 +833,9 @@ const Compiler = struct {
     }
 };
 
-const ohsnap = @import("ohsnap");
 test "basic compiler" {
     const Parser = @import("parser.zig").Parser;
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -654,24 +843,24 @@ test "basic compiler" {
     var p = Parser.new("1 +   2 * 2 - 3;", allocator);
     const prog = try p.parse();
     const res = try compile(prog, allocator);
-    try oh.snap(@src(),
-        \\main_function (17 bytes)
-        \\ 5: push_byte 1
-        \\ 7: push_byte 2
-        \\ 9: push_byte 2
-        \\ 11: mul
-        \\ 12: add
-        \\ 13: push_byte 3
-        \\ 15: sub
-        \\ 16: ret_main
+    try snap.Snap.init(@src(),
+        \\function (12 bytes)
+        \\    0: push_byte 1
+        \\    2: push_byte 2
+        \\    4: push_byte 2
+        \\    6: mul
+        \\    7: add
+        \\    8: push_byte 3
+        \\    10: sub
+        \\    11: ret_main
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal_fmt(res);
 }
 
 test "let compiler" {
     const Parser = @import("parser.zig").Parser;
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -682,23 +871,23 @@ test "let compiler" {
     , allocator);
     const prog = try p.parse();
     const res = try compile(prog, allocator);
-    try oh.snap(@src(),
-        \\main_function (19 bytes)
-        \\ 5: push_byte 1
-        \\ 7: set_global 0 0 0 0
-        \\ 12: pop
-        \\ 13: get_global_small 0
-        \\ 15: push_byte 1
-        \\ 17: add
-        \\ 18: ret_main
+    try snap.Snap.init(@src(),
+        \\function (14 bytes)
+        \\    0: push_byte 1
+        \\    2: set_global 0 0 0 0
+        \\    7: pop
+        \\    8: get_global_small 0
+        \\    10: push_byte 1
+        \\    12: add
+        \\    13: ret_main
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal_fmt(res);
 }
 
 test "condition compiler" {
     const Parser = @import("parser.zig").Parser;
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -709,25 +898,25 @@ test "condition compiler" {
     , allocator);
     const prog = try p.parse();
     const res = try compile(prog, allocator);
-    try oh.snap(@src(),
-        \\main_function (32 bytes)
-        \\ 5: true
-        \\ 6: set_global 0 0 0 0
-        \\ 11: pop
-        \\ 12: get_global_small 0
-        \\ 14: branch 0 0 0 26
-        \\ 19: push_byte 2
-        \\ 21: jump 0 0 0 31
-        \\ 26: push 0 0 3 232
-        \\ 31: ret_main
+    try snap.Snap.init(@src(),
+        \\function (27 bytes)
+        \\    0: true
+        \\    1: set_global 0 0 0 0
+        \\    6: pop
+        \\    7: get_global_small 0
+        \\    9: branch 0 0 0 21
+        \\    14: push_byte 2
+        \\    16: jump 0 0 0 26
+        \\    21: push 0 0 3 232
+        \\    26: ret_main
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal_fmt(res);
 }
 
 test "object compiler" {
     const Parser = @import("parser.zig").Parser;
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -742,24 +931,24 @@ test "object compiler" {
     , allocator);
     const prog = try p.parse();
     const res = try compile(prog, allocator);
-    try oh.snap(@src(),
-        \\main_function (53 bytes)
-        \\ 5: nil
-        \\ 6: push_byte 1
-        \\ 8: string 0 0 0 3
-        \\ 13: object 0 0 0 4
-        \\ 18: set_global 0 0 0 0
-        \\ 23: pop
-        \\ 24: get_global_small 0
-        \\ 26: get_field 0 0 0 1
-        \\ 31: push_byte 1
-        \\ 33: add
-        \\ 34: print 0 0 0 1
-        \\ 39: pop
-        \\ 40: get_global_small 0
-        \\ 42: get_field 0 0 0 2
-        \\ 47: print 0 0 0 1
-        \\ 52: ret_main
+    try snap.Snap.init(@src(),
+        \\function (48 bytes)
+        \\    0: nil
+        \\    1: push_byte 1
+        \\    3: string 0 0 0 2
+        \\    8: object 0 0 0 3
+        \\    13: set_global 0 0 0 0
+        \\    18: pop
+        \\    19: get_global_small 0
+        \\    21: get_field 0 0 0 0
+        \\    26: push_byte 1
+        \\    28: add
+        \\    29: print 0 0 0 1
+        \\    34: pop
+        \\    35: get_global_small 0
+        \\    37: get_field 0 0 0 1
+        \\    42: print 0 0 0 1
+        \\    47: ret_main
         \\
         \\string (6 bytes)
         \\string: a
@@ -771,14 +960,14 @@ test "object compiler" {
         \\string: x
         \\
         \\class (13 bytes)
-        \\class: 1 2
+        \\class: 0 1
         \\
-    ).expectEqualFmt(res);
+    ).equal_fmt(res);
 }
 
 test "object 2 compiler" {
     const Parser = @import("parser.zig").Parser;
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -795,34 +984,34 @@ test "object 2 compiler" {
     , allocator);
     const prog = try p.parse();
     const res = try compile(prog, allocator);
-    try oh.snap(@src(),
-        \\main_function (79 bytes)
-        \\ 5: nil
-        \\ 6: push_byte 1
-        \\ 8: string 0 0 0 3
-        \\ 13: object 0 0 0 4
-        \\ 18: set_global 0 0 0 0
-        \\ 23: pop
-        \\ 24: get_global_small 0
-        \\ 26: get_field 0 0 0 1
-        \\ 31: push_byte 1
-        \\ 33: add
-        \\ 34: print 0 0 0 1
-        \\ 39: pop
-        \\ 40: get_global_small 0
-        \\ 42: get_field 0 0 0 2
-        \\ 47: print 0 0 0 1
-        \\ 52: pop
-        \\ 53: push_byte 2
-        \\ 55: get_global_small 0
-        \\ 57: set_field 0 0 0 1
-        \\ 62: pop
-        \\ 63: get_global_small 0
-        \\ 65: get_field 0 0 0 1
-        \\ 70: push_byte 1
-        \\ 72: add
-        \\ 73: print 0 0 0 1
-        \\ 78: ret_main
+    try snap.Snap.init(@src(),
+        \\function (74 bytes)
+        \\    0: nil
+        \\    1: push_byte 1
+        \\    3: string 0 0 0 2
+        \\    8: object 0 0 0 3
+        \\    13: set_global 0 0 0 0
+        \\    18: pop
+        \\    19: get_global_small 0
+        \\    21: get_field 0 0 0 0
+        \\    26: push_byte 1
+        \\    28: add
+        \\    29: print 0 0 0 1
+        \\    34: pop
+        \\    35: get_global_small 0
+        \\    37: get_field 0 0 0 1
+        \\    42: print 0 0 0 1
+        \\    47: pop
+        \\    48: push_byte 2
+        \\    50: get_global_small 0
+        \\    52: set_field 0 0 0 0
+        \\    57: pop
+        \\    58: get_global_small 0
+        \\    60: get_field 0 0 0 0
+        \\    65: push_byte 1
+        \\    67: add
+        \\    68: print 0 0 0 1
+        \\    73: ret_main
         \\
         \\string (6 bytes)
         \\string: a
@@ -834,14 +1023,14 @@ test "object 2 compiler" {
         \\string: x
         \\
         \\class (13 bytes)
-        \\class: 1 2
+        \\class: 0 1
         \\
-    ).expectEqualFmt(res);
+    ).equal_fmt(res);
 }
 
 test "object 3 compiler" {
     const Parser = @import("parser.zig").Parser;
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -861,31 +1050,39 @@ test "object 3 compiler" {
     , allocator);
     const prog = try p.parse();
     const res = try compile(prog, allocator);
-    try oh.snap(@src(),
-        \\main_function (76 bytes)
-        \\ 5: nil
-        \\ 6: push_byte 1
-        \\ 8: string 0 0 0 3
-        \\ 13: closure 0 0 0 5 0 0 0 0
-        \\ 22: object 0 0 0 6
-        \\ 27: set_global 0 0 0 0
-        \\ 32: pop
-        \\ 33: push_byte 1
-        \\ 35: get_global_small 0
-        \\ 37: methodcall 0 0 0 4
-        \\ 42: pop
-        \\ 43: get_global_small 0
-        \\ 45: get_field 0 0 0 2
-        \\ 50: print 0 0 0 1
-        \\ 55: pop
-        \\ 56: push_byte 2
-        \\ 58: get_global_small 0
-        \\ 60: set_field 0 0 0 1
-        \\ 65: pop
-        \\ 66: push_byte 2
-        \\ 68: get_global_small 0
-        \\ 70: methodcall 0 0 0 4
-        \\ 75: ret_main
+    try snap.Snap.init(@src(),
+        \\function (71 bytes)
+        \\    0: nil
+        \\    1: push_byte 1
+        \\    3: string 0 0 0 2
+        \\    8: closure 0 0 0 1 0 0 0 0
+        \\    17: object 0 0 0 4
+        \\    22: set_global 0 0 0 0
+        \\    27: pop
+        \\    28: push_byte 1
+        \\    30: get_global_small 0
+        \\    32: methodcall 0 0 0 3
+        \\    37: pop
+        \\    38: get_global_small 0
+        \\    40: get_field 0 0 0 1
+        \\    45: print 0 0 0 1
+        \\    50: pop
+        \\    51: push_byte 2
+        \\    53: get_global_small 0
+        \\    55: set_field 0 0 0 0
+        \\    60: pop
+        \\    61: push_byte 2
+        \\    63: get_global_small 0
+        \\    65: methodcall 0 0 0 3
+        \\    70: ret_main
+        \\
+        \\function (16 bytes)
+        \\    0: get_small 0
+        \\    2: get_field 0 0 0 0
+        \\    7: get_small 1
+        \\    9: add
+        \\    10: print 0 0 0 1
+        \\    15: ret
         \\
         \\string (6 bytes)
         \\string: a
@@ -899,23 +1096,15 @@ test "object 3 compiler" {
         \\string (6 bytes)
         \\string: f
         \\
-        \\function (33 bytes)
-        \\ 17: get_small 0
-        \\ 19: get_field 0 0 0 1
-        \\ 24: get_small 1
-        \\ 26: add
-        \\ 27: print 0 0 0 1
-        \\ 32: ret
-        \\
         \\class (17 bytes)
-        \\class: 1 2 4
+        \\class: 0 1 3
         \\
-    ).expectEqualFmt(res);
+    ).equal_fmt(res);
 }
 
 test "linked list" {
     const Parser = @import("parser.zig").Parser;
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -925,10 +1114,10 @@ test "linked list" {
         \\     val : val,
         \\     next: nil,
         \\ };
-        \\ 
+        \\
         \\ let createlist = fn() = object {
         \\     head: nil,
-        \\ 
+        \\
         \\     append: fn(val) = {
         \\         if (this.head == nil) {
         \\             this.head = createnode(val);
@@ -940,16 +1129,16 @@ test "linked list" {
         \\             tmp.next = createnode(val);
         \\         };
         \\     },
-        \\ 
+        \\
         \\     prepend: fn(val) = {
         \\         let tmp = this.head;
         \\         this.head = createnode(val);
         \\         this.head.next = tmp;
         \\     },
-        \\ 
+        \\
         \\     pop: fn() = {
         \\         if (this.head == nil) {
-        \\ 
+        \\
         \\         } else if (this.head.next == nil) {
         \\             let tmp = this.head;
         \\             this.head == nil;
@@ -964,7 +1153,7 @@ test "linked list" {
         \\             res;
         \\         };
         \\     },
-        \\ 
+        \\
         \\     debug: fn() = {
         \\         let tmp = this.head;
         \\         while (tmp != nil) {
@@ -973,9 +1162,9 @@ test "linked list" {
         \\         };
         \\     },
         \\ };
-        \\ 
+        \\
         \\ let list = createlist();
-        \\ 
+        \\
         \\ let i = 0;
         \\ while (i < 100) {
         \\     list.append(1);
@@ -987,70 +1176,217 @@ test "linked list" {
         \\     print(list.pop());
         \\     i = i + 1;
         \\ };
-        \\ 
+        \\
         \\ list.debug();
     , allocator);
     const prog = try p.parse();
     const res = try compile(prog, allocator);
-    try oh.snap(@src(),
-        \\main_function (172 bytes)
-        \\ 5: closure 0 0 0 4 0 0 0 0
-        \\ 14: set_global 0 0 0 0
-        \\ 19: pop
-        \\ 20: closure 0 0 0 15 0 0 0 0
-        \\ 29: set_global 0 0 0 1
-        \\ 34: pop
-        \\ 35: get_global_small 1
-        \\ 37: call
-        \\ 38: set_global 0 0 0 2
-        \\ 43: pop
-        \\ 44: push_byte 0
-        \\ 46: set_global 0 0 0 3
-        \\ 51: pop
-        \\ 52: nil
-        \\ 53: get_global_small 3
-        \\ 55: push_byte 100
-        \\ 57: lt
-        \\ 58: branch 0 0 0 68
-        \\ 63: jump 0 0 0 163
-        \\ 68: pop
-        \\ 69: push_byte 1
-        \\ 71: get_global_small 2
-        \\ 73: methodcall 0 0 0 6
-        \\ 78: pop
-        \\ 79: push_byte 2
-        \\ 81: get_global_small 2
-        \\ 83: methodcall 0 0 0 6
-        \\ 88: pop
-        \\ 89: push_byte 3
-        \\ 91: get_global_small 2
-        \\ 93: methodcall 0 0 0 6
-        \\ 98: pop
-        \\ 99: push_byte 42
-        \\ 101: get_global_small 2
-        \\ 103: methodcall 0 0 0 8
-        \\ 108: pop
-        \\ 109: get_global_small 2
-        \\ 111: methodcall 0 0 0 10
-        \\ 116: print 0 0 0 1
-        \\ 121: pop
-        \\ 122: get_global_small 2
-        \\ 124: methodcall 0 0 0 10
-        \\ 129: print 0 0 0 1
-        \\ 134: pop
-        \\ 135: get_global_small 2
-        \\ 137: methodcall 0 0 0 10
-        \\ 142: print 0 0 0 1
-        \\ 147: pop
-        \\ 148: get_global_small 3
-        \\ 150: push_byte 1
-        \\ 152: add
-        \\ 153: set_global 0 0 0 3
-        \\ 158: jump 0 0 0 53
-        \\ 163: pop
-        \\ 164: get_global_small 2
-        \\ 166: methodcall 0 0 0 12
-        \\ 171: ret_main
+    try snap.Snap.init(@src(),
+        \\function (167 bytes)
+        \\    0: closure 0 0 0 1 0 0 0 0
+        \\    9: set_global 0 0 0 0
+        \\    14: pop
+        \\    15: closure 0 0 0 6 0 0 0 0
+        \\    24: set_global 0 0 0 1
+        \\    29: pop
+        \\    30: get_global_small 1
+        \\    32: call
+        \\    33: set_global 0 0 0 2
+        \\    38: pop
+        \\    39: push_byte 0
+        \\    41: set_global 0 0 0 3
+        \\    46: pop
+        \\    47: nil
+        \\    48: get_global_small 3
+        \\    50: push_byte 100
+        \\    52: lt
+        \\    53: branch 0 0 0 63
+        \\    58: jump 0 0 0 158
+        \\    63: pop
+        \\    64: push_byte 1
+        \\    66: get_global_small 2
+        \\    68: methodcall 0 0 0 4
+        \\    73: pop
+        \\    74: push_byte 2
+        \\    76: get_global_small 2
+        \\    78: methodcall 0 0 0 4
+        \\    83: pop
+        \\    84: push_byte 3
+        \\    86: get_global_small 2
+        \\    88: methodcall 0 0 0 4
+        \\    93: pop
+        \\    94: push_byte 42
+        \\    96: get_global_small 2
+        \\    98: methodcall 0 0 0 5
+        \\    103: pop
+        \\    104: get_global_small 2
+        \\    106: methodcall 0 0 0 6
+        \\    111: print 0 0 0 1
+        \\    116: pop
+        \\    117: get_global_small 2
+        \\    119: methodcall 0 0 0 6
+        \\    124: print 0 0 0 1
+        \\    129: pop
+        \\    130: get_global_small 2
+        \\    132: methodcall 0 0 0 6
+        \\    137: print 0 0 0 1
+        \\    142: pop
+        \\    143: get_global_small 3
+        \\    145: push_byte 1
+        \\    147: add
+        \\    148: set_global 0 0 0 3
+        \\    153: jump 0 0 0 48
+        \\    158: pop
+        \\    159: get_global_small 2
+        \\    161: methodcall 0 0 0 7
+        \\    166: ret_main
+        \\
+        \\function (10 bytes)
+        \\    0: nil
+        \\    1: get_small 0
+        \\    3: nil
+        \\    4: object 0 0 0 2
+        \\    9: ret
+        \\
+        \\function (96 bytes)
+        \\    0: get_small 0
+        \\    2: get_field 0 0 0 3
+        \\    7: nil
+        \\    8: eq
+        \\    9: branch 0 0 0 83
+        \\    14: get_small 0
+        \\    16: get_field 0 0 0 3
+        \\    21: set 0 0 0 2
+        \\    26: pop
+        \\    27: nil
+        \\    28: get_small 2
+        \\    30: get_field 0 0 0 1
+        \\    35: nil
+        \\    36: ne
+        \\    37: branch 0 0 0 47
+        \\    42: jump 0 0 0 65
+        \\    47: pop
+        \\    48: get_small 2
+        \\    50: get_field 0 0 0 1
+        \\    55: set 0 0 0 2
+        \\    60: jump 0 0 0 28
+        \\    65: pop
+        \\    66: get_small 1
+        \\    68: get_global_small 0
+        \\    70: call
+        \\    71: get_small 2
+        \\    73: set_field 0 0 0 1
+        \\    78: jump 0 0 0 95
+        \\    83: get_small 1
+        \\    85: get_global_small 0
+        \\    87: call
+        \\    88: get_small 0
+        \\    90: set_field 0 0 0 3
+        \\    95: ret
+        \\
+        \\function (41 bytes)
+        \\    0: get_small 0
+        \\    2: get_field 0 0 0 3
+        \\    7: set 0 0 0 2
+        \\    12: pop
+        \\    13: get_small 1
+        \\    15: get_global_small 0
+        \\    17: call
+        \\    18: get_small 0
+        \\    20: set_field 0 0 0 3
+        \\    25: pop
+        \\    26: get_small 2
+        \\    28: get_small 0
+        \\    30: get_field 0 0 0 3
+        \\    35: set_field 0 0 0 1
+        \\    40: ret
+        \\
+        \\function (156 bytes)
+        \\    0: get_small 0
+        \\    2: get_field 0 0 0 3
+        \\    7: nil
+        \\    8: eq
+        \\    9: branch 0 0 0 154
+        \\    14: get_small 0
+        \\    16: get_field 0 0 0 3
+        \\    21: get_field 0 0 0 1
+        \\    26: nil
+        \\    27: eq
+        \\    28: branch 0 0 0 119
+        \\    33: get_small 0
+        \\    35: get_field 0 0 0 3
+        \\    40: set 0 0 0 1
+        \\    45: pop
+        \\    46: nil
+        \\    47: get_small 1
+        \\    49: get_field 0 0 0 1
+        \\    54: get_field 0 0 0 1
+        \\    59: nil
+        \\    60: ne
+        \\    61: branch 0 0 0 71
+        \\    66: jump 0 0 0 89
+        \\    71: pop
+        \\    72: get_small 1
+        \\    74: get_field 0 0 0 1
+        \\    79: set 0 0 0 1
+        \\    84: jump 0 0 0 47
+        \\    89: pop
+        \\    90: get_small 1
+        \\    92: get_field 0 0 0 0
+        \\    97: set 0 0 0 2
+        \\    102: pop
+        \\    103: nil
+        \\    104: get_small 1
+        \\    106: set_field 0 0 0 1
+        \\    111: pop
+        \\    112: get_small 2
+        \\    114: jump 0 0 0 149
+        \\    119: get_small 0
+        \\    121: get_field 0 0 0 3
+        \\    126: set 0 0 0 1
+        \\    131: pop
+        \\    132: get_small 0
+        \\    134: get_field 0 0 0 3
+        \\    139: nil
+        \\    140: eq
+        \\    141: pop
+        \\    142: get_small 1
+        \\    144: get_field 0 0 0 0
+        \\    149: jump 0 0 0 155
+        \\    154: nil
+        \\    155: ret
+        \\
+        \\function (60 bytes)
+        \\    0: get_small 0
+        \\    2: get_field 0 0 0 3
+        \\    7: set 0 0 0 1
+        \\    12: pop
+        \\    13: nil
+        \\    14: get_small 1
+        \\    16: nil
+        \\    17: ne
+        \\    18: branch 0 0 0 28
+        \\    23: jump 0 0 0 59
+        \\    28: pop
+        \\    29: get_small 1
+        \\    31: get_field 0 0 0 0
+        \\    36: print 0 0 0 1
+        \\    41: pop
+        \\    42: get_small 1
+        \\    44: get_field 0 0 0 1
+        \\    49: set 0 0 0 1
+        \\    54: jump 0 0 0 14
+        \\    59: ret
+        \\
+        \\function (44 bytes)
+        \\    0: nil
+        \\    1: nil
+        \\    2: closure 0 0 0 2 0 0 0 0
+        \\    11: closure 0 0 0 3 0 0 0 0
+        \\    20: closure 0 0 0 4 0 0 0 0
+        \\    29: closure 0 0 0 5 0 0 0 0
+        \\    38: object 0 0 0 8
+        \\    43: ret
         \\
         \\string (8 bytes)
         \\string: val
@@ -1059,171 +1395,77 @@ test "linked list" {
         \\string: next
         \\
         \\class (13 bytes)
-        \\class: 1 2
-        \\function (27 bytes)
-        \\ 17: nil
-        \\ 18: get_small 0
-        \\ 20: nil
-        \\ 21: object 0 0 0 3
-        \\ 26: ret
-        \\
+        \\class: 0 1
         \\string (9 bytes)
         \\string: head
         \\
         \\string (11 bytes)
         \\string: append
         \\
-        \\function (113 bytes)
-        \\ 17: get_small 0
-        \\ 19: get_field 0 0 0 5
-        \\ 24: nil
-        \\ 25: eq
-        \\ 26: branch 0 0 0 100
-        \\ 31: get_small 0
-        \\ 33: get_field 0 0 0 5
-        \\ 38: set 0 0 0 2
-        \\ 43: pop
-        \\ 44: nil
-        \\ 45: get_small 2
-        \\ 47: get_field 0 0 0 2
-        \\ 52: nil
-        \\ 53: ne
-        \\ 54: branch 0 0 0 64
-        \\ 59: jump 0 0 0 82
-        \\ 64: pop
-        \\ 65: get_small 2
-        \\ 67: get_field 0 0 0 2
-        \\ 72: set 0 0 0 2
-        \\ 77: jump 0 0 0 45
-        \\ 82: pop
-        \\ 83: get_small 1
-        \\ 85: get_global_small 0
-        \\ 87: call
-        \\ 88: get_small 2
-        \\ 90: set_field 0 0 0 2
-        \\ 95: jump 0 0 0 112
-        \\ 100: get_small 1
-        \\ 102: get_global_small 0
-        \\ 104: call
-        \\ 105: get_small 0
-        \\ 107: set_field 0 0 0 5
-        \\ 112: ret
-        \\
         \\string (12 bytes)
         \\string: prepend
-        \\
-        \\function (58 bytes)
-        \\ 17: get_small 0
-        \\ 19: get_field 0 0 0 5
-        \\ 24: set 0 0 0 2
-        \\ 29: pop
-        \\ 30: get_small 1
-        \\ 32: get_global_small 0
-        \\ 34: call
-        \\ 35: get_small 0
-        \\ 37: set_field 0 0 0 5
-        \\ 42: pop
-        \\ 43: get_small 2
-        \\ 45: get_small 0
-        \\ 47: get_field 0 0 0 5
-        \\ 52: set_field 0 0 0 2
-        \\ 57: ret
         \\
         \\string (8 bytes)
         \\string: pop
         \\
-        \\function (173 bytes)
-        \\ 17: get_small 0
-        \\ 19: get_field 0 0 0 5
-        \\ 24: nil
-        \\ 25: eq
-        \\ 26: branch 0 0 0 171
-        \\ 31: get_small 0
-        \\ 33: get_field 0 0 0 5
-        \\ 38: get_field 0 0 0 2
-        \\ 43: nil
-        \\ 44: eq
-        \\ 45: branch 0 0 0 136
-        \\ 50: get_small 0
-        \\ 52: get_field 0 0 0 5
-        \\ 57: set 0 0 0 1
-        \\ 62: pop
-        \\ 63: nil
-        \\ 64: get_small 1
-        \\ 66: get_field 0 0 0 2
-        \\ 71: get_field 0 0 0 2
-        \\ 76: nil
-        \\ 77: ne
-        \\ 78: branch 0 0 0 88
-        \\ 83: jump 0 0 0 106
-        \\ 88: pop
-        \\ 89: get_small 1
-        \\ 91: get_field 0 0 0 2
-        \\ 96: set 0 0 0 1
-        \\ 101: jump 0 0 0 64
-        \\ 106: pop
-        \\ 107: get_small 1
-        \\ 109: get_field 0 0 0 1
-        \\ 114: set 0 0 0 2
-        \\ 119: pop
-        \\ 120: nil
-        \\ 121: get_small 1
-        \\ 123: set_field 0 0 0 2
-        \\ 128: pop
-        \\ 129: get_small 2
-        \\ 131: jump 0 0 0 166
-        \\ 136: get_small 0
-        \\ 138: get_field 0 0 0 5
-        \\ 143: set 0 0 0 3
-        \\ 148: pop
-        \\ 149: get_small 0
-        \\ 151: get_field 0 0 0 5
-        \\ 156: nil
-        \\ 157: eq
-        \\ 158: pop
-        \\ 159: get_small 1
-        \\ 161: get_field 0 0 0 1
-        \\ 166: jump 0 0 0 172
-        \\ 171: nil
-        \\ 172: ret
-        \\
         \\string (10 bytes)
         \\string: debug
         \\
-        \\function (77 bytes)
-        \\ 17: get_small 0
-        \\ 19: get_field 0 0 0 5
-        \\ 24: set 0 0 0 1
-        \\ 29: pop
-        \\ 30: nil
-        \\ 31: get_small 1
-        \\ 33: nil
-        \\ 34: ne
-        \\ 35: branch 0 0 0 45
-        \\ 40: jump 0 0 0 76
-        \\ 45: pop
-        \\ 46: get_small 1
-        \\ 48: get_field 0 0 0 1
-        \\ 53: print 0 0 0 1
-        \\ 58: pop
-        \\ 59: get_small 1
-        \\ 61: get_field 0 0 0 2
-        \\ 66: set 0 0 0 1
-        \\ 71: jump 0 0 0 31
-        \\ 76: ret
-        \\
         \\class (25 bytes)
-        \\class: 5 6 8 10 12
-        \\function (61 bytes)
-        \\ 17: nil
-        \\ 18: nil
-        \\ 19: closure 0 0 0 7 0 0 0 0
-        \\ 28: closure 0 0 0 9 0 0 0 0
-        \\ 37: closure 0 0 0 11 0 0 0 0
-        \\ 46: closure 0 0 0 13 0 0 0 0
-        \\ 55: object 0 0 0 14
-        \\ 60: ret
+        \\class: 3 4 5 6 7
+        \\
+    ).equal_fmt(res);
+}
+
+test "blocks compiler" {
+    const Parser = @import("parser.zig").Parser;
+    const snap = @import("snap.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var p = Parser.new(
+        \\ let f = fn() = { 
+        \\     let x = 5;
+        \\     {
+        \\         let x = x + 1;
+        \\         print("printing", x);
+        \\     };
+        \\     x;
+        \\ };
+        \\ 
+        \\ f();
+    , allocator);
+    const prog = try p.parse();
+    const res = try compile(prog, allocator);
+    try snap.Snap.init(@src(),
+        \\function (19 bytes)
+        \\    0: closure 0 0 0 1 0 0 0 0
+        \\    9: set_global 0 0 0 0
+        \\    14: pop
+        \\    15: get_global_small 0
+        \\    17: call
+        \\    18: ret_main
+        \\
+        \\function (35 bytes)
+        \\    0: push_byte 5
+        \\    2: set 0 0 0 0
+        \\    7: pop
+        \\    8: get_small 0
+        \\    10: push_byte 1
+        \\    12: add
+        \\    13: set 0 0 0 1
+        \\    18: pop
+        \\    19: string 0 0 0 0
+        \\    24: get_small 1
+        \\    26: print 0 0 0 2
+        \\    31: pop
+        \\    32: get_small 0
+        \\    34: ret
+        \\
+        \\string (13 bytes)
+        \\string: printing
         \\
         \\
-    ).expectEqualFmt(res);
+    ).equal_fmt(res);
 }

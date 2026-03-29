@@ -248,15 +248,14 @@ pub const Lexer = struct {
 };
 
 test "lexer" {
-    const ohsnap = @import("ohsnap");
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
 
     var lexer = Lexer.new("1+2");
-    var res = std.ArrayList(Token).init(std.testing.allocator);
-    defer res.deinit();
+    var res = std.ArrayList(Token){};
+    defer res.deinit(std.testing.allocator);
     while (true) {
         const tok = lexer.get_token();
-        try res.append(tok);
+        try res.append(std.testing.allocator, tok);
         switch (tok) {
             Token.eof => break,
             Token.wrongtok => break,
@@ -264,17 +263,14 @@ test "lexer" {
         }
     }
 
-    try oh.snap(
+    try snap.Snap.init(
         @src(),
-        \\[]lexer.Token
-        \\  [0]: lexer.Token
-        \\    .number: u32 = 1
-        \\  [1]: lexer.Token
-        \\    .add: void = void
-        \\  [2]: lexer.Token
-        \\    .number: u32 = 2
-        \\  [3]: lexer.Token
-        \\    .eof: void = void
+        \\[
+        \\    tag(number): 1
+        \\    tag(add): void
+        \\    tag(number): 2
+        \\    tag(eof): void
+        \\]
         ,
-    ).expectEqual(res.items);
+    ).equal(res.items);
 }

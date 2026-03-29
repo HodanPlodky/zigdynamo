@@ -4,9 +4,11 @@ const ast_intepret = @import("ast_intepret.zig");
 const compiler = @import("compiler.zig");
 const bc = @import("bc_interpreter.zig");
 const ast = @import("ast.zig");
+const ir = @import("opt/ir.zig");
+const opt = @import("opt/compile.zig");
 
 const STACK_SIZE = 4096;
-const HEAP_SIZE = 1024 * 15;
+const HEAP_SIZE = 1024 * 256;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -23,52 +25,120 @@ pub fn main() !void {
         std.fs.File.OpenFlags{},
     );
 
-    const input: []const u8 = try file.reader().readAllAlloc(allocator, std.math.maxInt(usize));
+    var buffer: [1024]u8 = undefined;
+    var reader = file.reader(&buffer);
+
+    const input = try allocator.alloc(u8, try reader.getSize());
+    try reader.interface.readSliceAll(input);
+
     var p = parser.Parser.new(input, allocator);
     const program = try p.parse();
 
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&stdout_buffer);
+    var writer = &stdout.interface;
+
     if (std.mem.eql(u8, "--ast", kind)) {
-        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        defer _ = gpa.deinit();
-        var ast_inter = ast_intepret.Interpret.init(
-            try allocator.allocWithOptions(u8, HEAP_SIZE, 16, null),
-            gpa.allocator(),
-        );
-        defer ast_inter.deinit();
-        const val = ast_inter.run(program);
-        std.debug.print("{}\n", .{val});
+        unreachable;
+        //var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        //defer _ = gpa.deinit();
+        //var ast_inter = ast_intepret.Interpret.init(
+        //try allocator.allocWithOptions(u8, HEAP_SIZE, std.mem.Alignment.@"16", null),
+        //gpa.allocator(),
+        //);
+        //defer ast_inter.deinit();
+        //const val = ast_inter.run(program);
+        //std.debug.print("{}\n", .{val});
     } else if (std.mem.eql(u8, "--bc", kind)) {
         var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         const alloc = runtime_arena.allocator();
         const bytecode = compiler.compile(program, allocator) catch @panic("error");
-        const writer = std.io.getStdOut().writer().any();
         var inter = bc.BcInterpreter.init(
             alloc,
             bytecode,
-            try allocator.allocWithOptions(u8, HEAP_SIZE, 16, null),
+            try allocator.allocWithOptions(u8, HEAP_SIZE, std.mem.Alignment.@"16", null),
             writer,
             .{},
         );
-        const val = inter.run();
-        std.debug.print("{}\n", .{val});
+        const res = inter.run();
+        std.debug.print("{f}\n", .{res});
     } else if (std.mem.eql(u8, "--jit", kind)) {
         var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         const alloc = runtime_arena.allocator();
         const bytecode = compiler.compile(program, allocator) catch @panic("error");
-        const writer = std.io.getStdOut().writer().any();
         var inter = bc.JitInterpreter.init(
             alloc,
             bytecode,
-            try allocator.allocWithOptions(u8, HEAP_SIZE, 16, null),
+            try allocator.allocWithOptions(u8, HEAP_SIZE, std.mem.Alignment.@"16", null),
+            writer,
+            .{ .call_count = 0 },
+        );
+        const res = inter.run();
+        std.debug.print("{f}\n", .{res});
+    } else if (std.mem.eql(u8, "--optjit", kind)) {
+        var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        const alloc = runtime_arena.allocator();
+        const bytecode = compiler.compile(program, allocator) catch @panic("error");
+        var inter = bc.OptJitInterpreter.init(
+            alloc,
+            bytecode,
+            try allocator.allocWithOptions(u8, HEAP_SIZE, std.mem.Alignment.@"16", null),
+            writer,
+            .{ .call_count = 0 },
+        );
+        const res = inter.run();
+        std.debug.print("{f}\n", .{res});
+    } else if (std.mem.eql(u8, "--cmp", kind)) {
+        const bytecode = compiler.compile(program, allocator) catch @panic("error");
+        std.debug.print("{f}\n", .{bytecode});
+    } else if (std.mem.eql(u8, "--ir", kind)) {
+        var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        const alloc = runtime_arena.allocator();
+        const bytecode = compiler.compile(program, allocator) catch @panic("error");
+        const inter = bc.JitInterpreter.init(
+            alloc,
+            bytecode,
+            try allocator.allocWithOptions(u8, HEAP_SIZE, std.mem.Alignment.@"16", null),
             writer,
             .{},
         );
-        const val = inter.run();
-        std.debug.print("{}\n", .{val});
-    } else if (std.mem.eql(u8, "--cmp", kind)) {
+
+        //_ = inter.run();
+
+        // to  run this you need atleast one compilable function
+        // since this is only for debug just blowup
+        std.debug.assert(bytecode.functions.functions.len > 1);
+        for (bytecode.functions.sources, 0..) |source, idx| {
+            var meta = inter.function_meta[idx + 1];
+            const res = try opt.ir_compile(source, &meta, bytecode.globals, alloc);
+            std.debug.print("{f}\n", .{res});
+        }
+    } else if (std.mem.eql(u8, "--ssa", kind)) {
+        var runtime_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        const alloc = runtime_arena.allocator();
         const bytecode = compiler.compile(program, allocator) catch @panic("error");
-        std.debug.print("{}\n", .{bytecode});
-    } else {
+        const inter = bc.JitInterpreter.init(
+            alloc,
+            bytecode,
+            try allocator.allocWithOptions(u8, HEAP_SIZE, std.mem.Alignment.@"16", null),
+            writer,
+            .{},
+        );
+
+        //_ = inter.run();
+
+        // to  run this you need atleast one compilable function
+        // since this is only for debug just blowup
+        std.debug.assert(bytecode.functions.functions.len > 1);
+        for (bytecode.functions.sources, 0..) |source, idx| {
+            var meta = inter.function_meta[idx + 1];
+            const res = try opt.ir_compile_ssa(source, &meta, bytecode.globals, alloc);
+            std.debug.print("{f}\n", .{res});
+        }
+    } 
+    else {
         @panic("incorect kind");
     }
+
+    try writer.flush();
 }

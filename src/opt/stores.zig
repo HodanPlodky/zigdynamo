@@ -1,0 +1,608 @@
+const std = @import("std");
+const ir = @import("ir.zig");
+
+/// Structure that has the ownership of all
+/// data in the compiled code
+pub const Stores = struct {
+    instructions: ir.InstructionDistinct.Multi = .{},
+    basicblock: ir.BasicBlockDistinct.ArrayListUn = .{},
+    function: ir.FunctionDistinct.ArrayListUn = .{},
+    binop: ir.BinOpDistinct.Multi = .{},
+    branch: ir.BranchDistinct.Multi = .{},
+    set_local: ir.SetLocalDistinct.Multi = .{},
+    store_data: ir.StoreDataDistinct.Multi = .{},
+    phony: ir.PhonyDistinct.Multi = .{},
+    call: ir.CallDataDistinct.Multi = .{},
+    print: ir.PrintDataDistinct.Multi = .{},
+    copies: ir.CopyDataDistinct.Multi = .{},
+    closures: ir.ClosureDistinct.Multi = .{},
+    objects: ir.ObjectDistinct.Multi = .{},
+    get_fields: ir.GetFieldDistinct.Multi = .{},
+    set_fields: ir.SetFieldDistinct.Multi = .{},
+    method_calls: ir.MethodCallDistinct.Multi = .{},
+    alloc: std.mem.Allocator,
+
+    const Self = @This();
+
+    pub fn get_index_type(comptime T: type) type {
+        const info = @typeInfo(Self).@"struct";
+
+        inline for (info.fields) |field| {
+            if (field.type.Inner == T) {
+                return field.type.DistIndex;
+            }
+        }
+
+        @compileError("could not find proper index");
+    }
+
+    pub fn create(self: *Stores, comptime T: type) !Stores.get_index_type(T) {
+        return self.create_with(T, T{});
+    }
+
+    pub fn create_with(self: *Stores, comptime T: type, value: T) !Stores.get_index_type(T) {
+        const info = @typeInfo(Stores).@"struct";
+        const Index = Stores.get_index_type(T);
+
+        inline for (info.fields) |field| {
+            if (field.type.Inner == T) {
+                const index = @field(self, field.name).len();
+                try @field(self, field.name).data.append(self.alloc, value);
+                return Index.new(@intCast(index));
+            }
+        }
+
+        @compileError("could not find proper index");
+    }
+
+    pub fn get_ptr(self: *Stores, comptime T: type, index: Stores.get_index_type(T)) *T {
+        const info = @typeInfo(Stores).@"struct";
+
+        inline for (info.fields) |field| {
+            if (field.type.Inner == T) {
+                return @field(self, field.name).get_ptr(index);
+            }
+        }
+
+        @compileError("could not find proper index");
+    }
+
+    pub fn get_field_elem_type(comptime T: type) type {
+        const info = @typeInfo(Self).@"struct";
+
+        inline for (info.fields) |field| {
+            if (field.type.Inner == T) {
+                return field.type.MultiArr.Field;
+            }
+        }
+
+        @compileError("could not find proper index");
+    }
+
+    pub fn get_field_ptr(
+        self: *Stores,
+        comptime T: type,
+        comptime R: type,
+        comptime elem_field: Stores.get_field_elem_type(T),
+        index: Stores.get_index_type(T),
+    ) *R {
+        const info = @typeInfo(Stores).@"struct";
+
+        inline for (info.fields) |field| {
+            if (field.type.Inner == T) {
+                return @field(self, field.name).get_field_ptr(R, elem_field, index);
+            }
+        }
+
+        @compileError("could not find proper index");
+    }
+
+    pub fn get_field_reg_ptr(
+        self: *Stores,
+        comptime T: type,
+        comptime elem_field: Stores.get_field_elem_type(T),
+        index: Stores.get_index_type(T),
+    ) *ir.Reg {
+        return self.get_field_ptr(T, ir.Reg, elem_field, index);
+    }
+
+    pub fn get_const_ptr(self: *const Stores, comptime T: type, index: Stores.get_index_type(T)) *const T {
+        const info = @typeInfo(Stores).@"struct";
+
+        inline for (info.fields) |field| {
+            if (field.type.Inner == T) {
+                return @field(self, field.name).get_ptr_const(index);
+            }
+        }
+
+        @compileError("could not find proper index");
+    }
+
+    pub fn get(self: *const Stores, comptime T: type, index: Stores.get_index_type(T)) T {
+        const info = @typeInfo(Stores).@"struct";
+
+        inline for (info.fields) |field| {
+            if (field.type.Inner == T) {
+                return @field(self, field.name).get(index);
+            }
+        }
+
+        @compileError("could not find proper index");
+    }
+
+    pub fn set(self: *Stores, comptime T: type, index: Stores.get_index_type(T), value: T) void {
+        const info = @typeInfo(Stores).@"struct";
+
+        inline for (info.fields) |field| {
+            if (field.type.Inner == T) {
+                return @field(self, field.name).set(index, value);
+            }
+        }
+
+        @compileError("could not find proper index");
+    }
+
+    pub fn get_max_idx(self: *const Stores, comptime T: type) Stores.get_index_type(T) {
+        const info = @typeInfo(Stores).@"struct";
+        const Index = Stores.get_index_type(T);
+
+        inline for (info.fields) |field| {
+            if (field.type.Inner == T) {
+                const index = @field(self, field.name).len();
+                return Index.new(@intCast(index));
+            }
+        }
+
+        @compileError("could not find proper index");
+    }
+
+    pub fn get_type(self: *const Stores, inst: ir.Instruction) ir.Type {
+        return switch (inst) {
+            .ldi => ir.Type.Int,
+            .string => ir.Type.Top,
+            .closure => ir.Type.Top,
+            .object => ir.Type.Top,
+            .get_field => ir.Type.Top,
+            .set_field => ir.Type.Void,
+            .mov, .parallel_copy, .regify => |reg| {
+                const src_inst = self.get(ir.Instruction, reg);
+                return self.get_type(src_inst);
+            },
+            // I should not do any more analyses after
+            // I insert copy soooo fuck that
+            .copy => ir.Type.Top,
+            .nil => ir.Type.Nil,
+            .true => ir.Type.True,
+            .false => ir.Type.False,
+            .load_global => ir.Type.Top,
+            .store_global => ir.Type.Void,
+            .load_env => ir.Type.Top,
+            .store_env => ir.Type.Void,
+            .add,
+            .sub,
+            .mul,
+            .div,
+            .lt,
+            .gt,
+            .eq,
+            .ne,
+            => ir.Type.Top,
+            .ret, .branch, .jmp => ir.Type.Void,
+            .arg => ir.Type.Top,
+            .nop => ir.Type.Void,
+            // TODO use join
+            .phony => ir.Type.Top,
+            .call => ir.Type.Top,
+            .method_call => ir.Type.Top,
+            .print => ir.Type.Void,
+            .get_local => ir.Type.Top,
+            .set_local => ir.Type.Void,
+        };
+    }
+
+    fn IdxIter(comptime Index: type) type {
+        return struct {
+            const IterType = @This();
+
+            curr: usize,
+            count: usize,
+
+            pub fn init(count: Index) IterType {
+                return IterType{
+                    .curr = 0,
+                    .count = count.get_usize(),
+                };
+            }
+
+            pub fn next(self: *IterType) ?Index {
+                if (self.curr >= self.count) {
+                    return null;
+                }
+
+                const res = self.curr;
+                self.curr += 1;
+                return Index.new(@intCast(res));
+            }
+
+            pub fn reset(self: *IterType) void {
+                self.curr = 0;
+            }
+        };
+    }
+
+    pub fn idx_iter(self: *const Stores, comptime T: type) IdxIter(Stores.get_index_type(T)) {
+        const count = self.get_max_idx(T);
+        return IdxIter(Stores.get_index_type(T)).init(count);
+    }
+
+    const RegIter = struct {
+        const OtherData = struct {
+            // max number of the regs in non phony
+            regs: [2]ir.Reg = undefined,
+            len: u8,
+        };
+
+        const IterTypes = union(enum) {
+            phony_iter: []ir.PhonyData.Pair,
+            call_iter: ir.CallData,
+            object_iter: ir.Object,
+            method_iter: ir.MethodCall,
+            args: []ir.Reg,
+            other: OtherData,
+        };
+
+        data: IterTypes,
+        current: usize = 0,
+
+        fn create_phony(phony_data: ir.PhonyData) RegIter {
+            return RegIter{
+                .data = .{ .phony_iter = phony_data.data },
+            };
+        }
+
+        fn create_call(calldata: ir.CallData) RegIter {
+            return RegIter{
+                .data = .{ .call_iter = calldata },
+            };
+        }
+
+        fn create_object(object: ir.Object) RegIter {
+            return RegIter{
+                .data = .{ .object_iter = object },
+            };
+        }
+
+        fn create_method_call(method_call: ir.MethodCall) RegIter {
+            return RegIter{
+                .data = .{ .method_iter = method_call },
+            };
+        }
+
+        fn create_args(args: []ir.Reg) RegIter {
+            return RegIter{
+                .data = .{ .args = args },
+            };
+        }
+
+        fn create_empty() RegIter {
+            return RegIter{
+                .data = .{ .other = .{ .len = 0 } },
+            };
+        }
+
+        fn create_one(reg: ir.Reg) RegIter {
+            var data: OtherData = .{ .len = 1 };
+            data.regs[0] = reg;
+            return RegIter{ .data = .{ .other = data } };
+        }
+
+        fn create_two(a_reg: ir.Reg, b_reg: ir.Reg) RegIter {
+            var data: OtherData = .{ .len = 2 };
+            data.regs[0] = a_reg;
+            data.regs[1] = b_reg;
+            return RegIter{ .data = .{ .other = data } };
+        }
+
+        fn get_len(self: *const RegIter) usize {
+            return switch (self.data) {
+                .phony_iter => |pairs| pairs.len,
+                .call_iter => |calldata| calldata.args.len + 1,
+                .method_iter => |method| method.args.len + 1,
+                .object_iter => |object| object.fields.len + 1,
+                .other => |data| @intCast(data.len),
+                .args => |data| data.len,
+            };
+        }
+
+        pub fn next(self: *RegIter) ?ir.Reg {
+            if (self.current >= self.get_len()) {
+                return null;
+            }
+            const res = switch (self.data) {
+                .phony_iter => |pairs| pairs[self.current].reg,
+                .call_iter => |calldata| if (self.current == 0)
+                    calldata.target
+                else
+                    calldata.args[self.current - 1],
+                .method_iter => |method| if (self.current == 0)
+                    method.object
+                else
+                    method.args[self.current - 1],
+                .object_iter => |object| if (self.current == 0)
+                    object.proto
+                else
+                    object.fields[self.current - 1],
+                .other => |data| data.regs[self.current],
+                .args => |data| data[self.current],
+            };
+            self.current += 1;
+            return res;
+        }
+    };
+
+    pub fn get_reg_iter(self: *const Stores, inst_idx: ir.InstructionIdx) RegIter {
+        const inst = self.get(ir.Instruction, inst_idx);
+
+        switch (inst) {
+            // no regs
+            .ldi,
+            .load_global,
+            .arg,
+            .load_env,
+            .nil,
+            .true,
+            .false,
+            .nop,
+            .jmp,
+            .string,
+            => return RegIter.create_empty(),
+
+            .store_env, .store_global => |store_idx| {
+                const data = self.get(ir.StoreData, store_idx);
+                return RegIter.create_one(data.value);
+            },
+
+            // one reg ops
+            .ret, .mov, .parallel_copy, .regify => |reg| return RegIter.create_one(reg),
+
+            //  binop ops
+            .add, .sub, .mul, .div, .lt, .gt, .ne, .eq => |binop_idx| {
+                const binop = self.get(ir.BinOpData, binop_idx);
+                return RegIter.create_two(binop.left, binop.right);
+            },
+            .branch => |branch_idx| {
+                const branch = self.get(ir.BranchData, branch_idx);
+                return RegIter.create_one(branch.cond);
+            },
+            .phony => |phony_idx| {
+                const data = self.get(ir.PhonyData, phony_idx);
+                return RegIter.create_phony(data);
+            },
+            .call => |call_idx| {
+                const data = self.get(ir.CallData, call_idx);
+                return RegIter.create_call(data);
+            },
+            .method_call => |call_idx| {
+                const call = self.get(ir.MethodCall, call_idx);
+                return RegIter.create_method_call(call);
+            },
+            .print => |print_idx| {
+                const data = self.get(ir.PrintData, print_idx);
+                return RegIter.create_args(data.args);
+            },
+            .get_local => return RegIter.create_empty(),
+            .set_local => |set_local_idx| {
+                const set_local = self.get(ir.SetLocalData, set_local_idx);
+                return RegIter.create_one(set_local.value);
+            },
+            // this method goes just over input registers
+            .copy => |copy_idx| {
+                const copy = self.get(ir.CopyData, copy_idx);
+                return RegIter.create_one(copy.src);
+            },
+            .closure => |closure_idx| {
+                const closure = self.get(ir.Closure, closure_idx);
+                return RegIter.create_args(closure.env);
+            },
+            .object => |object_idx| {
+                const object = self.get(ir.Object, object_idx);
+                return RegIter.create_object(object);
+            },
+            .get_field => |get_field_idx| {
+                const get_field = self.get(ir.GetField, get_field_idx);
+                return RegIter.create_one(get_field.object);
+            },
+            .set_field => |set_field_idx| {
+                const set_field = self.get(ir.SetField, set_field_idx);
+                return RegIter.create_two(set_field.object, set_field.value);
+            },
+        }
+    }
+
+    const RegIterPtr = struct {
+        const OtherData = struct {
+            // max number of the regs in non phony
+            regs: [2]*ir.Reg = undefined,
+            len: u8,
+        };
+
+        const OneAndRest = struct {
+            target: *ir.Reg,
+            args: []ir.Reg,
+        };
+
+        const IterTypes = union(enum) {
+            phony_iter: []ir.PhonyData.Pair,
+            onerest_iter: OneAndRest,
+            args: []ir.Reg,
+            other: OtherData,
+        };
+
+        data: IterTypes,
+        current: usize = 0,
+
+        fn create_phony(phony_data: ir.PhonyData) RegIterPtr {
+            return RegIterPtr{
+                .data = .{ .phony_iter = phony_data.data },
+            };
+        }
+
+        fn create_onerest(target: *ir.Reg, args: []ir.Reg) RegIterPtr {
+            return RegIterPtr{
+                .data = .{ .onerest_iter = .{
+                    .target = target,
+                    .args = args,
+                } },
+            };
+        }
+
+        fn create_args(args: []ir.Reg) RegIterPtr {
+            return RegIterPtr{
+                .data = .{ .args = args },
+            };
+        }
+
+        fn create_empty() RegIterPtr {
+            return RegIterPtr{
+                .data = .{ .other = .{ .len = 0 } },
+            };
+        }
+
+        fn create_one(reg: *ir.Reg) RegIterPtr {
+            var data: OtherData = .{ .len = 1 };
+            data.regs[0] = reg;
+            return RegIterPtr{ .data = .{ .other = data } };
+        }
+
+        fn create_two(a_reg: *ir.Reg, b_reg: *ir.Reg) RegIterPtr {
+            var data: OtherData = .{ .len = 2 };
+            data.regs[0] = a_reg;
+            data.regs[1] = b_reg;
+            return RegIterPtr{ .data = .{ .other = data } };
+        }
+
+        fn get_len(self: *const RegIterPtr) usize {
+            return switch (self.data) {
+                .phony_iter => |pairs| pairs.len,
+                .onerest_iter => |calldata| calldata.args.len + 1,
+                .other => |data| @intCast(data.len),
+                .args => |data| data.len,
+            };
+        }
+
+        pub fn next(self: *RegIterPtr) ?*ir.Reg {
+            if (self.current >= self.get_len()) {
+                return null;
+            }
+            const res = switch (self.data) {
+                .phony_iter => |pairs| &pairs[self.current].reg,
+                .onerest_iter => |calldata| if (self.current == 0)
+                    calldata.target
+                else
+                    &calldata.args[self.current - 1],
+                .other => |data| data.regs[self.current],
+                .args => |data| &data[self.current],
+            };
+            self.current += 1;
+            return res;
+        }
+    };
+
+    pub fn get_reg_iter_ptr(self: *Stores, inst_idx: ir.InstructionIdx) RegIterPtr {
+        const inst = self.get(ir.Instruction, inst_idx);
+
+        switch (inst) {
+            // no regs
+            .ldi,
+            .load_global,
+            .arg,
+            .load_env,
+            .nil,
+            .true,
+            .false,
+            .nop,
+            .jmp,
+            .string,
+            => return RegIterPtr.create_empty(),
+
+            .store_env, .store_global => |store_idx| {
+                const data = self.get_field_reg_ptr(ir.StoreData, .value, store_idx);
+                return RegIterPtr.create_one(data);
+            },
+
+            // one reg ops
+            .ret => {
+                const reg = &self.instructions.data.items(.data)[inst_idx.get_usize()].ret;
+                return RegIterPtr.create_one(reg);
+            },
+            .mov => {
+                const reg = &self.instructions.data.items(.data)[inst_idx.get_usize()].mov;
+                return RegIterPtr.create_one(reg);
+            },
+            .regify => {
+                const reg = &self.instructions.data.items(.data)[inst_idx.get_usize()].regify;
+                return RegIterPtr.create_one(reg);
+            },
+            .parallel_copy => {
+                const reg = &self.instructions.data.items(.data)[inst_idx.get_usize()].parallel_copy;
+                return RegIterPtr.create_one(reg);
+            },
+
+            //  binop ops
+            .add, .sub, .mul, .div, .lt, .gt, .eq, .ne => |binop_idx| {
+                const left = self.get_field_reg_ptr(ir.BinOpData, .left, binop_idx);
+                const right = self.get_field_reg_ptr(ir.BinOpData, .right, binop_idx);
+                return RegIterPtr.create_two(left, right);
+            },
+            .branch => |branch_idx| {
+                const cond = self.get_field_reg_ptr(ir.BranchData, .cond, branch_idx);
+                return RegIterPtr.create_one(cond);
+            },
+            .phony => |phony_idx| {
+                const data = self.get(ir.PhonyData, phony_idx);
+                return RegIterPtr.create_phony(data);
+            },
+            .call => |call_idx| {
+                const data = self.get(ir.CallData, call_idx);
+                const target = self.get_field_reg_ptr(ir.CallData, .target, call_idx);
+                return RegIterPtr.create_onerest(target, data.args);
+            },
+            .method_call => |call_idx| {
+                const data = self.get(ir.MethodCall, call_idx);
+                const object = self.get_field_reg_ptr(ir.MethodCall, .object, call_idx);
+                return RegIterPtr.create_onerest(object, data.args);
+            },
+            .print => |print_idx| {
+                const print = self.get(ir.PrintData, print_idx);
+                return RegIterPtr.create_args(print.args);
+            },
+            .get_local => return RegIterPtr.create_empty(),
+            .set_local => |set_local_idx| {
+                const value = self.get_field_reg_ptr(ir.SetLocalData, .value, set_local_idx);
+                return RegIterPtr.create_one(value);
+            },
+            .copy => |copy_idx| {
+                const src = self.get_field_reg_ptr(ir.CopyData, .src, copy_idx);
+                return RegIterPtr.create_one(src);
+            },
+            .closure => |closure_idx| {
+                const closure = self.get(ir.Closure, closure_idx);
+                return RegIterPtr.create_args(closure.env);
+            },
+            .object => |object_idx| {
+                const object = self.get(ir.Object, object_idx);
+                const proto = self.get_field_reg_ptr(ir.Object, .proto, object_idx);
+                return RegIterPtr.create_onerest(proto, object.fields);
+            },
+            .get_field => |get_field_idx| {
+                const object = self.get_field_reg_ptr(ir.GetField, .object, get_field_idx);
+                return RegIterPtr.create_one(object);
+            },
+            .set_field => |set_field_idx| {
+                const object = self.get_field_reg_ptr(ir.SetField, .object, set_field_idx);
+                const value = self.get_field_reg_ptr(ir.SetField, .value, set_field_idx);
+                return RegIterPtr.create_two(object, value);
+            },
+        }
+    }
+};

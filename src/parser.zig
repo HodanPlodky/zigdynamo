@@ -48,9 +48,9 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: *Parser) !ast.Program {
-        var res = std.ArrayList(ast.Ast).init(self.alloc);
+        var res = std.ArrayList(ast.Ast){};
         while (!self.eof()) {
-            try res.append(try self.expr());
+            try res.append(self.alloc, try self.expr());
             try self.compare(lexer.Token.semicol);
         }
 
@@ -222,13 +222,13 @@ pub const Parser = struct {
             switch (self.curr) {
                 lexer.Token.lparent => {
                     self.next();
-                    var args = std.ArrayList(ast.Ast).init(self.alloc);
+                    var args = std.ArrayList(ast.Ast){};
                     if (self.curr != lexer.Token.rparent) {
-                        try args.append(try self.expr());
+                        try args.append(self.alloc, try self.expr());
 
                         while (self.curr != lexer.Token.rparent) {
                             try self.compare(lexer.Token.comma);
-                            try args.append(try self.expr());
+                            try args.append(self.alloc, try self.expr());
                         }
                     }
                     try self.compare(lexer.Token.rparent);
@@ -257,7 +257,7 @@ pub const Parser = struct {
                     tmp.* = result;
                     result = ast.Ast{ .field_access = ast.FieldAccess{
                         .target = tmp,
-                        .field = field,
+                        .field = .{ .value = field },
                     } };
                 },
                 else => break,
@@ -269,7 +269,7 @@ pub const Parser = struct {
     fn factor(self: *Parser) !ast.Ast {
         switch (self.pop()) {
             lexer.Token.number => |num| return ast.Ast{ .number = num },
-            lexer.Token.ident => |ident| return ast.Ast{ .ident = ident },
+            lexer.Token.ident => |ident| return ast.Ast{ .ident = .{ .value = ident } },
             lexer.Token.kwlet => return self.parse_let(),
             lexer.Token.kwobject => return self.parse_object(),
             lexer.Token.kwnil => return ast.Ast.nil,
@@ -279,7 +279,7 @@ pub const Parser = struct {
             lexer.Token.kwwhile => return self.parse_while(),
             lexer.Token.kwtrue => return ast.Ast{ .bool = true },
             lexer.Token.kwfalse => return ast.Ast{ .bool = false },
-            lexer.Token.string => |value| return ast.Ast{ .string = value },
+            lexer.Token.string => |value| return ast.Ast{ .string = .{ .value = value } },
             lexer.Token.kwprint => return ast.Ast.print_fn,
             else => return ParserError.UnexpectedToken,
         }
@@ -291,7 +291,7 @@ pub const Parser = struct {
                 try self.compare(lexer.Token.assign);
                 const val = try self.expr_ptr();
                 return ast.Ast{ .let = ast.Let{
-                    .target = ident,
+                    .target = .{ .value = ident },
                     .value = val,
                 } };
             },
@@ -309,14 +309,14 @@ pub const Parser = struct {
         }
         try self.compare(lexer.Token.lcurly);
 
-        var fields = std.ArrayList(ast.Field).init(self.alloc);
+        var fields = std.ArrayList(ast.Field){};
         while (!self.curr_is(lexer.Token.rcurly)) {
             const name = try self.parse_ident();
             try self.compare(lexer.Token.colon);
             const value = try self.expr_ptr();
             try self.compare(lexer.Token.comma);
-            try fields.append(ast.Field{
-                .name = name,
+            try fields.append(self.alloc, ast.Field{
+                .name = .{ .value = name },
                 .value = value,
             });
         }
@@ -338,10 +338,11 @@ pub const Parser = struct {
     fn parse_function(self: *Parser) !ast.Ast {
         try self.compare(lexer.Token.lparent);
 
-        var args = std.ArrayList([]const u8).init(self.alloc);
+        var args = std.ArrayList(ast.String){};
         if (!self.curr_is(lexer.Token.rparent)) {
             while (true) {
-                try args.append(try self.parse_ident());
+                const ident_value = try self.parse_ident();
+                try args.append(self.alloc, .{ .value = ident_value });
                 if (!self.curr_is(lexer.Token.comma)) {
                     break;
                 }
@@ -358,9 +359,9 @@ pub const Parser = struct {
     }
 
     pub fn parse_block(self: *Parser) !ast.Ast {
-        var exprs = std.ArrayList(ast.Ast).init(self.alloc);
+        var exprs = std.ArrayList(ast.Ast){};
         while (!self.curr_is(lexer.Token.rcurly)) {
-            try exprs.append(try self.expr());
+            try exprs.append(self.alloc, try self.expr());
             try self.compare(lexer.Token.semicol);
         }
         try self.compare(lexer.Token.rcurly);
@@ -400,43 +401,39 @@ pub const Parser = struct {
     }
 };
 
-const ohsnap = @import("ohsnap");
-
 test "parser test basic" {
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
     var p = Parser.new("1 +   2 * 2 - 3;", allocator);
     const res = try p.parse();
-    try oh.snap(
+    try snap.Snap.init(
         @src(),
-        \\ast.Program
-        \\  .data: []ast.Ast
-        \\    [0]: ast.Ast
-        \\      .binop: ast.BinOp
-        \\        .op: u8 = 45
-        \\        .left: *ast.Ast
-        \\          .binop: ast.BinOp
-        \\            .op: u8 = 43
-        \\            .left: *ast.Ast
-        \\              .number: u32 = 1
-        \\            .right: *ast.Ast
-        \\              .binop: ast.BinOp
-        \\                .op: u8 = 42
-        \\                .left: *ast.Ast
-        \\                  .number: u32 = 2
-        \\                .right: *ast.Ast
-        \\                  .number: u32 = 2
-        \\        .right: *ast.Ast
-        \\          .number: u32 = 3
+        \\{
+        \\    data: [
+        \\        tag(binop): {
+        \\            op: 45
+        \\            left: &tag(binop): {
+        \\                op: 43
+        \\                left: &tag(number): 1
+        \\                right: &tag(binop): {
+        \\                    op: 42
+        \\                    left: &tag(number): 2
+        \\                    right: &tag(number): 2
+        \\                }
+        \\            }
+        \\            right: &tag(number): 3
+        \\        }
+        \\    ]
+        \\}
         ,
-    ).expectEqual(res);
+    ).equal(res);
 }
 
 test "test let" {
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -446,30 +443,33 @@ test "test let" {
         \\ x + 1;
     , allocator);
     const res = try p.parse();
-    try oh.snap(
+    try snap.Snap.init(
         @src(),
-        \\ast.Program
-        \\  .data: []ast.Ast
-        \\    [0]: ast.Ast
-        \\      .let: ast.Let
-        \\        .target: []const u8
-        \\          "x"
-        \\        .value: *ast.Ast
-        \\          .number: u32 = 1
-        \\    [1]: ast.Ast
-        \\      .binop: ast.BinOp
-        \\        .op: u8 = 43
-        \\        .left: *ast.Ast
-        \\          .ident: []const u8
-        \\            "x"
-        \\        .right: *ast.Ast
-        \\          .number: u32 = 1
+        \\{
+        \\    data: [
+        \\        tag(let): {
+        \\            target: {
+        \\                value: "x"
+        \\                constant_idx: 4294967295
+        \\            }
+        \\            value: &tag(number): 1
+        \\        }
+        \\        tag(binop): {
+        \\            op: 43
+        \\            left: &tag(ident): {
+        \\                value: "x"
+        \\                constant_idx: 4294967295
+        \\            }
+        \\            right: &tag(number): 1
+        \\        }
+        \\    ]
+        \\}
         ,
-    ).expectEqual(res);
+    ).equal(res);
 }
 
 test "test function" {
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -479,69 +479,85 @@ test "test function" {
         \\ f(f(10) + 1);
     , allocator);
     const res = try p.parse();
-    try oh.snap(
+    try snap.Snap.init(
         @src(),
-        \\ast.Program
-        \\  .data: []ast.Ast
-        \\    [0]: ast.Ast
-        \\      .let: ast.Let
-        \\        .target: []const u8
-        \\          "f"
-        \\        .value: *ast.Ast
-        \\          .function: ast.Function
-        \\            .params: [][]const u8
-        \\              [0]: []const u8
-        \\                "n"
-        \\            .body: *ast.Ast
-        \\              .binop: ast.BinOp
-        \\                .op: u8 = 43
-        \\                .left: *ast.Ast
-        \\                  .binop: ast.BinOp
-        \\                    .op: u8 = 42
-        \\                    .left: *ast.Ast
-        \\                      .number: u32 = 1
-        \\                    .right: *ast.Ast
-        \\                      .call: ast.Call
-        \\                        .target: *ast.Ast
-        \\                          .ident: []const u8
-        \\                            "f"
-        \\                        .args: []ast.Ast
-        \\                          [0]: ast.Ast
-        \\                            .binop: ast.BinOp
-        \\                              .op: u8 = 45
-        \\                              .left: *ast.Ast
-        \\                                .ident: []const u8
-        \\                                  "n"
-        \\                              .right: *ast.Ast
-        \\                                .number: u32 = 1
-        \\                .right: *ast.Ast
-        \\                  .ident: []const u8
-        \\                    "n"
-        \\    [1]: ast.Ast
-        \\      .call: ast.Call
-        \\        .target: *ast.Ast
-        \\          .ident: []const u8
-        \\            "f"
-        \\        .args: []ast.Ast
-        \\          [0]: ast.Ast
-        \\            .binop: ast.BinOp
-        \\              .op: u8 = 43
-        \\              .left: *ast.Ast
-        \\                .call: ast.Call
-        \\                  .target: *ast.Ast
-        \\                    .ident: []const u8
-        \\                      "f"
-        \\                  .args: []ast.Ast
-        \\                    [0]: ast.Ast
-        \\                      .number: u32 = 10
-        \\              .right: *ast.Ast
-        \\                .number: u32 = 1
+        \\{
+        \\    data: [
+        \\        tag(let): {
+        \\            target: {
+        \\                value: "f"
+        \\                constant_idx: 4294967295
+        \\            }
+        \\            value: &tag(function): {
+        \\                params: [
+        \\                    {
+        \\                        value: "n"
+        \\                        constant_idx: 4294967295
+        \\                    }
+        \\                ]
+        \\                body: &tag(binop): {
+        \\                    op: 43
+        \\                    left: &tag(binop): {
+        \\                        op: 42
+        \\                        left: &tag(number): 1
+        \\                        right: &tag(call): {
+        \\                            target: &tag(ident): {
+        \\                                value: "f"
+        \\                                constant_idx: 4294967295
+        \\                            }
+        \\                            args: [
+        \\                                tag(binop): {
+        \\                                    op: 45
+        \\                                    left: &tag(ident): {
+        \\                                        value: "n"
+        \\                                        constant_idx: 4294967295
+        \\                                    }
+        \\                                    right: &tag(number): 1
+        \\                                }
+        \\                            ]
+        \\                        }
+        \\                    }
+        \\                    right: &tag(ident): {
+        \\                        value: "n"
+        \\                        constant_idx: 4294967295
+        \\                    }
+        \\                }
+        \\                function_idx: 4294967295
+        \\                env_vars: [
+        \\                ]
+        \\                env_start: 4294967295
+        \\                is_method: false
+        \\            }
+        \\        }
+        \\        tag(call): {
+        \\            target: &tag(ident): {
+        \\                value: "f"
+        \\                constant_idx: 4294967295
+        \\            }
+        \\            args: [
+        \\                tag(binop): {
+        \\                    op: 43
+        \\                    left: &tag(call): {
+        \\                        target: &tag(ident): {
+        \\                            value: "f"
+        \\                            constant_idx: 4294967295
+        \\                        }
+        \\                        args: [
+        \\                            tag(number): 10
+        \\                        ]
+        \\                    }
+        \\                    right: &tag(number): 1
+        \\                }
+        \\            ]
+        \\        }
+        \\    ]
+        \\}
         ,
-    ).expectEqual(res);
+    ).equal(res);
 }
 
 test "test if" {
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -550,22 +566,21 @@ test "test if" {
         \\ if (true) 1 else 2;
     , allocator);
     const res = try p.parse();
-    try oh.snap(@src(),
-        \\ast.Program
-        \\  .data: []ast.Ast
-        \\    [0]: ast.Ast
-        \\      .condition: ast.Condition
-        \\        .cond: *ast.Ast
-        \\          .bool: bool = true
-        \\        .then_block: *ast.Ast
-        \\          .number: u32 = 1
-        \\        .else_block: ?*ast.Ast
-        \\          .number: u32 = 2
-    ).expectEqual(res);
+    try snap.Snap.init(@src(),
+        \\{
+        \\    data: [
+        \\        tag(condition): {
+        \\            cond: &tag(bool): true
+        \\            then_block: &tag(number): 1
+        \\            else_block: &tag(number): 2
+        \\        }
+        \\    ]
+        \\}
+    ).equal(res);
 }
 
 test "test while" {
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -579,56 +594,65 @@ test "test while" {
         \\ };
     , allocator);
     const res = try p.parse();
-    try oh.snap(@src(),
-        \\ast.Program
-        \\  .data: []ast.Ast
-        \\    [0]: ast.Ast
-        \\      .let: ast.Let
-        \\        .target: []const u8
-        \\          "cond"
-        \\        .value: *ast.Ast
-        \\          .bool: bool = true
-        \\    [1]: ast.Ast
-        \\      .let: ast.Let
-        \\        .target: []const u8
-        \\          "x"
-        \\        .value: *ast.Ast
-        \\          .number: u32 = 1
-        \\    [2]: ast.Ast
-        \\      .loop: ast.Loop
-        \\        .cond: *ast.Ast
-        \\          .ident: []const u8
-        \\            "cond"
-        \\        .body: *ast.Ast
-        \\          .block: []ast.Ast
-        \\            [0]: ast.Ast
-        \\              .assign: ast.Assign
-        \\                .target: []const u8
-        \\                  "x"
-        \\                .value: *ast.Ast
-        \\                  .binop: ast.BinOp
-        \\                    .op: u8 = 43
-        \\                    .left: *ast.Ast
-        \\                      .ident: []const u8
-        \\                        "x"
-        \\                    .right: *ast.Ast
-        \\                      .number: u32 = 1
-        \\            [1]: ast.Ast
-        \\              .call: ast.Call
-        \\                .target: *ast.Ast
-        \\                  .print_fn: void = void
-        \\                .args: []ast.Ast
-        \\                  [0]: ast.Ast
-        \\                    .string: []const u8
-        \\                      "x"
-        \\                  [1]: ast.Ast
-        \\                    .ident: []const u8
-        \\                      "x"
-    ).expectEqual(res);
+    try snap.Snap.init(@src(),
+        \\{
+        \\    data: [
+        \\        tag(let): {
+        \\            target: {
+        \\                value: "cond"
+        \\                constant_idx: 4294967295
+        \\            }
+        \\            value: &tag(bool): true
+        \\        }
+        \\        tag(let): {
+        \\            target: {
+        \\                value: "x"
+        \\                constant_idx: 4294967295
+        \\            }
+        \\            value: &tag(number): 1
+        \\        }
+        \\        tag(loop): {
+        \\            cond: &tag(ident): {
+        \\                value: "cond"
+        \\                constant_idx: 4294967295
+        \\            }
+        \\            body: &tag(block): [
+        \\                tag(assign): {
+        \\                    target: {
+        \\                        value: "x"
+        \\                        constant_idx: 4294967295
+        \\                    }
+        \\                    value: &tag(binop): {
+        \\                        op: 43
+        \\                        left: &tag(ident): {
+        \\                            value: "x"
+        \\                            constant_idx: 4294967295
+        \\                        }
+        \\                        right: &tag(number): 1
+        \\                    }
+        \\                }
+        \\                tag(call): {
+        \\                    target: &tag(print_fn): void
+        \\                    args: [
+        \\                        tag(string): {
+        \\                            value: "x"
+        \\                            constant_idx: 4294967295
+        \\                        }
+        \\                        tag(ident): {
+        \\                            value: "x"
+        \\                            constant_idx: 4294967295
+        \\                        }
+        \\                    ]
+        \\                }
+        \\            ]
+        \\        }
+        \\    ]
+        \\}
+    ).equal(res);
 }
 
 test "test objects" {
-    const oh = ohsnap{};
+    const snap = @import("snap.zig");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -648,86 +672,124 @@ test "test objects" {
         \\ };
     , allocator);
     const res = try p.parse();
-    try oh.snap(@src(),
-        \\ast.Program
-        \\  .data: []ast.Ast
-        \\    [0]: ast.Ast
-        \\      .let: ast.Let
-        \\        .target: []const u8
-        \\          "x"
-        \\        .value: *ast.Ast
-        \\          .object: ast.Object
-        \\            .prototype: ?*ast.Ast
-        \\              null
-        \\            .fields: []ast.Field
-        \\              [0]: ast.Field
-        \\                .name: []const u8
-        \\                  "a"
-        \\                .value: *ast.Ast
-        \\                  .number: u32 = 1
-        \\              [1]: ast.Field
-        \\                .name: []const u8
-        \\                  "f"
-        \\                .value: *ast.Ast
-        \\                  .function: ast.Function
-        \\                    .params: [][]const u8
-        \\                      (empty)
-        \\                    .body: *ast.Ast
-        \\                      .block: []ast.Ast
-        \\                        [0]: ast.Ast
-        \\                          .binop: ast.BinOp
-        \\                            .op: u8 = 43
-        \\                            .left: *ast.Ast
-        \\                              .field_access: ast.FieldAccess
-        \\                                .target: *ast.Ast
-        \\                                  .ident: []const u8
-        \\                                    "this"
-        \\                                .field: []const u8
-        \\                                  "a"
-        \\                            .right: *ast.Ast
-        \\                              .number: u32 = 1
-        \\    [1]: ast.Ast
-        \\      .let: ast.Let
-        \\        .target: []const u8
-        \\          "y"
-        \\        .value: *ast.Ast
-        \\          .object: ast.Object
-        \\            .prototype: ?*ast.Ast
-        \\              .ident: []const u8
-        \\                "x"
-        \\            .fields: []ast.Field
-        \\              [0]: ast.Field
-        \\                .name: []const u8
-        \\                  "b"
-        \\                .value: *ast.Ast
-        \\                  .number: u32 = 2
-        \\              [1]: ast.Field
-        \\                .name: []const u8
-        \\                  "g"
-        \\                .value: *ast.Ast
-        \\                  .function: ast.Function
-        \\                    .params: [][]const u8
-        \\                      (empty)
-        \\                    .body: *ast.Ast
-        \\                      .block: []ast.Ast
-        \\                        [0]: ast.Ast
-        \\                          .binop: ast.BinOp
-        \\                            .op: u8 = 43
-        \\                            .left: *ast.Ast
-        \\                              .field_call: ast.FieldCall
-        \\                                .target: *ast.Ast
-        \\                                  .ident: []const u8
-        \\                                    "this"
-        \\                                .field: []const u8
-        \\                                  "f"
-        \\                                .args: []ast.Ast
-        \\                                  (empty)
-        \\                            .right: *ast.Ast
-        \\                              .field_access: ast.FieldAccess
-        \\                                .target: *ast.Ast
-        \\                                  .ident: []const u8
-        \\                                    "this"
-        \\                                .field: []const u8
-        \\                                  "b"
-    ).expectEqual(res);
+    try snap.Snap.init(@src(),
+        \\{
+        \\    data: [
+        \\        tag(let): {
+        \\            target: {
+        \\                value: "x"
+        \\                constant_idx: 4294967295
+        \\            }
+        \\            value: &tag(object): {
+        \\                prototype: (null)
+        \\                fields: [
+        \\                    {
+        \\                        name: {
+        \\                            value: "a"
+        \\                            constant_idx: 4294967295
+        \\                        }
+        \\                        value: &tag(number): 1
+        \\                    }
+        \\                    {
+        \\                        name: {
+        \\                            value: "f"
+        \\                            constant_idx: 4294967295
+        \\                        }
+        \\                        value: &tag(function): {
+        \\                            params: [
+        \\                            ]
+        \\                            body: &tag(block): [
+        \\                                tag(binop): {
+        \\                                    op: 43
+        \\                                    left: &tag(field_access): {
+        \\                                        target: &tag(ident): {
+        \\                                            value: "this"
+        \\                                            constant_idx: 4294967295
+        \\                                        }
+        \\                                        field: {
+        \\                                            value: "a"
+        \\                                            constant_idx: 4294967295
+        \\                                        }
+        \\                                    }
+        \\                                    right: &tag(number): 1
+        \\                                }
+        \\                            ]
+        \\                            function_idx: 4294967295
+        \\                            env_vars: [
+        \\                            ]
+        \\                            env_start: 4294967295
+        \\                            is_method: false
+        \\                        }
+        \\                    }
+        \\                ]
+        \\                class_idx: 4294967295
+        \\            }
+        \\        }
+        \\        tag(let): {
+        \\            target: {
+        \\                value: "y"
+        \\                constant_idx: 4294967295
+        \\            }
+        \\            value: &tag(object): {
+        \\                prototype: &tag(ident): {
+        \\                    value: "x"
+        \\                    constant_idx: 4294967295
+        \\                }
+        \\                fields: [
+        \\                    {
+        \\                        name: {
+        \\                            value: "b"
+        \\                            constant_idx: 4294967295
+        \\                        }
+        \\                        value: &tag(number): 2
+        \\                    }
+        \\                    {
+        \\                        name: {
+        \\                            value: "g"
+        \\                            constant_idx: 4294967295
+        \\                        }
+        \\                        value: &tag(function): {
+        \\                            params: [
+        \\                            ]
+        \\                            body: &tag(block): [
+        \\                                tag(binop): {
+        \\                                    op: 43
+        \\                                    left: &tag(field_call): {
+        \\                                        target: &tag(ident): {
+        \\                                            value: "this"
+        \\                                            constant_idx: 4294967295
+        \\                                        }
+        \\                                        field: {
+        \\                                            value: "f"
+        \\                                            constant_idx: 4294967295
+        \\                                        }
+        \\                                        args: [
+        \\                                        ]
+        \\                                    }
+        \\                                    right: &tag(field_access): {
+        \\                                        target: &tag(ident): {
+        \\                                            value: "this"
+        \\                                            constant_idx: 4294967295
+        \\                                        }
+        \\                                        field: {
+        \\                                            value: "b"
+        \\                                            constant_idx: 4294967295
+        \\                                        }
+        \\                                    }
+        \\                                }
+        \\                            ]
+        \\                            function_idx: 4294967295
+        \\                            env_vars: [
+        \\                            ]
+        \\                            env_start: 4294967295
+        \\                            is_method: false
+        \\                        }
+        \\                    }
+        \\                ]
+        \\                class_idx: 4294967295
+        \\            }
+        \\        }
+        \\    ]
+        \\}
+    ).equal(res);
 }

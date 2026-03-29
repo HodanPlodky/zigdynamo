@@ -1,0 +1,3 @@
+let f = fn() = n;
+let n = 5;
+f();

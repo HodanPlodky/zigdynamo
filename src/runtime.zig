@@ -1,4 +1,5 @@
 const std = @import("std");
+const utils = @import("utils.zig");
 
 pub const Heap = struct {
     data: []u8,
@@ -30,11 +31,15 @@ pub const Heap = struct {
 
     pub fn alloc_with_additional(self: *Heap, comptime T: type, count: usize) *T {
         // align without the branch
-        self.curr_ptr = (self.curr_ptr + (heap_align - 1)) & ~(heap_align - 1);
+        self.curr_ptr = self.curr_aligned();
 
         const res: *T = @ptrCast(@alignCast(&self.data[self.curr_ptr]));
         self.curr_ptr += @sizeOf(T) + T.additional_size(count);
         return res;
+    }
+
+    pub fn curr_aligned(self: *const Heap) usize {
+        return (self.curr_ptr + (heap_align - 1)) & ~(heap_align - 1);
     }
 
     pub fn check_available(self: *const Heap, comptime T: type, count: usize) bool {
@@ -45,27 +50,7 @@ pub const Heap = struct {
 };
 
 pub fn FlexibleArr(comptime T: type) type {
-    return packed struct {
-        const Self = @This();
-        count: usize,
-
-        pub fn additional_size(count: usize) usize {
-            return @sizeOf(T) * count;
-        }
-
-        pub fn get_ptr(self: *Self, index: usize) *T {
-            const place = @intFromPtr(&self.count);
-            return @ptrFromInt(place + @sizeOf(usize) + @sizeOf(T) * index);
-        }
-
-        pub fn get(self: *Self, index: usize) T {
-            return self.get_ptr(index).*;
-        }
-
-        pub fn set(self: *Self, index: usize, val: T) void {
-            self.get_ptr(index).* = val;
-        }
-    };
+    return utils.FlexibleArr(T, usize);
 }
 
 pub const ValueType = enum(u4) {
@@ -194,7 +179,6 @@ pub const Value = packed struct {
     }
 
     pub fn sub(left: Value, right: Value) Value {
-        // TODO: check
         return Value.new_raw(left.data - right.data);
     }
 
@@ -227,12 +211,8 @@ pub const Value = packed struct {
 
     pub fn format(
         self: Value,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.Writer,
     ) !void {
-        _ = options; // autofix
-        _ = fmt; // autofix
         try switch (self.get_type()) {
             ValueType.number => writer.print("{}", .{self.get_number()}),
             ValueType.nil => writer.print("nil", .{}),
@@ -246,19 +226,17 @@ pub const Value = packed struct {
     }
 };
 
-pub fn print(values: []Value) void {
-    for (values) |val| {
-        switch (val.get_type()) {
-            ValueType.string => {
-                //const data = val.get_ptr(String);
-                std.debug.print("TODO ", .{});
-            },
-            ValueType.number => {
-                const data = val.get_number();
-                std.debug.print("{} ", .{data});
-            },
-            else => @panic("Cannot print"),
-        }
+pub const FunctionMetadata = struct {
+    const JitFunction = @import("jit_utils.zig").JitFunction;
+    jit_state: u32 = 0,
+    call_counter: u32 = 0,
+
+    pub fn is_jitted(self: *const FunctionMetadata) bool {
+        return self.jit_state != 0;
     }
-    std.debug.print("\n", .{});
-}
+
+    pub fn get_code(self: *const FunctionMetadata, comptime C: type, compiler: *const C) JitFunction {
+        std.debug.assert(self.is_jitted());
+        return JitFunction{ .code = @ptrCast(&compiler.base.code_slice[self.jit_state]) };
+    }
+};
