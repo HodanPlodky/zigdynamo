@@ -638,7 +638,7 @@ test "test while" {
         \\                    }
         \\                }
         \\                tag(call): {
-        \\                    target: &tag(print_fn): void
+        \\                    target: &tag(builtin): .print
         \\                    args: [
         \\                        tag(string): {
         \\                            value: "x"
