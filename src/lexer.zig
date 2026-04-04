@@ -239,8 +239,6 @@ pub const Lexer = struct {
             return Token{ .kwtrue = {} };
         } else if (std.mem.eql(u8, "false", identifier)) {
             return Token{ .kwfalse = {} };
-        } else if (std.mem.eql(u8, "print", identifier)) {
-            return Token{ .kwprint = {} };
         } else {
             return Token{ .ident = identifier };
         }

@@ -2,6 +2,7 @@ const bc_interpret = @import("bc_interpreter.zig");
 const bytecode = @import("bytecode.zig");
 const runtime = @import("runtime.zig");
 const std = @import("std");
+const Builtin = @import("builtins.zig").Builtin;
 
 pub const GPR64 = enum(u4) {
     rax = 0,
@@ -66,7 +67,6 @@ pub fn JitState(Interpreter: type) type {
         // calls
         call: *const fn (noalias *Interpreter, noalias *const JitState(Interpreter)) callconv(JitCallConv) void,
         method_call: *const fn (noalias *Interpreter, noalias *const JitState(Interpreter), bytecode.ConstantIndex) callconv(JitCallConv) void,
-        print: *const fn (noalias *Interpreter, arg_count: u64) callconv(JitCallConv) void,
 
         // debug
         dbg: *const fn (runtime.Value) callconv(JitCallConv) void,
@@ -78,6 +78,8 @@ pub fn JitState(Interpreter: type) type {
         binop_panic: *const fn (runtime.Value, runtime.Value) callconv(JitCallConv) void,
         if_condition_panic: *const fn () callconv(JitCallConv) void,
         string_panic: *const fn () callconv(JitCallConv) void,
+
+        builtin_dispatch: *const fn (*Interpreter, Builtin, arg_count: u64) callconv(JitCallConv) void,
 
         pub fn get_offset(comptime field_name: []const u8) u32 {
             return @offsetOf(JitState(Interpreter), field_name);

@@ -4,6 +4,7 @@ const bc = @import("bytecode.zig");
 const jit = @import("jit_compiler.zig");
 const jit_utils = @import("jit_utils.zig");
 const optjit = @import("opt/jit.zig");
+const builtin = @import("builtins.zig");
 
 const Value = runtime.Value;
 const ValueType = runtime.ValueType;
@@ -659,10 +660,11 @@ pub fn Interpreter(comptime JitType: ?type) type {
                         }
                         continue :sw self.read_inst();
                     },
-                    bc.Instruction.print => {
-                        inter_dbg("print", self);
+                    bc.Instruction.builtin => {
+                        inter_dbg("builtin", self);
+                        const b: builtin.Builtin = @enumFromInt(self.read_u8());
                         const arg_count: u64 = @intCast(self.read_u32());
-                        self.do_print(arg_count);
+                        builtin.BuiltinDispatch(Self)(self, b, arg_count);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.string => {
@@ -900,7 +902,7 @@ pub fn Interpreter(comptime JitType: ?type) type {
             }
         }
 
-        fn do_print(self: *Self, arg_count: u64) void {
+        pub fn do_print(self: *Self, arg_count: u64) void {
             const arg_count_tmp: u32 = @intCast(arg_count);
             const arg_slice = self.stack.slice_top(arg_count_tmp);
             for (arg_slice) |val| {
@@ -1005,7 +1007,7 @@ pub fn Interpreter(comptime JitType: ?type) type {
                     .set_field = &do_set_field_jit(Self),
                     .call = &do_call(Self),
                     .method_call = &do_method_call_jit(Self),
-                    .print = &do_jit_print(Self),
+                    .builtin_dispatch = &builtin.BuiltinDispatch(Self),
                     .dbg = &dbg,
                     .dbg_raw = &dbg_raw,
                     .dbg_inst = &dbg_inst,

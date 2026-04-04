@@ -18,6 +18,7 @@ const OptJitInterpreter = @import("../bc_interpreter.zig").OptJitInterpreter;
 const Environment = @import("../bc_interpreter.zig").Environment;
 const LocalEnv = @import("../bc_interpreter.zig").LocalEnv;
 const rev = @import("../utils.zig").ReversedSlice;
+const Builtin = @import("../builtins.zig").Builtin;
 
 const ValuePlace = RegAllocAnalysis.ValuePlace;
 
@@ -517,8 +518,9 @@ pub const JitCompiler = struct {
                 //
                 // do call it self
                 try self.base.mov_from_jit_state(GPR64.rdi, "intepreter");
-                try self.base.set_reg_64(GPR64.rsi, print.args.len);
-                try self.base.call("print");
+                try self.base.set_reg_64(GPR64.rsi, @intFromEnum(Builtin.print));
+                try self.base.set_reg_64(GPR64.rdx, print.args.len);
+                try self.base.call("builtin_dispatch");
                 try self.stack_pop();
             },
             .copy => |copy_idx| {

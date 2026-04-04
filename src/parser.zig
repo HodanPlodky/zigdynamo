@@ -1,6 +1,7 @@
 const lexer = @import("lexer.zig");
 const ast = @import("ast.zig");
 const std = @import("std");
+const get_builtin = @import("builtins.zig").get_builtin;
 
 pub const ParserError = error{
     UnexpectedToken,
@@ -269,7 +270,13 @@ pub const Parser = struct {
     fn factor(self: *Parser) !ast.Ast {
         switch (self.pop()) {
             lexer.Token.number => |num| return ast.Ast{ .number = num },
-            lexer.Token.ident => |ident| return ast.Ast{ .ident = .{ .value = ident } },
+            lexer.Token.ident => |ident| {
+                if (get_builtin(ident)) |builtin| {
+                    return .{ .builtin = builtin };
+                } else {
+                    return .{ .ident = .{ .value = ident } };
+                }
+            },
             lexer.Token.kwlet => return self.parse_let(),
             lexer.Token.kwobject => return self.parse_object(),
             lexer.Token.kwnil => return ast.Ast.nil,
@@ -280,7 +287,6 @@ pub const Parser = struct {
             lexer.Token.kwtrue => return ast.Ast{ .bool = true },
             lexer.Token.kwfalse => return ast.Ast{ .bool = false },
             lexer.Token.string => |value| return ast.Ast{ .string = .{ .value = value } },
-            lexer.Token.kwprint => return ast.Ast.print_fn,
             else => return ParserError.UnexpectedToken,
         }
     }

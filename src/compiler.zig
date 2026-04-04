@@ -606,8 +606,9 @@ const Compiler = struct {
                     self.compile_expr(buffer, unbound_vars, false, arg);
                 }
                 switch (call.target.*) {
-                    ast.Ast.print_fn => {
-                        buffer.add_inst(I.print);
+                    ast.Ast.builtin => |builtin| {
+                        buffer.add_inst(I.builtin);
+                        buffer.add_u8(@intFromEnum(builtin));
                         buffer.add_u32(@intCast(call.args.len));
                     },
                     else => {

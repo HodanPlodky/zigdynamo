@@ -15,6 +15,7 @@ const SharedData = @import("analysis/analysis_base.zig").SharedData;
 const SerializationPass = @import("passes/parcopy_serialization.zig").SerializationPass;
 const OutOfSSAPass = @import("passes/outofssa.zig").OutOfSSAPass;
 const CanonicalAnalysis = @import("analysis/canonical_regs_analysis.zig").CanonicalRegsAnalysis;
+const Builtin = @import("../builtins.zig").Builtin;
 
 pub fn ir_compile(
     input: *const ast.Function,
@@ -608,10 +609,11 @@ pub const Compiler = struct {
                 }
 
                 switch (call.target.*) {
-                    .print_fn => {
+                    .builtin => |builtin| {
+                        std.debug.assert(builtin == Builtin.print);
                         const data = try self.create_with(ir.PrintData, .{ .args = args });
                         _ = try self.append_inst(.{ .print = data });
-
+                        
                         // the semantics of print is that it returns nil
                         return self.append_inst(.nil);
                     },
