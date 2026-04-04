@@ -67,7 +67,6 @@ pub const JitCompiler = struct {
         _ = bcdata;
 
         defer {
-            self.place_helper.deinit(self.base.scratch_arena.allocator());
             self.place_helper = .{};
             _ = self.base.scratch_arena.reset(.retain_capacity);
         }
