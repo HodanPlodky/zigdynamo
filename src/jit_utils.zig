@@ -79,7 +79,7 @@ pub fn JitState(Interpreter: type) type {
         if_condition_panic: *const fn () callconv(JitCallConv) void,
         string_panic: *const fn () callconv(JitCallConv) void,
 
-        builtin_dispatch: *const fn (*Interpreter, Builtin, arg_count: u64) callconv(JitCallConv) void,
+        builtin_dispatch: *const fn (*Interpreter, Builtin, arg_count: u64) callconv(JitCallConv) runtime.Value,
 
         pub fn get_offset(comptime field_name: []const u8) u32 {
             return @offsetOf(JitState(Interpreter), field_name);

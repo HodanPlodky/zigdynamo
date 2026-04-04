@@ -194,7 +194,7 @@ pub const Stores = struct {
             .phony => ir.Type.Top,
             .call => ir.Type.Top,
             .method_call => ir.Type.Top,
-            .print => ir.Type.Void,
+            .print => ir.Type.Top,
             .get_local => ir.Type.Top,
             .set_local => ir.Type.Void,
         };

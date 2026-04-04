@@ -17,11 +17,14 @@ fn check_arg_count(count: u64, comptime expected: u64) void {
     }
 }
 
-pub fn BuiltinDispatch(comptime Interpreter: type) fn(*Interpreter, Builtin, u64) callconv(JitCallConv) void {
+pub fn BuiltinDispatch(comptime Interpreter: type) fn (*Interpreter, Builtin, u64) callconv(JitCallConv) runtime.Value {
     return struct {
-        fn dispatch(inter: *Interpreter, builtin: Builtin, arg_count: u64) callconv(JitCallConv) void {
+        fn dispatch(inter: *Interpreter, builtin: Builtin, arg_count: u64) callconv(JitCallConv) runtime.Value {
             switch (builtin) {
-                .print => inter.do_print(arg_count),
+                .print => {
+                    inter.do_print(arg_count);
+                    return runtime.Value.new_nil();
+                },
                 .exit => {
                     check_arg_count(arg_count, 1);
                     const value: runtime.Value = inter.stack.pop();
@@ -31,6 +34,7 @@ pub fn BuiltinDispatch(comptime Interpreter: type) fn(*Interpreter, Builtin, u64
                     }
                     const number = value.get_number() % 0xff;
                     std.posix.exit(@intCast(number));
+                    return runtime.Value.new_nil();
                 },
                 .char_to_int => {
                     check_arg_count(arg_count, 1);
@@ -52,7 +56,7 @@ pub fn BuiltinDispatch(comptime Interpreter: type) fn(*Interpreter, Builtin, u64
                     }
                     const number: u32 = @intCast(slice[5]);
                     const result = runtime.Value.new_num(number);
-                    inter.stack.push(result);
+                    return result;
                 },
             }
         }

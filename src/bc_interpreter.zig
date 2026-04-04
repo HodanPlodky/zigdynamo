@@ -664,7 +664,8 @@ pub fn Interpreter(comptime JitType: ?type) type {
                         inter_dbg("builtin", self);
                         const b: builtin.Builtin = @enumFromInt(self.read_u8());
                         const arg_count: u64 = @intCast(self.read_u32());
-                        builtin.BuiltinDispatch(Self)(self, b, arg_count);
+                        const result = builtin.BuiltinDispatch(Self)(self, b, arg_count);
+                        self.stack.push(result);
                         continue :sw self.read_inst();
                     },
                     bc.Instruction.string => {
@@ -932,7 +933,6 @@ pub fn Interpreter(comptime JitType: ?type) type {
             self.stack.pop_n(arg_count_tmp);
             self.writer.print("\n", .{}) catch unreachable;
             self.writer.flush() catch unreachable;
-            self.stack.push(Value.new_nil());
         }
 
         fn do_get_field(self: *Self, string_idx: bc.ConstantIndex) void {

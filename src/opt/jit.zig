@@ -521,7 +521,9 @@ pub const JitCompiler = struct {
                 try self.base.set_reg_64(GPR64.rsi, @intFromEnum(Builtin.print));
                 try self.base.set_reg_64(GPR64.rdx, print.args.len);
                 try self.base.call("builtin_dispatch");
-                try self.stack_pop();
+
+                const outplace = self.get_place(ir_reg);
+                try self.mov_places(.{.reg = GPR64.rax}, outplace);
             },
             .copy => |copy_idx| {
                 const copy = self.ir_compiler.get(ir.CopyData, copy_idx);

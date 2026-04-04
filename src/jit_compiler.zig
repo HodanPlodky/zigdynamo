@@ -445,6 +445,8 @@ pub const JitCompiler = struct {
                 try self.base.set_reg_64(GPR64.rdx, @intCast(arg_count));
 
                 try self.base.call("builtin_dispatch");
+                try self.base.mov_reg_reg(GPR64.r8, GPR64.rax);
+                try self.stack_push(GPR64.r8);
             },
             bytecode.Instruction.string => {
                 const const_idx = self.read_u32();

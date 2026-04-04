@@ -612,10 +612,7 @@ pub const Compiler = struct {
                     .builtin => |builtin| {
                         std.debug.assert(builtin == Builtin.print);
                         const data = try self.create_with(ir.PrintData, .{ .args = args });
-                        _ = try self.append_inst(.{ .print = data });
-                        
-                        // the semantics of print is that it returns nil
-                        return self.append_inst(.nil);
+                        return try self.append_inst(.{ .print = data });
                     },
                     else => {
                         const target = try self.compile_expr(call.target);
