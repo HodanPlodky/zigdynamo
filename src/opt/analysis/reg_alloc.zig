@@ -10,6 +10,7 @@ pub const RegAllocAnalysis = struct {
         reg: GPR64,
         memory: usize,
         value: Value,
+        discard,
         none,
     };
 
@@ -117,6 +118,11 @@ pub const RegAllocAnalysis = struct {
                 return;
             },
             else => {},
+        }
+
+        if (range.empty()) {
+            self.translates[reg.get_usize()] = .discard;
+            return;
         }
 
         if (self.free_regs.pop()) |arch_reg| {
@@ -236,8 +242,8 @@ test "basic reg alloc add" {
                 // order of the release the rcx is at the top
                 // but both of them should be free
                 RegAllocAnalysis.ValuePlace{ .reg = GPR64.rcx },
-                // then this would be also switched
-                RegAllocAnalysis.ValuePlace{ .reg = GPR64.rdx },
+                // last one is not used
+                RegAllocAnalysis.ValuePlace.discard,
                 RegAllocAnalysis.ValuePlace.none,
             },
             regs.translates,
@@ -261,8 +267,8 @@ test "basic reg alloc add" {
                 // order of the release the rcx is at the top
                 // but both of them should be free
                 RegAllocAnalysis.ValuePlace{ .reg = GPR64.rcx },
-                // then this would be also switched
-                RegAllocAnalysis.ValuePlace{ .reg = GPR64.rdx },
+                // last one is not used
+                RegAllocAnalysis.ValuePlace.discard,
                 RegAllocAnalysis.ValuePlace.none,
             },
             regs.translates,
@@ -283,7 +289,8 @@ test "basic reg alloc add" {
                 RegAllocAnalysis.ValuePlace{ .reg = GPR64.rdx },
                 RegAllocAnalysis.ValuePlace{ .memory = 0 },
                 RegAllocAnalysis.ValuePlace{ .reg = GPR64.rdx },
-                RegAllocAnalysis.ValuePlace{ .memory = 8 },
+                // last one is not used
+                RegAllocAnalysis.ValuePlace.discard,
                 RegAllocAnalysis.ValuePlace.none,
             },
             regs.translates,
@@ -304,7 +311,8 @@ test "basic reg alloc add" {
                 RegAllocAnalysis.ValuePlace{ .memory = 0 },
                 RegAllocAnalysis.ValuePlace{ .memory = 8 },
                 RegAllocAnalysis.ValuePlace{ .memory = 16 },
-                RegAllocAnalysis.ValuePlace{ .memory = 24 },
+                // last one is not used
+                RegAllocAnalysis.ValuePlace.discard,
                 RegAllocAnalysis.ValuePlace.none,
             },
             regs.translates,
