@@ -435,13 +435,18 @@ pub const JitCompiler = struct {
                 try self.vzeroupper();
                 try self.base.call("call");
             },
-            bytecode.Instruction.print => {
+            bytecode.Instruction.builtin => {
+                const b: u8 = @intCast(self.bytecode[self.pc]);
+                self.pc += 1;
                 const arg_count = self.read_u32();
 
                 try self.base.mov_reg_reg(GPR64.rdi, intepret_addr);
-                try self.base.set_reg_64(GPR64.rsi, @intCast(arg_count));
+                try self.base.set_reg_64(GPR64.rsi, @intCast(b));
+                try self.base.set_reg_64(GPR64.rdx, @intCast(arg_count));
 
-                try self.base.call("print");
+                try self.base.call("builtin_dispatch");
+                try self.base.mov_reg_reg(GPR64.r8, GPR64.rax);
+                try self.stack_push(GPR64.r8);
             },
             bytecode.Instruction.string => {
                 const const_idx = self.read_u32();

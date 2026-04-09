@@ -1,5 +1,6 @@
 const std = @import("std");
 const utils = @import("../utils.zig");
+const Builtin = @import("../builtins.zig").Builtin;
 
 // Data Stores
 pub const InstructionDistinct = utils.DistinctData(u32, Instruction);
@@ -71,11 +72,12 @@ pub const CallData = struct {
 pub const CallDataDistinct = utils.DistinctData(u32, CallData);
 pub const CallDataIdx = CallDataDistinct.Index;
 
-pub const PrintData = struct {
+pub const BuiltinData = struct {
+    builtin: Builtin,
     args: []Reg,
 };
-pub const PrintDataDistinct = utils.DistinctData(u32, PrintData);
-pub const PrintDataIdx = PrintDataDistinct.Index;
+pub const BuiltinDataDistinct = utils.DistinctData(u32, BuiltinData);
+pub const BuiltinDataIdx = BuiltinDataDistinct.Index;
 
 pub const ParallelCopy = struct {
     reg: Reg,
@@ -187,7 +189,7 @@ pub const Instruction = union(enum) {
     // calls
     call: CallDataIdx,
     method_call: MethodCallIdx,
-    print: PrintDataIdx,
+    builtin: BuiltinDataIdx,
 
     // this instruction should be removed
     // before jit
@@ -233,7 +235,7 @@ pub const Instruction = union(enum) {
             .parallel_copy => "parallel_copy",
             .call => "call",
             .method_call => "method_call",
-            .print => "print",
+            .builtin => "builtin",
             .get_local => "get_local",
             .set_local => "set_local",
             .copy => "copy",
@@ -264,7 +266,7 @@ pub const Instruction = union(enum) {
             .set_local,
             .call,
             .method_call,
-            .print,
+            .builtin,
             .set_field,
             => true,
             else => false,

@@ -15,6 +15,7 @@ const SharedData = @import("analysis/analysis_base.zig").SharedData;
 const SerializationPass = @import("passes/parcopy_serialization.zig").SerializationPass;
 const OutOfSSAPass = @import("passes/outofssa.zig").OutOfSSAPass;
 const CanonicalAnalysis = @import("analysis/canonical_regs_analysis.zig").CanonicalRegsAnalysis;
+const Builtin = @import("../builtins.zig").Builtin;
 
 pub fn ir_compile(
     input: *const ast.Function,
@@ -246,14 +247,16 @@ pub const CompiledResult = struct {
                 }
                 try writer.print(")", .{});
             },
-            .print => |print_idx| {
-                const print = self.stores.get(ir.PrintData, print_idx);
-                if (print.args.len > 0) {
-                    try writer.print(" %{}", .{print.args[0].index});
-                    for (print.args[1..]) |arg| {
+            .builtin => |builtin_idx| {
+                const builtin = self.stores.get(ir.BuiltinData, builtin_idx);
+                try writer.print("{}(", .{builtin.builtin});
+                if (builtin.args.len > 0) {
+                    try writer.print("%{}", .{builtin.args[0].index});
+                    for (builtin.args[1..]) |arg| {
                         try writer.print(", %{}", .{arg.index});
                     }
                 }
+                try writer.print(")", .{});
             },
             .copy => |copy_idx| {
                 const copy = self.stores.get(ir.CopyData, copy_idx);
@@ -608,12 +611,12 @@ pub const Compiler = struct {
                 }
 
                 switch (call.target.*) {
-                    .print_fn => {
-                        const data = try self.create_with(ir.PrintData, .{ .args = args });
-                        _ = try self.append_inst(.{ .print = data });
-
-                        // the semantics of print is that it returns nil
-                        return self.append_inst(.nil);
+                    .builtin => |builtin| {
+                        const data = try self.create_with(ir.BuiltinData, .{
+                            .builtin = builtin,
+                            .args = args,
+                        });
+                        return try self.append_inst(.{ .builtin = data });
                     },
                     else => {
                         const target = try self.compile_expr(call.target);

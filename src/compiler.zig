@@ -606,8 +606,9 @@ const Compiler = struct {
                     self.compile_expr(buffer, unbound_vars, false, arg);
                 }
                 switch (call.target.*) {
-                    ast.Ast.print_fn => {
-                        buffer.add_inst(I.print);
+                    ast.Ast.builtin => |builtin| {
+                        buffer.add_inst(I.builtin);
+                        buffer.add_u8(@intFromEnum(builtin));
                         buffer.add_u32(@intCast(call.args.len));
                     },
                     else => {
@@ -932,7 +933,7 @@ test "object compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try snap.Snap.init(@src(),
-        \\function (48 bytes)
+        \\function (50 bytes)
         \\    0: nil
         \\    1: push_byte 1
         \\    3: string 0 0 0 2
@@ -943,12 +944,12 @@ test "object compiler" {
         \\    21: get_field 0 0 0 0
         \\    26: push_byte 1
         \\    28: add
-        \\    29: print 0 0 0 1
-        \\    34: pop
-        \\    35: get_global_small 0
-        \\    37: get_field 0 0 0 1
-        \\    42: print 0 0 0 1
-        \\    47: ret_main
+        \\    29: builtin 0 0 0 0 1
+        \\    35: pop
+        \\    36: get_global_small 0
+        \\    38: get_field 0 0 0 1
+        \\    43: builtin 0 0 0 0 1
+        \\    49: ret_main
         \\
         \\string (6 bytes)
         \\string: a
@@ -985,7 +986,7 @@ test "object 2 compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try snap.Snap.init(@src(),
-        \\function (74 bytes)
+        \\function (77 bytes)
         \\    0: nil
         \\    1: push_byte 1
         \\    3: string 0 0 0 2
@@ -996,22 +997,22 @@ test "object 2 compiler" {
         \\    21: get_field 0 0 0 0
         \\    26: push_byte 1
         \\    28: add
-        \\    29: print 0 0 0 1
-        \\    34: pop
-        \\    35: get_global_small 0
-        \\    37: get_field 0 0 0 1
-        \\    42: print 0 0 0 1
-        \\    47: pop
-        \\    48: push_byte 2
-        \\    50: get_global_small 0
-        \\    52: set_field 0 0 0 0
-        \\    57: pop
-        \\    58: get_global_small 0
-        \\    60: get_field 0 0 0 0
-        \\    65: push_byte 1
-        \\    67: add
-        \\    68: print 0 0 0 1
-        \\    73: ret_main
+        \\    29: builtin 0 0 0 0 1
+        \\    35: pop
+        \\    36: get_global_small 0
+        \\    38: get_field 0 0 0 1
+        \\    43: builtin 0 0 0 0 1
+        \\    49: pop
+        \\    50: push_byte 2
+        \\    52: get_global_small 0
+        \\    54: set_field 0 0 0 0
+        \\    59: pop
+        \\    60: get_global_small 0
+        \\    62: get_field 0 0 0 0
+        \\    67: push_byte 1
+        \\    69: add
+        \\    70: builtin 0 0 0 0 1
+        \\    76: ret_main
         \\
         \\string (6 bytes)
         \\string: a
@@ -1051,7 +1052,7 @@ test "object 3 compiler" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try snap.Snap.init(@src(),
-        \\function (71 bytes)
+        \\function (72 bytes)
         \\    0: nil
         \\    1: push_byte 1
         \\    3: string 0 0 0 2
@@ -1065,24 +1066,24 @@ test "object 3 compiler" {
         \\    37: pop
         \\    38: get_global_small 0
         \\    40: get_field 0 0 0 1
-        \\    45: print 0 0 0 1
-        \\    50: pop
-        \\    51: push_byte 2
-        \\    53: get_global_small 0
-        \\    55: set_field 0 0 0 0
-        \\    60: pop
-        \\    61: push_byte 2
-        \\    63: get_global_small 0
-        \\    65: methodcall 0 0 0 3
-        \\    70: ret_main
+        \\    45: builtin 0 0 0 0 1
+        \\    51: pop
+        \\    52: push_byte 2
+        \\    54: get_global_small 0
+        \\    56: set_field 0 0 0 0
+        \\    61: pop
+        \\    62: push_byte 2
+        \\    64: get_global_small 0
+        \\    66: methodcall 0 0 0 3
+        \\    71: ret_main
         \\
-        \\function (16 bytes)
+        \\function (17 bytes)
         \\    0: get_small 0
         \\    2: get_field 0 0 0 0
         \\    7: get_small 1
         \\    9: add
-        \\    10: print 0 0 0 1
-        \\    15: ret
+        \\    10: builtin 0 0 0 0 1
+        \\    16: ret
         \\
         \\string (6 bytes)
         \\string: a
@@ -1182,7 +1183,7 @@ test "linked list" {
     const prog = try p.parse();
     const res = try compile(prog, allocator);
     try snap.Snap.init(@src(),
-        \\function (167 bytes)
+        \\function (170 bytes)
         \\    0: closure 0 0 0 1 0 0 0 0
         \\    9: set_global 0 0 0 0
         \\    14: pop
@@ -1201,7 +1202,7 @@ test "linked list" {
         \\    50: push_byte 100
         \\    52: lt
         \\    53: branch 0 0 0 63
-        \\    58: jump 0 0 0 158
+        \\    58: jump 0 0 0 161
         \\    63: pop
         \\    64: push_byte 1
         \\    66: get_global_small 2
@@ -1221,25 +1222,25 @@ test "linked list" {
         \\    103: pop
         \\    104: get_global_small 2
         \\    106: methodcall 0 0 0 6
-        \\    111: print 0 0 0 1
-        \\    116: pop
-        \\    117: get_global_small 2
-        \\    119: methodcall 0 0 0 6
-        \\    124: print 0 0 0 1
-        \\    129: pop
-        \\    130: get_global_small 2
-        \\    132: methodcall 0 0 0 6
-        \\    137: print 0 0 0 1
-        \\    142: pop
-        \\    143: get_global_small 3
-        \\    145: push_byte 1
-        \\    147: add
-        \\    148: set_global 0 0 0 3
-        \\    153: jump 0 0 0 48
-        \\    158: pop
-        \\    159: get_global_small 2
-        \\    161: methodcall 0 0 0 7
-        \\    166: ret_main
+        \\    111: builtin 0 0 0 0 1
+        \\    117: pop
+        \\    118: get_global_small 2
+        \\    120: methodcall 0 0 0 6
+        \\    125: builtin 0 0 0 0 1
+        \\    131: pop
+        \\    132: get_global_small 2
+        \\    134: methodcall 0 0 0 6
+        \\    139: builtin 0 0 0 0 1
+        \\    145: pop
+        \\    146: get_global_small 3
+        \\    148: push_byte 1
+        \\    150: add
+        \\    151: set_global 0 0 0 3
+        \\    156: jump 0 0 0 48
+        \\    161: pop
+        \\    162: get_global_small 2
+        \\    164: methodcall 0 0 0 7
+        \\    169: ret_main
         \\
         \\function (10 bytes)
         \\    0: nil
@@ -1356,7 +1357,7 @@ test "linked list" {
         \\    154: nil
         \\    155: ret
         \\
-        \\function (60 bytes)
+        \\function (61 bytes)
         \\    0: get_small 0
         \\    2: get_field 0 0 0 3
         \\    7: set 0 0 0 1
@@ -1366,17 +1367,17 @@ test "linked list" {
         \\    16: nil
         \\    17: ne
         \\    18: branch 0 0 0 28
-        \\    23: jump 0 0 0 59
+        \\    23: jump 0 0 0 60
         \\    28: pop
         \\    29: get_small 1
         \\    31: get_field 0 0 0 0
-        \\    36: print 0 0 0 1
-        \\    41: pop
-        \\    42: get_small 1
-        \\    44: get_field 0 0 0 1
-        \\    49: set 0 0 0 1
-        \\    54: jump 0 0 0 14
-        \\    59: ret
+        \\    36: builtin 0 0 0 0 1
+        \\    42: pop
+        \\    43: get_small 1
+        \\    45: get_field 0 0 0 1
+        \\    50: set 0 0 0 1
+        \\    55: jump 0 0 0 14
+        \\    60: ret
         \\
         \\function (44 bytes)
         \\    0: nil
@@ -1447,7 +1448,7 @@ test "blocks compiler" {
         \\    17: call
         \\    18: ret_main
         \\
-        \\function (35 bytes)
+        \\function (36 bytes)
         \\    0: push_byte 5
         \\    2: set 0 0 0 0
         \\    7: pop
@@ -1458,10 +1459,10 @@ test "blocks compiler" {
         \\    18: pop
         \\    19: string 0 0 0 0
         \\    24: get_small 1
-        \\    26: print 0 0 0 2
-        \\    31: pop
-        \\    32: get_small 0
-        \\    34: ret
+        \\    26: builtin 0 0 0 0 2
+        \\    32: pop
+        \\    33: get_small 0
+        \\    35: ret
         \\
         \\string (13 bytes)
         \\string: printing

@@ -1377,6 +1377,31 @@ test "order of args" {
     res.deinit();
 }
 
+test "char_to_int builtin" {
+    const code =
+        \\ let f = fn(c) = {
+        \\     char_to_int(c);
+        \\ };
+        \\ 
+        \\ print(f("a"));
+        \\ print(f("b"));
+        \\ print(f("c"));
+        \\ print(f("z"));
+    ;
+
+    var res = try test_helper(code[0..]);
+    try snap.Snap.init(@src(),
+        \\result: 1 (0)
+        \\97 
+        \\98 
+        \\99 
+        \\122 
+        \\
+        \\
+    ).equal_fmt(res);
+    res.deinit();
+}
+
 test "reg stress test" {
     const code =
         \\ let add = fn(a, b) = {

@@ -13,7 +13,7 @@ pub const Stores = struct {
     store_data: ir.StoreDataDistinct.Multi = .{},
     phony: ir.PhonyDistinct.Multi = .{},
     call: ir.CallDataDistinct.Multi = .{},
-    print: ir.PrintDataDistinct.Multi = .{},
+    builtin: ir.BuiltinDataDistinct.Multi = .{},
     copies: ir.CopyDataDistinct.Multi = .{},
     closures: ir.ClosureDistinct.Multi = .{},
     objects: ir.ObjectDistinct.Multi = .{},
@@ -194,7 +194,7 @@ pub const Stores = struct {
             .phony => ir.Type.Top,
             .call => ir.Type.Top,
             .method_call => ir.Type.Top,
-            .print => ir.Type.Void,
+            .builtin => ir.Type.Top,
             .get_local => ir.Type.Top,
             .set_local => ir.Type.Void,
         };
@@ -386,9 +386,9 @@ pub const Stores = struct {
                 const call = self.get(ir.MethodCall, call_idx);
                 return RegIter.create_method_call(call);
             },
-            .print => |print_idx| {
-                const data = self.get(ir.PrintData, print_idx);
-                return RegIter.create_args(data.args);
+            .builtin => |builtin_idx| {
+                const builtin = self.get(ir.BuiltinData, builtin_idx);
+                return RegIter.create_args(builtin.args);
             },
             .get_local => return RegIter.create_empty(),
             .set_local => |set_local_idx| {
@@ -572,9 +572,9 @@ pub const Stores = struct {
                 const object = self.get_field_reg_ptr(ir.MethodCall, .object, call_idx);
                 return RegIterPtr.create_onerest(object, data.args);
             },
-            .print => |print_idx| {
-                const print = self.get(ir.PrintData, print_idx);
-                return RegIterPtr.create_args(print.args);
+            .builtin => |builtin_idx| {
+                const builtin = self.get(ir.BuiltinData, builtin_idx);
+                return RegIterPtr.create_args(builtin.args);
             },
             .get_local => return RegIterPtr.create_empty(),
             .set_local => |set_local_idx| {

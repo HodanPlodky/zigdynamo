@@ -1,4 +1,5 @@
 const std = @import("std");
+const Builtin = @import("builtins.zig").Builtin;
 
 pub const Program = struct {
     data: []Ast,
@@ -24,7 +25,7 @@ pub const Ast = union(enum) {
     field_call: FieldCall,
 
     // builtins
-    print_fn,
+    builtin: Builtin,
 };
 
 pub const String = struct {

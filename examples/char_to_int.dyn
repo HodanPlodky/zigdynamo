@@ -1,0 +1,6 @@
+let f = fn(c) = {
+    print(char_to_int(c));
+};
+
+f("a");
+f("b");

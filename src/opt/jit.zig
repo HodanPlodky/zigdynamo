@@ -18,6 +18,7 @@ const OptJitInterpreter = @import("../bc_interpreter.zig").OptJitInterpreter;
 const Environment = @import("../bc_interpreter.zig").Environment;
 const LocalEnv = @import("../bc_interpreter.zig").LocalEnv;
 const rev = @import("../utils.zig").ReversedSlice;
+const Builtin = @import("../builtins.zig").Builtin;
 
 const ValuePlace = RegAllocAnalysis.ValuePlace;
 
@@ -66,7 +67,6 @@ pub const JitCompiler = struct {
         _ = bcdata;
 
         defer {
-            self.place_helper.deinit(self.base.scratch_arena.allocator());
             self.place_helper = .{};
             _ = self.base.scratch_arena.reset(.retain_capacity);
         }
@@ -506,20 +506,23 @@ pub const JitCompiler = struct {
                 try self.stack_pop();
                 try self.restore_from_stack(stored_places);
             },
-            .print => |print_idx| {
-                const print = self.ir_compiler.get(ir.PrintData, print_idx);
+            .builtin => |builtin_idx| {
+                const builtin = self.ir_compiler.get(ir.BuiltinData, builtin_idx);
 
                 // push args to stack
-                for (print.args) |arg| {
+                for (builtin.args) |arg| {
                     const arg_place = self.get_place(arg);
                     try self.stack_push(arg_place);
                 }
                 //
                 // do call it self
                 try self.base.mov_from_jit_state(GPR64.rdi, "intepreter");
-                try self.base.set_reg_64(GPR64.rsi, print.args.len);
-                try self.base.call("print");
-                try self.stack_pop();
+                try self.base.set_reg_64(GPR64.rsi, @intFromEnum(builtin.builtin));
+                try self.base.set_reg_64(GPR64.rdx, builtin.args.len);
+                try self.base.call("builtin_dispatch");
+
+                const outplace = self.get_place(ir_reg);
+                try self.mov_places(.{ .reg = GPR64.rax }, outplace);
             },
             .copy => |copy_idx| {
                 const copy = self.ir_compiler.get(ir.CopyData, copy_idx);
@@ -668,6 +671,10 @@ pub const JitCompiler = struct {
             .reg => |reg| try self.mov_place_to_reg(src, reg),
             .memory => |offset| try self.mov_place_to_mem(src, offset),
 
+            // instruction results the value but
+            // instruction cannot be removed
+            .discard => {},
+
             // value or none cannot be destination
             .value, .none => unreachable,
         }
@@ -681,7 +688,7 @@ pub const JitCompiler = struct {
             else
                 try self.base.mov_from_offset(GPR64.rsp, @intCast(offset), dst),
             .value => |value| try self.base.set_reg_64(dst, value.data),
-            .none => unreachable,
+            .none, .discard => unreachable,
         }
     }
 
@@ -693,6 +700,7 @@ pub const JitCompiler = struct {
                 try self.base.mov_to_offset(GPR64.rsp, @intCast(dst_offset), reg),
             .memory => unreachable,
             .none => unreachable,
+            .discard => unreachable,
             .value => |value| {
                 try self.base.set_reg_64(GPR64.rdi, value.data);
                 try self.mov_place_to_mem(.{ .reg = GPR64.rdi }, dst_offset);
