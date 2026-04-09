@@ -1389,7 +1389,7 @@ test "char_to_int builtin" {
         \\ print(f("z"));
     ;
 
-    var res = try test_helper_inner(code[0..], &.{JitInterpreter});
+    var res = try test_helper(code[0..]);
     try snap.Snap.init(@src(),
         \\result: 1 (0)
         \\97 

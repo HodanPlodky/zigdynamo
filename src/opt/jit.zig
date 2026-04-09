@@ -506,19 +506,19 @@ pub const JitCompiler = struct {
                 try self.stack_pop();
                 try self.restore_from_stack(stored_places);
             },
-            .print => |print_idx| {
-                const print = self.ir_compiler.get(ir.PrintData, print_idx);
+            .builtin => |builtin_idx| {
+                const builtin = self.ir_compiler.get(ir.BuiltinData, builtin_idx);
 
                 // push args to stack
-                for (print.args) |arg| {
+                for (builtin.args) |arg| {
                     const arg_place = self.get_place(arg);
                     try self.stack_push(arg_place);
                 }
                 //
                 // do call it self
                 try self.base.mov_from_jit_state(GPR64.rdi, "intepreter");
-                try self.base.set_reg_64(GPR64.rsi, @intFromEnum(Builtin.print));
-                try self.base.set_reg_64(GPR64.rdx, print.args.len);
+                try self.base.set_reg_64(GPR64.rsi, @intFromEnum(builtin.builtin));
+                try self.base.set_reg_64(GPR64.rdx, builtin.args.len);
                 try self.base.call("builtin_dispatch");
 
                 const outplace = self.get_place(ir_reg);
