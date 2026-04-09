@@ -249,7 +249,7 @@ pub const CompiledResult = struct {
             },
             .builtin => |builtin_idx| {
                 const builtin = self.stores.get(ir.BuiltinData, builtin_idx);
-                try writer.print(" {} (", .{builtin.builtin});
+                try writer.print("{}(", .{builtin.builtin});
                 if (builtin.args.len > 0) {
                     try writer.print("%{}", .{builtin.args[0].index});
                     for (builtin.args[1..]) |arg| {
