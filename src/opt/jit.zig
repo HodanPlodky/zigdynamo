@@ -522,7 +522,7 @@ pub const JitCompiler = struct {
                 try self.base.call("builtin_dispatch");
 
                 const outplace = self.get_place(ir_reg);
-                try self.mov_places(.{.reg = GPR64.rax}, outplace);
+                try self.mov_places(.{ .reg = GPR64.rax }, outplace);
             },
             .copy => |copy_idx| {
                 const copy = self.ir_compiler.get(ir.CopyData, copy_idx);

@@ -10,7 +10,7 @@ pub const LiveRangesAnalysis = struct {
     const Range = struct {
         begin: u32,
         end: u32,
-        
+
         pub fn empty(self: *const Range) bool {
             return self.begin == self.end;
         }
