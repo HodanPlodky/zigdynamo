@@ -39,7 +39,7 @@ pub const RegAllocAnalysis = struct {
 
     pub fn analyze(self: *RegAllocAnalysis) !void {
         for (self.release) |*item| {
-            item.* = .{};
+            item.* = .empty;
         }
         self.base.shared_data.update_all_emit_orders(self.base.compiler);
         try self.ranges.analyze();

@@ -17,10 +17,10 @@ pub const DominatorAnalysis = struct {
     idoms: []?ir.BasicBlockIdx,
 
     /// edges of dom tree for each basic block
-    domtree_edges: []std.ArrayListUnmanaged(ir.BasicBlockIdx),
+    domtree_edges: []std.ArrayList(ir.BasicBlockIdx),
 
     // TODO: should be removed and replaced by post orde in shared data
-    post_order: std.ArrayListUnmanaged(ir.BasicBlockIdx),
+    post_order: std.ArrayList(ir.BasicBlockIdx),
 
     // temp set to not allocate
     // when it is not necessary
@@ -33,8 +33,8 @@ pub const DominatorAnalysis = struct {
             .dominators = try base.alloc.alloc(BitSet, bb_count),
             .frontiers = try base.alloc.alloc(BitSet, bb_count),
             .idoms = try base.alloc.alloc(?ir.BasicBlockIdx, bb_count),
-            .domtree_edges = try base.alloc.alloc(std.ArrayListUnmanaged(ir.BasicBlockIdx), bb_count),
-            .post_order = try std.ArrayListUnmanaged(ir.BasicBlockIdx).initCapacity(base.alloc, bb_count),
+            .domtree_edges = try base.alloc.alloc(std.ArrayList(ir.BasicBlockIdx), bb_count),
+            .post_order = try std.ArrayList(ir.BasicBlockIdx).initCapacity(base.alloc, bb_count),
             .temp_set = try BitSet.initFull(base.alloc, bb_count),
         };
 
@@ -48,7 +48,7 @@ pub const DominatorAnalysis = struct {
         }
 
         for (self.domtree_edges) |*bb_edges| {
-            bb_edges.* = std.ArrayListUnmanaged(ir.BasicBlockIdx){};
+            bb_edges.* = std.ArrayList(ir.BasicBlockIdx).empty;
         }
 
         var iter = self.base.compiler.stores.idx_iter(ir.Function);

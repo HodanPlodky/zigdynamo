@@ -36,12 +36,12 @@ pub const SharedData = struct {
             function_idx.get_usize(),
         );
         for (compiler.stores.function.data.items, 0..) |function, idx| {
-            post_orders[idx] = try std.ArrayListUnmanaged(ir.BasicBlockIdx).initCapacity(
+            post_orders[idx] = try std.ArrayList(ir.BasicBlockIdx).initCapacity(
                 alloc,
                 function.basicblocks.items.len,
             );
 
-            emit_orders[idx] = try std.ArrayListUnmanaged(ir.BasicBlockIdx).initCapacity(
+            emit_orders[idx] = try std.ArrayList(ir.BasicBlockIdx).initCapacity(
                 alloc,
                 function.basicblocks.items.len,
             );

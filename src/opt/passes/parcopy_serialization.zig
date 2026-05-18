@@ -17,13 +17,13 @@ const TOP: ir.Reg = ir.Reg.new(std.math.maxInt(u32) - 1);
 pub const SerializationPass = struct {
     base: Base,
     canon: Canonical,
-    group: std.ArrayList(ir.InstructionIdx) = .{},
-    group_positions: std.ArrayList(usize) = .{},
+    group: std.ArrayList(ir.InstructionIdx) = .empty,
+    group_positions: std.ArrayList(usize) = .empty,
 
     reserved_reg: ir.Reg = undefined,
 
-    todo: std.ArrayList(ir.InstructionIdx) = .{},
-    ready: std.ArrayList(ir.InstructionIdx) = .{},
+    todo: std.ArrayList(ir.InstructionIdx) = .empty,
+    ready: std.ArrayList(ir.InstructionIdx) = .empty,
     loc: []ir.Reg,
     pred: []ir.Reg,
 

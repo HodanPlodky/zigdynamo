@@ -11,7 +11,7 @@ pub const MakeSSA = struct {
 
     local_count: u32,
     counters: []u32,
-    stacks: []std.ArrayListUnmanaged(ir.Reg),
+    stacks: []std.ArrayList(ir.Reg),
     stack_checkpoints: []usize,
 
     pub fn init(base: Base) !MakeSSA {
@@ -20,7 +20,7 @@ pub const MakeSSA = struct {
             .base = base,
             .local_count = local_count,
             .counters = try base.alloc.alloc(u32, local_count),
-            .stacks = try base.alloc.alloc(std.ArrayListUnmanaged(ir.Reg), local_count),
+            .stacks = try base.alloc.alloc(std.ArrayList(ir.Reg), local_count),
             .stack_checkpoints = try base.alloc.alloc(usize, local_count),
             .dom = try DominantorAnalysis.init(base.analysis_base),
         };
@@ -41,7 +41,7 @@ pub const MakeSSA = struct {
 
         // TODO better starter bound
         for (self.stacks) |*stack| {
-            stack.* = try std.ArrayListUnmanaged(ir.Reg).initCapacity(self.base.alloc, @intCast(bb_count.index));
+            stack.* = try std.ArrayList(ir.Reg).initCapacity(self.base.alloc, @intCast(bb_count.index));
         }
 
         var visited = try BitSet.initEmpty(self.base.alloc, bb_count.index);

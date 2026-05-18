@@ -18,7 +18,7 @@ const CompilerFrame = struct {
 
     pub fn init(alloc: std.mem.Allocator) CompilerFrame {
         return CompilerFrame{
-            .vars = std.ArrayList([]const u8){},
+            .vars = .empty,
             .alloc = alloc,
         };
     }
@@ -51,7 +51,7 @@ const CompilerFnFrame = struct {
     alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator) CompilerFnFrame {
-        var frames = std.ArrayList(CompilerFrame){};
+        var frames = std.ArrayList(CompilerFrame).empty;
         frames.append(alloc, CompilerFrame.init(alloc)) catch unreachable;
         return CompilerFnFrame{
             .frames = frames,
@@ -120,7 +120,7 @@ const CompilerEnv = struct {
 
     pub fn init(alloc: std.mem.Allocator) CompilerEnv {
         return CompilerEnv{
-            .function_frames = std.ArrayList(CompilerFnFrame){},
+            .function_frames = .empty,
             .global = CompilerFrame.init(alloc),
             .alloc = alloc,
         };
@@ -197,7 +197,7 @@ const LabelData = struct {
     pub fn init(alloc: std.mem.Allocator) LabelData {
         return LabelData{
             .position = 0,
-            .uses = std.ArrayList(u32){},
+            .uses = .empty,
             .alloc = alloc,
         };
     }
@@ -213,7 +213,7 @@ const ConstantBuffer = struct {
 
     pub fn init(buffer_alloc: std.mem.Allocator) ConstantBuffer {
         return ConstantBuffer{
-            .buffer = std.ArrayList(u8){},
+            .buffer = .empty,
             .alloc = buffer_alloc,
         };
     }
@@ -263,8 +263,8 @@ const FunctionBuffer = struct {
         source: ?*const ast.Function,
     ) FunctionBuffer {
         var res = FunctionBuffer{
-            .buffer = BufferType{},
-            .labels = std.ArrayList(LabelData){},
+            .buffer = BufferType.empty,
+            .labels = .empty,
             .label_alloc = label_alloc,
             .buffer_alloc = buffer_alloc,
             .source = source,
@@ -353,8 +353,8 @@ const FunctionBuffer = struct {
 };
 
 const UnboundIdents = struct {
-    idents: std.ArrayList(ast.String) = .{},
-    positions: std.ArrayList(std.ArrayList(u32)) = .{},
+    idents: std.ArrayList(ast.String) = .empty,
+    positions: std.ArrayList(std.ArrayList(u32)) = .empty,
 
     fn len(self: *const UnboundIdents) usize {
         return self.idents.items.len;
@@ -395,7 +395,7 @@ const UnboundIdents = struct {
         scratch: std.mem.Allocator,
     ) void {
         self.idents.append(permanent, ident) catch unreachable;
-        self.positions.append(scratch, .{}) catch unreachable;
+        self.positions.append(scratch, .empty) catch unreachable;
         self.positions.items[self.len() - 1].append(scratch, position) catch unreachable;
     }
 };
@@ -415,8 +415,8 @@ const Compiler = struct {
         return Compiler{
             .pernament_alloc = pernament_alloc,
             .scratch_alloc = scratch_alloc,
-            .constant_buffers = std.ArrayList(ConstantBuffer){},
-            .function_buffers = std.ArrayList(FunctionBuffer){},
+            .constant_buffers = .empty,
+            .function_buffers = .empty,
             .env = CompilerEnv.init(scratch_alloc),
         };
     }

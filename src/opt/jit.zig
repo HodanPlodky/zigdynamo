@@ -160,7 +160,7 @@ pub const JitCompiler = struct {
         //}
 
         switch (inst) {
-            .ldi, .string => |_| {
+            .ldi, .string => {
                 // nop
                 // it only introduces the values
                 // and those are already set in reg alloc

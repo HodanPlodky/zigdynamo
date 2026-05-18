@@ -309,7 +309,7 @@ const Locals = struct {
     };
 
     alloc: std.mem.Allocator,
-    locals: std.ArrayListUnmanaged(std.StringHashMapUnmanaged(u32)),
+    locals: std.ArrayList(std.StringHashMapUnmanaged(u32)),
     env: std.StringHashMapUnmanaged(u32),
     curr_idx: u32,
     env_idx: u32,
@@ -318,7 +318,7 @@ const Locals = struct {
     fn init(alloc: std.mem.Allocator, env_start: u32) !Locals {
         var res = Locals{
             .alloc = alloc,
-            .locals = .{},
+            .locals = .empty,
             .env = .{},
             .curr_idx = 0,
             .env_idx = 0,
@@ -874,7 +874,7 @@ pub const Compiler = struct {
                 const branch = self.get(ir.BranchData, branch_idx);
                 return LabelIter.create_two(branch.true_branch, branch.false_branch);
             },
-            .ret => |_| return LabelIter.create_zero(),
+            .ret => return LabelIter.create_zero(),
             else => unreachable,
         }
     }

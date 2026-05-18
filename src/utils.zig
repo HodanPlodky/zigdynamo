@@ -78,7 +78,7 @@ pub fn DistinctData(comptime I: type, comptime T: type) type {
 
             pub fn init(alloc: std.mem.Allocator) Self {
                 return Self{
-                    .data = std.ArrayList(T){},
+                    .data = .empty,
                     .alloc = alloc,
                 };
             }
@@ -160,7 +160,7 @@ pub fn DistinctData(comptime I: type, comptime T: type) type {
             pub const Inner = T;
             pub const DistIndex = Index;
 
-            data: std.ArrayListUnmanaged(T) = .{},
+            data: std.ArrayList(T) = .empty,
 
             pub fn init(alloc: std.mem.Allocator) Self {
                 return Self{

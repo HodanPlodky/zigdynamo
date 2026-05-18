@@ -332,17 +332,17 @@ comptime {
 }
 
 pub const BasicBlock = struct {
-    predecessors: std.ArrayListUnmanaged(BasicBlockIdx) = .{},
-    instructions: std.ArrayListUnmanaged(InstructionIdx) = .{},
+    predecessors: std.ArrayList(BasicBlockIdx) = .empty,
+    instructions: std.ArrayList(InstructionIdx) = .empty,
 };
 
 pub const Function = struct {
     entry: BasicBlockIdx,
-    basicblocks: std.ArrayListUnmanaged(BasicBlockIdx),
+    basicblocks: std.ArrayList(BasicBlockIdx),
     env_start: u32,
 
     pub fn create(entry: BasicBlockIdx, env_start: u32, alloc: std.mem.Allocator) !Function {
-        var array = std.ArrayListUnmanaged(BasicBlockIdx){};
+        var array = std.ArrayList(BasicBlockIdx).empty;
         try array.append(alloc, entry);
         return Function{
             .entry = entry,

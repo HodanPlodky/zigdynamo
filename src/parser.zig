@@ -49,7 +49,7 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: *Parser) !ast.Program {
-        var res = std.ArrayList(ast.Ast){};
+        var res = std.ArrayList(ast.Ast).empty;
         while (!self.eof()) {
             try res.append(self.alloc, try self.expr());
             try self.compare(lexer.Token.semicol);
@@ -223,7 +223,7 @@ pub const Parser = struct {
             switch (self.curr) {
                 lexer.Token.lparent => {
                     self.next();
-                    var args = std.ArrayList(ast.Ast){};
+                    var args = std.ArrayList(ast.Ast).empty;
                     if (self.curr != lexer.Token.rparent) {
                         try args.append(self.alloc, try self.expr());
 
@@ -315,7 +315,7 @@ pub const Parser = struct {
         }
         try self.compare(lexer.Token.lcurly);
 
-        var fields = std.ArrayList(ast.Field){};
+        var fields = std.ArrayList(ast.Field).empty;
         while (!self.curr_is(lexer.Token.rcurly)) {
             const name = try self.parse_ident();
             try self.compare(lexer.Token.colon);
@@ -344,7 +344,7 @@ pub const Parser = struct {
     fn parse_function(self: *Parser) !ast.Ast {
         try self.compare(lexer.Token.lparent);
 
-        var args = std.ArrayList(ast.String){};
+        var args = std.ArrayList(ast.String).empty;
         if (!self.curr_is(lexer.Token.rparent)) {
             while (true) {
                 const ident_value = try self.parse_ident();
@@ -365,7 +365,7 @@ pub const Parser = struct {
     }
 
     pub fn parse_block(self: *Parser) !ast.Ast {
-        var exprs = std.ArrayList(ast.Ast){};
+        var exprs = std.ArrayList(ast.Ast).empty;
         while (!self.curr_is(lexer.Token.rcurly)) {
             try exprs.append(self.alloc, try self.expr());
             try self.compare(lexer.Token.semicol);
