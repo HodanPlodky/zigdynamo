@@ -125,7 +125,7 @@ pub const CompiledResult = struct {
 
     pub fn format(
         self: *const CompiledResult,
-        writer: *std.io.Writer,
+        writer: *std.Io.Writer,
     ) !void {
         try self.write_fn(self.entry_fn, writer);
     }
@@ -1660,7 +1660,7 @@ test "opt compiler basic closure" {
     var p = Parser.new(input, allocator);
     const parse_res = try p.parse();
     const bytecode = try compiler.compile(parse_res, allocator);
-    var writer = std.io.Writer.Allocating.init(std.testing.allocator);
+    var writer = std.Io.Writer.Allocating.init(std.testing.allocator);
 
     // does not have to run
     const inter = bc.OptJitInterpreter.init(

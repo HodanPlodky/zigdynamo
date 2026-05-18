@@ -211,7 +211,7 @@ pub const Value = packed struct {
 
     pub fn format(
         self: Value,
-        writer: *std.io.Writer,
+        writer: *std.Io.Writer,
     ) !void {
         try switch (self.get_type()) {
             ValueType.number => writer.print("{}", .{self.get_number()}),

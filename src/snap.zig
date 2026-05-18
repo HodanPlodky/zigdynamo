@@ -1,4 +1,4 @@
-// Simple version of snapshot testing
+// Simple version of snapshot testingsnasp
 // heavily inspired by https://github.com/mnemnion/ohsnap/tree/trunk
 // reason to do this was to stay compatible with versions of
 // zig the ohsnap library is broken from 0.14.1 because of
@@ -74,7 +74,7 @@ pub const Snap = struct {
         alloc: std.mem.Allocator,
         comptime fmt: bool,
     ) ![]const u8 {
-        var out_writer = try std.io.Writer.Allocating.initCapacity(alloc, self.expected.len);
+        var out_writer = try std.Io.Writer.Allocating.initCapacity(alloc, self.expected.len);
         defer out_writer.deinit();
         if (fmt) {
             try out_writer.writer.print("{f}", .{value});
@@ -85,7 +85,7 @@ pub const Snap = struct {
         return out_writer.toOwnedSlice();
     }
 
-    const Writer = std.io.Writer;
+    const Writer = std.Io.Writer;
     const writer_indent: usize = 4;
 
     fn pretty_print(comptime T: type, value: T, writer: *Writer, depth: usize) Writer.Error!void {

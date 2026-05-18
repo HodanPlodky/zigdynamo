@@ -25,13 +25,13 @@ const TestResult = struct {
 
     pub fn format(
         self: *const TestResult,
-        writer: *std.io.Writer,
+        writer: *std.Io.Writer,
     ) !void {
         try writer.print("result: {x} ({})\n{s}\n", .{ self.result, self.result >> 32, self.output.items });
     }
 };
 
-fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.Allocator, writer: *std.io.Writer) !runtime.Value {
+fn run_with(comptime Interpret: type, bytecode: Bytecode, allocator: std.mem.Allocator, writer: *std.Io.Writer) !runtime.Value {
     var runtime_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer runtime_arena.deinit();
     const alloc = runtime_arena.allocator();
@@ -59,7 +59,7 @@ fn test_helper_inner(code: []const u8, comptime jits: []const type) !TestResult 
     const prog = try p.parse();
     const bytecode = try compile(prog, allocator);
 
-    var bc_writer = std.io.Writer.Allocating.init(std.testing.allocator);
+    var bc_writer = std.Io.Writer.Allocating.init(std.testing.allocator);
     defer bc_writer.deinit();
     const bc_val = try run_with(
         BcInterpreter,
@@ -71,7 +71,7 @@ fn test_helper_inner(code: []const u8, comptime jits: []const type) !TestResult 
     const bc_data = bc_writer.toArrayList();
 
     inline for (jits) |jit_type| {
-        var jit_writer = std.io.Writer.Allocating.init(std.testing.allocator);
+        var jit_writer = std.Io.Writer.Allocating.init(std.testing.allocator);
         defer jit_writer.deinit();
         const jit_val = try run_with(
             jit_type,
